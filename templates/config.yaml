@@ -1,0 +1,64 @@
+# ─────────────────────────────────────────────────────────────
+# Pinchy – configuration template
+# ─────────────────────────────────────────────────────────────
+# Copy this file to `config.yaml` and fill in real values.
+#
+# Secret references
+# -----------------
+# Tokens and API keys can be specified in three ways:
+#
+#   1. Environment variable (prefix with $):
+#        token: $DISCORD_TOKEN
+#
+#   2. Secrets-file lookup (prefix with @):
+#        token: "@DISCORD_TOKEN"
+#
+#   3. Pointer object (key + source):
+#        token:
+#          key: "DISCORD_TOKEN"
+#          source: "secrets"        # "secrets" | "env" | "keyring"
+#
+# The pointer form is the most explicit and recommended for production.
+
+# --- Model providers ---
+models:
+  - id: copilot-default
+    provider: copilot
+    model: gpt-5-mini
+    # api_key: $OPENAI_API_KEY      # uncomment for OpenAI provider
+
+# --- Channel connectors ---
+channels:
+  discord:
+    token:
+      key: "DISCORD_TOKEN"
+      source: "secrets"
+
+# --- Secrets store ---
+secrets:
+  path: ".secrets"                   # directory for file-backed secrets
+  keyring_service: "pinchy"          # OS keyring service name (future)
+
+# --- Agents ---
+agents:
+  - id: default
+    root: agents/default
+    model: copilot-default
+    heartbeat_secs: 300               # heartbeat every 5 minutes
+    # cron_jobs:
+    #   - name: morning-check
+    #     schedule: "0 0 8 * * *"
+    #     message: "Good morning! Any tasks for today?"
+
+# --- Routing (future) ---
+# routing:
+#   discord:
+#     channel_map:
+#       "general": default
+#       "dev":     assistant
+#   default_agent: default
+
+# --- Housekeeping ---
+session_expiry_days: 30               # delete interactive sessions older than N days
+cron_session_expiry_days: 7           # delete cron session files older than N days
+cron_events_max_keep: 50              # keep at most N heartbeat event files per agent

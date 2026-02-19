@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pinchy Admin</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+  <!-- Top Bar -->
+  <div class="topbar">
+    <button class="hamburger" id="btn-hamburger" aria-label="Toggle menu">≡</button>
+    <span class="topbar-sep"></span>
+    <span class="topbar-status">
+      <span class="status-dot err" id="ws-dot"></span>
+      Health <span id="ws-label">disconnected</span>
+    </span>
+    <button class="btn btn-ghost" id="btn-refresh" title="Refresh" aria-label="Refresh">⟳</button>
+  </div>
+
+  <div class="shell">
+    <!-- Sidebar -->
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <span class="sidebar-logo">🦀</span>
+        <div>
+          <div class="sidebar-title">PINCHY</div>
+          <div class="sidebar-subtitle">GATEWAY DASHBOARD</div>
+        </div>
+      </div>
+
+      <div class="nav-group-label">Chat</div>
+      <a href="#/chat"      data-route="chat"><span class="nav-icon">💬</span> Chat</a>
+
+      <div class="nav-group-label">Control</div>
+      <a href="#/dashboard" data-route="dashboard"><span class="nav-icon">◉</span> Overview</a>
+      <a href="#/cron"      data-route="cron"><span class="nav-icon">⏱</span> Cron Jobs</a>
+
+      <div class="nav-group-label">Sessions</div>
+      <a href="#/sessions"  data-route="sessions"><span class="nav-icon">📂</span> Sessions</a>
+
+      <div class="nav-group-label">Agent</div>
+      <a href="#/agents"    data-route="agents"><span class="nav-icon">🤖</span> Agents</a>
+      <a href="#/skills"    data-route="skills"><span class="nav-icon">🧩</span> Skills</a>
+
+      <div class="nav-group-label">Settings</div>
+      <a href="#/config"    data-route="config"><span class="nav-icon">⚙</span> Config</a>
+      <a href="#/logs"      data-route="logs"><span class="nav-icon">📋</span> Logs</a>
+    </nav>
+
+    <!-- Main content area (views rendered here) -->
+    <main class="main-content" id="main"></main>
+  </div>
+
+  <!-- Hidden agent select for JS compatibility -->
+  <select id="agent-select" style="display:none;" aria-label="Select agent">
+    <option value="default">default</option>
+  </select>
+
+  <!-- Toast container -->
+  <div id="toast-container" aria-live="polite"></div>
+
+  <!-- Scripts (order matters: api first, then views, then app) -->
+  <script src="api.js"></script>
+  <script src="views/dashboard.js"></script>
+  <script src="views/agents.js"></script>
+  <script src="views/config.js"></script>
+  <script src="views/sessions.js"></script>
+  <script src="views/cron.js"></script>
+  <script src="views/logs.js"></script>
+  <script src="views/chat.js"></script>
+  <script src="views/skills.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

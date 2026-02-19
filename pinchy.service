@@ -1,0 +1,25 @@
+[Unit]
+Description=Pinchy – lightweight AI agent platform
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pinchy
+Group=pinchy
+WorkingDirectory=/opt/pinchy
+ExecStart=/opt/pinchy/mini_claw
+Restart=on-failure
+RestartSec=5
+Environment=PINCHY_HOME=/opt/pinchy/.pinchy
+Environment=RUST_LOG=info
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/pinchy/.pinchy
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
