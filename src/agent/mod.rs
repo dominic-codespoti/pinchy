@@ -1229,7 +1229,7 @@ impl Agent {
     /// each chunk as a `stream_delta` event.  The final event has
     /// `done: true`.
     async fn stream_reply_to_gateway(&self, text: &str) {
-        const CHUNK_TARGET: usize = 80; // chars per chunk
+        const CHUNK_TARGET: usize = 12; // chars per chunk – small for visible streaming
 
         let chars: Vec<char> = text.chars().collect();
         if chars.len() <= CHUNK_TARGET {
@@ -1247,7 +1247,6 @@ impl Agent {
         let mut start = 0;
         while start < chars.len() {
             let end = (start + CHUNK_TARGET).min(chars.len());
-            // Try to break at a space/newline near the target.
             let break_at = if end < chars.len() {
                 chars[start..end]
                     .iter()
@@ -1272,7 +1271,7 @@ impl Agent {
 
             if !is_last {
                 // Small delay between chunks for streaming effect.
-                tokio::time::sleep(std::time::Duration::from_millis(15)).await;
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
             }
         }
     }

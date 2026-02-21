@@ -202,8 +202,8 @@ pub async fn send_reply(channel: &str, text: &str) -> anyhow::Result<()> {
             return connector.send(channel, text).await;
         }
     }
-    tracing::debug!(channel = %channel, "no connector matched channel — reply dropped");
-    Ok(())
+    tracing::warn!(channel = %channel, "no connector matched channel — reply dropped");
+    anyhow::bail!("no connector matched channel \"{channel}\" — message not delivered")
 }
 
 /// Send a rich message through whichever connector matches `channel`.
@@ -217,6 +217,6 @@ pub async fn send_rich_reply(channel: &str, msg: RichMessage) -> anyhow::Result<
             return connector.send_rich(channel, msg).await;
         }
     }
-    tracing::debug!(channel = %channel, "no connector matched channel — rich reply dropped");
-    Ok(())
+    tracing::warn!(channel = %channel, "no connector matched channel — rich reply dropped");
+    anyhow::bail!("no connector matched channel \"{channel}\" — message not delivered")
 }

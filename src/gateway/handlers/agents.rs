@@ -225,29 +225,31 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
 
     // Add the agent to config.yaml.
     let config_path = crate::pinchy_home().join("config.yaml");
-    match crate::config::Config::load(&config_path).await {
-        Ok(mut cfg) => {
-            // Only add if not already present.
-            if !cfg.agents.iter().any(|a| a.id == body.id) {
-                cfg.agents.push(crate::config::AgentConfig {
-                    id: body.id.clone(),
-                    root: format!("agents/{}", body.id),
-                    model: body.model,
-                    heartbeat_secs: body.heartbeat_secs,
-                    cron_jobs: Vec::new(),
-                    max_tool_iterations: None,
-                    enabled_skills: None,
-                    fallback_models: Vec::new(),
-                    webhook_secret: None,
-                    extra_exec_commands: Vec::new(),
-                });
-                if let Err(e) = cfg.save(&config_path).await {
-                    tracing::warn!(error = %e, "failed to save config after agent creation");
+    {
+        let _guard = crate::config::config_lock().await;
+        match crate::config::Config::load(&config_path).await {
+            Ok(mut cfg) => {
+                if !cfg.agents.iter().any(|a| a.id == body.id) {
+                    cfg.agents.push(crate::config::AgentConfig {
+                        id: body.id.clone(),
+                        root: format!("agents/{}", body.id),
+                        model: body.model,
+                        heartbeat_secs: body.heartbeat_secs,
+                        cron_jobs: Vec::new(),
+                        max_tool_iterations: None,
+                        enabled_skills: None,
+                        fallback_models: Vec::new(),
+                        webhook_secret: None,
+                        extra_exec_commands: Vec::new(),
+                    });
+                    if let Err(e) = cfg.save(&config_path).await {
+                        tracing::warn!(error = %e, "failed to save config after agent creation");
+                    }
                 }
             }
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "failed to load config for agent creation");
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to load config for agent creation");
+            }
         }
     }
 
@@ -356,6 +358,7 @@ pub(crate) async fn api_agent_update(
         || body.enabled_skills.is_some()
     {
         let config_path = crate::pinchy_home().join("config.yaml");
+        let _guard = crate::config::config_lock().await;
         match crate::config::Config::load(&config_path).await {
             Ok(mut cfg) => {
                 if let Some(ac) = cfg.agents.iter_mut().find(|a| a.id == agent_id) {
@@ -420,11 +423,22 @@ pub(crate) async fn api_agent_delete(Path(agent_id): Path<String>) -> impl IntoR
     }
 
     match tokio::fs::remove_dir_all(&base).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "id": agent_id, "deleted": true })),
-        )
-            .into_response(),
+        Ok(()) => {
+            let config_path = crate::pinchy_home().join("config.yaml");
+            let _guard = crate::config::config_lock().await;
+            if let Ok(mut cfg) = crate::config::Config::load(&config_path).await {
+                cfg.agents.retain(|a| a.id != agent_id);
+                if let Err(e) = cfg.save(&config_path).await {
+                    tracing::warn!(error = %e, "failed to save config after agent deletion");
+                }
+            }
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "id": agent_id, "deleted": true })),
+            )
+                .into_response()
+        }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(serde_json::json!({ "error": format!("delete: {e}") })),

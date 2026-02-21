@@ -33,6 +33,10 @@ channels:
     token:
       key: "DISCORD_TOKEN"
       source: "secrets"
+  # default_channel: "123456789012345678"         # plain string = channel id (backward compat)
+  # default_channel:                               # or a rich object:
+  #   kind: user                                   # user | channel | group
+  #   id: "237445681323704321"                      # numeric Discord id
 
 # --- Secrets store ---
 secrets:

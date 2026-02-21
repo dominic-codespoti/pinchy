@@ -16,7 +16,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str, heartbeat_secs: u64)
             api_version: None,
             embedding_deployment: None,
         }],
-        channels: ChannelsConfig { discord: None },
+        channels: ChannelsConfig { discord: None, default_channel: None },
         agents: vec![AgentConfig {
             id: agent_id.into(),
             root: workspace.display().to_string(),
@@ -161,7 +161,7 @@ async fn cron_merge_persisted_jobs_on_startup() {
             api_version: None,
             embedding_deployment: None,
         }],
-        channels: ChannelsConfig { discord: None },
+        channels: ChannelsConfig { discord: None, default_channel: None },
         agents: vec![AgentConfig {
             id: "merge-agent".into(),
             root: agent_dir.display().to_string(),

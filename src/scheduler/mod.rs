@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -31,6 +32,8 @@ pub struct SchedulerHandle {
     cron_jobs: Arc<Mutex<Vec<PersistedCronJob>>>,
     /// Cron scheduler reference for runtime registration.
     pub cron_scheduler: Option<JobScheduler>,
+    /// Maps "name@agent_id" -> scheduler UUID so we can remove live jobs.
+    job_uuids: Arc<Mutex<HashMap<String, uuid::Uuid>>>,
 }
 
 /// The kind of a cron job.
@@ -131,6 +134,17 @@ impl SchedulerHandle {
         let name = entry.name.clone();
         let schedule = entry.schedule.clone();
         let message = entry.message.clone();
+        let job_key = format!("{}@{}", name, agent_id);
+
+        // Remove any existing live job with the same key first.
+        {
+            let mut uuids = self.job_uuids.lock().await;
+            if let Some(old_uuid) = uuids.remove(&job_key) {
+                if let Some(sched) = &self.cron_scheduler {
+                    let _ = sched.remove(&old_uuid).await;
+                }
+            }
+        }
 
         // Persist --------------------------------------------------------
         {
@@ -196,14 +210,40 @@ impl SchedulerHandle {
             })
             .context("failed to create cron job")?;
 
-            sched
+            let uuid = sched
                 .add(job)
                 .await
                 .context("failed to add cron job to scheduler")?;
+            self.job_uuids.lock().await.insert(job_key, uuid);
         }
 
         debug!(agent = %agent_id, job = %name, "registered cron job at runtime");
         Ok(())
+    }
+
+    /// Remove a cron job from the live scheduler and in-memory list.
+    pub async fn remove_job(&self, name: &str, agent_id: &str) {
+        let job_key = format!("{name}@{agent_id}");
+
+        // Remove from live scheduler.
+        {
+            let mut uuids = self.job_uuids.lock().await;
+            if let Some(uuid) = uuids.remove(&job_key) {
+                if let Some(sched) = &self.cron_scheduler {
+                    if let Err(e) = sched.remove(&uuid).await {
+                        warn!(job = %job_key, error = %e, "failed to remove job from live scheduler");
+                    } else {
+                        debug!(job = %job_key, "removed job from live scheduler");
+                    }
+                }
+            }
+        }
+
+        // Remove from in-memory list.
+        {
+            let mut jobs = self.cron_jobs.lock().await;
+            jobs.retain(|j| !(j.name == name && j.agent_id == agent_id));
+        }
     }
 }
 
@@ -272,10 +312,13 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
     let has_persisted = !all_persisted.is_empty();
     let persisted_jobs_list = Arc::new(Mutex::new(Vec::<PersistedCronJob>::new()));
 
-    let (cron_sched, cron_sched_for_handle) = if has_cron || has_persisted {
+    let (cron_sched, cron_sched_for_handle, job_uuids_map) = if has_cron || has_persisted {
         let sched = JobScheduler::new()
             .await
             .context("failed to create cron scheduler")?;
+
+        let job_uuids_map: Arc<Mutex<HashMap<String, uuid::Uuid>>> =
+            Arc::new(Mutex::new(HashMap::new()));
 
         // Register config-defined jobs.
         for agent in &config.agents {
@@ -303,7 +346,6 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
 
                         debug!(agent = %agent_id, job = %job_name, "cron job fired");
 
-                        // Create a dedicated session for this cron fire.
                         let session_id = format!(
                             "cron_{}_{}",
                             job_name.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "_"),
@@ -336,10 +378,13 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
                 })
                 .context("failed to create cron job")?;
 
-                sched
+                let uuid = sched
                     .add(job)
                     .await
                     .context("failed to add cron job to scheduler")?;
+
+                let job_key = format!("{}@{}", job_cfg.name, agent.id);
+                job_uuids_map.lock().await.insert(job_key, uuid);
             }
         }
 
@@ -361,10 +406,13 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
                 })
                 .context("failed to create persisted cron job")?;
 
-                sched
+                let uuid = sched
                     .add(job)
                     .await
                     .context("failed to add persisted cron job")?;
+
+                let job_key = format!("{}@{}", pjob.name, pjob.agent_id);
+                job_uuids_map.lock().await.insert(job_key, uuid);
             }
             persisted_jobs_list
                 .lock()
@@ -378,10 +426,10 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
             .context("failed to start cron scheduler")?;
 
         debug!("scheduler: cron scheduler started");
-        (Some(sched.clone()), Some(sched))
+        (Some(sched.clone()), Some(sched), job_uuids_map)
     } else {
         debug!("scheduler: no cron jobs configured");
-        (None, None)
+        (None, None, Arc::new(Mutex::new(HashMap::new())))
     };
 
     info!("scheduler: initialized");
@@ -390,6 +438,7 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
         _cron_scheduler: cron_sched,
         cron_jobs: persisted_jobs_list,
         cron_scheduler: cron_sched_for_handle,
+        job_uuids: job_uuids_map,
     })
 }
 
@@ -675,8 +724,13 @@ async fn persist_cron_run(workspace: &Path, run: &JobRun) -> anyhow::Result<()> 
     Ok(())
 }
 
-/// Remove a job (by name + agent_id) from `cron_jobs.json`.
+/// Remove a job (by name + agent_id) from `cron_jobs.json` and the live scheduler.
 pub async fn remove_persisted_job(workspace: &Path, name: &str, agent_id: &str) {
+    // Remove from live scheduler + in-memory list.
+    if let Some(handle) = scheduler_handle_ref() {
+        handle.remove_job(name, agent_id).await;
+    }
+
     let path = workspace.join("cron_jobs.json");
     let jobs = load_persisted_cron_jobs(workspace).await;
     let remaining: Vec<_> = jobs

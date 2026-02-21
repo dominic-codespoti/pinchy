@@ -228,11 +228,17 @@ pub(crate) async fn api_cron_jobs_delete(Path(job_id): Path<String>) -> impl Int
     let path = ws.join("cron_jobs.json");
     match serde_json::to_string_pretty(&jobs) {
         Ok(json) => match tokio::fs::write(&path, json).await {
-            Ok(()) => (
-                StatusCode::OK,
-                Json(serde_json::json!({ "deleted": true, "job_id": job_id })),
-            )
-                .into_response(),
+            Ok(()) => {
+                // Remove from live scheduler + in-memory list.
+                if let Some(handle) = crate::scheduler::scheduler_handle_ref() {
+                    handle.remove_job(job_name, agent_id).await;
+                }
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({ "deleted": true, "job_id": job_id })),
+                )
+                    .into_response()
+            }
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": format!("write failed: {e}") })),
@@ -396,4 +402,47 @@ pub(crate) fn cron_run_to_json(run: &crate::scheduler::JobRun) -> serde_json::Va
         "error": run.error,
         "duration_ms": run.duration_ms,
     })
+}
+
+/// `POST /api/ai/enhance-prompt` — use the configured model to enhance a cron prompt.
+pub(crate) async fn api_ai_enhance_prompt(
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let prompt = body
+        .get("prompt")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if prompt.trim().is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "prompt is required" })),
+        )
+            .into_response();
+    }
+
+    let system = "You are an AI assistant that improves cron job prompts. \
+        The user will give you a short description of what a scheduled task should do. \
+        Rewrite it into a clear, detailed, actionable prompt that an AI agent will execute. \
+        Keep it concise but specific. Include any relevant details about format, sources, or output. \
+        Return ONLY the improved prompt text, nothing else.";
+
+    let messages = vec![
+        crate::models::ChatMessage::new("system", system),
+        crate::models::ChatMessage::new("user", &prompt),
+    ];
+
+    match crate::models::send_chat_messages(&messages).await {
+        Ok(enhanced) => Json(serde_json::json!({
+            "original": prompt,
+            "enhanced": enhanced.trim(),
+        }))
+        .into_response(),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("AI enhancement failed: {e}") })),
+        )
+            .into_response(),
+    }
 }

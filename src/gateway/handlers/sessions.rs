@@ -213,16 +213,31 @@ pub(crate) async fn api_session_delete(
         format!("{session_file}.jsonl")
     };
 
-    let path = crate::utils::agent_workspace(&agent_id)
-        .join("sessions")
-        .join(&filename);
+    let workspace = crate::utils::agent_workspace(&agent_id);
+    let sessions_dir = workspace.join("sessions");
+    let path = sessions_dir.join(&filename);
 
     match tokio::fs::remove_file(&path).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "file": filename, "deleted": true })),
-        )
-            .into_response(),
+        Ok(()) => {
+            // Also remove the paired receipts file (best-effort).
+            let receipts_name = filename.replace(".jsonl", ".receipts.jsonl");
+            let _ = tokio::fs::remove_file(sessions_dir.join(&receipts_name)).await;
+
+            // If this was the active session, clear CURRENT_SESSION.
+            let session_id = filename.trim_end_matches(".jsonl");
+            let current_path = workspace.join("CURRENT_SESSION");
+            if let Ok(current) = tokio::fs::read_to_string(&current_path).await {
+                if current.trim() == session_id {
+                    let _ = tokio::fs::remove_file(&current_path).await;
+                }
+            }
+
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "file": filename, "deleted": true })),
+            )
+                .into_response()
+        }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "session not found", "file": filename })),

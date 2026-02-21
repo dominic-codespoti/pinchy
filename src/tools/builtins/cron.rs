@@ -164,19 +164,12 @@ pub async fn delete_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
         anyhow::bail!("agent not found: {agent_id}");
     }
 
-    let mut jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
-    let before = jobs.len();
-    jobs.retain(|j| j.name != name);
-
-    if jobs.len() == before {
+    let jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
+    if !jobs.iter().any(|j| j.name == name) {
         anyhow::bail!("cron job '{name}' not found for agent '{agent_id}'");
     }
 
-    let path = ws.join("cron_jobs.json");
-    let json_str = serde_json::to_string_pretty(&jobs)?;
-    tokio::fs::write(&path, json_str).await?;
-
-    // Also remove from the live scheduler's in-memory list.
+    // Remove from persisted file, live scheduler, and in-memory list.
     crate::scheduler::remove_persisted_job(&ws, name, agent_id).await;
 
     let job_id = format!("{name}@{agent_id}");

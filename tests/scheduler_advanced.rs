@@ -19,7 +19,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str) -> Config {
             api_version: None,
             embedding_deployment: None,
         }],
-        channels: ChannelsConfig { discord: None },
+        channels: ChannelsConfig { discord: None, default_channel: None },
         agents: vec![AgentConfig {
             id: agent_id.into(),
             root: workspace.display().to_string(),

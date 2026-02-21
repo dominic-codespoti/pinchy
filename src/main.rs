@@ -269,6 +269,7 @@ async fn main() -> anyhow::Result<()> {
         .and_then(|r| r.default_agent.clone())
         .or_else(|| cfg.agents.first().map(|a| a.id.clone()));
     let mut skill_registry = mini_claw::skills::SkillRegistry::new(default_agent_id.clone());
+    mini_claw::skills::defaults::seed_defaults()?;
     skill_registry.load_global_skills_with_config(Some(&cfg))?;
     skill_registry.load_agent_skills_with_config(Some(&cfg))?;
     info!(

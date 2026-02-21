@@ -31,7 +31,7 @@ channels:
     token: "$TEST_TOKEN"
 agents:
   - id: default
-    workspace: ./agents/default
+    root: ./agents/default
 "#;
     tokio::fs::write(&config_path, yaml).await.unwrap();
 
@@ -71,7 +71,7 @@ channels:
     token: "$TEST_TOKEN"
 agents:
   - id: default
-    workspace: ./agents/default
+    root: ./agents/default
 "#;
     tokio::fs::write(&config_path, yaml).await.unwrap();
 
@@ -91,7 +91,7 @@ agents:
         ],
         "channels": { "discord": { "token": "$NEW_TOKEN" } },
         "agents": [
-            { "id": "agent-a", "workspace": "./agents/agent-a" }
+            { "id": "agent-a", "root": "./agents/agent-a" }
         ]
     });
 

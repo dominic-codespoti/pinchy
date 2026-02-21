@@ -23,3 +23,8 @@ config.yaml
 
 .playwright-mcp
 
+
+# Frontend workspace
+web/node_modules/
+web/.vite/
+static/react/

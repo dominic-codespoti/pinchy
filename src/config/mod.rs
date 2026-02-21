@@ -2,6 +2,16 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use tokio::sync::Mutex;
+
+static CONFIG_LOCK: Mutex<()> = Mutex::const_new(());
+
+/// Acquire an exclusive lock for config read-modify-write operations.
+/// Use this to prevent concurrent config mutations from overwriting each
+/// other's changes.
+pub async fn config_lock() -> tokio::sync::MutexGuard<'static, ()> {
+    CONFIG_LOCK.lock().await
+}
 
 /// A reference to a secret value.
 ///
@@ -142,6 +152,103 @@ pub struct ChannelsConfig {
     /// Discord bot configuration. Optional so the daemon can start without it.
     #[serde(default)]
     pub discord: Option<DiscordConfig>,
+    /// Default channel for outbound messages when the agent omits `channel_id`.
+    #[serde(default)]
+    pub default_channel: Option<DefaultChannel>,
+}
+
+/// The kind of default channel target.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ChannelKind {
+    /// A Discord text channel (or any numeric channel id).
+    Channel,
+    /// A Discord user — messages are delivered via DM.
+    User,
+    /// A Discord group / thread.
+    Group,
+}
+
+impl Default for ChannelKind {
+    fn default() -> Self {
+        Self::Channel
+    }
+}
+
+/// Rich default-channel specification.
+///
+/// Can be deserialized from a plain string (backward compat — treated as
+/// `kind: channel`) or a rich object:
+///
+/// ```yaml
+/// # plain string (backward compat)
+/// default_channel: "123456789012345678"
+///
+/// # rich object
+/// default_channel:
+///   kind: user
+///   id: "237445681323704321"
+/// ```
+#[derive(Debug, Clone, Serialize)]
+pub struct DefaultChannel {
+    pub kind: ChannelKind,
+    pub id: String,
+}
+
+impl DefaultChannel {
+    /// Resolve to a channel string that the connector layer understands.
+    /// - `kind: channel` → `"<id>"` (plain numeric)
+    /// - `kind: user` → `"dm:<id>"`
+    /// - `kind: group` → `"<id>"` (same as channel for now)
+    pub fn to_channel_string(&self) -> String {
+        match self.kind {
+            ChannelKind::User => format!("dm:{}", self.id),
+            ChannelKind::Channel | ChannelKind::Group => self.id.clone(),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for DefaultChannel {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de;
+
+        #[derive(Deserialize)]
+        struct RichForm {
+            kind: ChannelKind,
+            id: String,
+        }
+
+        struct DefaultChannelVisitor;
+
+        impl<'de> de::Visitor<'de> for DefaultChannelVisitor {
+            type Value = DefaultChannel;
+
+            fn expecting(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+                f.write_str("a channel id string or { kind, id } object")
+            }
+
+            fn visit_str<E: de::Error>(self, v: &str) -> Result<Self::Value, E> {
+                Ok(DefaultChannel {
+                    kind: ChannelKind::Channel,
+                    id: v.to_string(),
+                })
+            }
+
+            fn visit_map<A: de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
+                let rich: RichForm =
+                    Deserialize::deserialize(de::value::MapAccessDeserializer::new(map))?;
+                Ok(DefaultChannel {
+                    kind: rich.kind,
+                    id: rich.id,
+                })
+            }
+        }
+
+        deserializer.deserialize_any(DefaultChannelVisitor)
+    }
 }
 
 /// Discord-specific channel config.
@@ -159,37 +266,29 @@ pub struct AgentConfig {
     /// Unique agent identifier.
     pub id: String,
     /// Filesystem path to the agent's **root** directory.
-    ///
-    /// This is the top-level agent directory (e.g. `agents/<id>`)
-    /// containing SOUL.md, TOOLS.md, HEARTBEAT.md, and the `workspace/`
-    /// subdirectory where tools and sessions are sandboxed.
-    ///
-    /// Accepts either `root` or `workspace` in YAML for backward compat.
-    #[serde(alias = "workspace")]
     pub root: String,
-    /// Which model config id this agent should use.
+    /// Model id to use for inference.
     #[serde(default)]
     pub model: Option<String>,
-    /// Heartbeat interval in seconds. `None` disables heartbeat.
+    /// Seconds between heartbeat pings (0 = disabled).
     #[serde(default)]
     pub heartbeat_secs: Option<u64>,
-    /// Optional cron jobs to schedule for this agent.
+    /// Cron jobs scheduled by this agent.
     #[serde(default)]
     pub cron_jobs: Vec<CronJobConfig>,
-    /// Maximum tool-call iterations per turn.  `None` uses the default (3).
+    /// Maximum tool call iterations per agent turn.
     #[serde(default)]
     pub max_tool_iterations: Option<usize>,
-    /// Skill IDs enabled for this agent.  `None` / absent means no skills.
+    /// Skills explicitly enabled for this agent.
     #[serde(default)]
     pub enabled_skills: Option<Vec<String>>,
-    /// Ordered list of fallback model config ids.
+    /// Fallback model ids tried when the primary model fails.
     #[serde(default)]
     pub fallback_models: Vec<String>,
-    /// Optional webhook secret for authenticating inbound webhook requests.
+    /// Shared secret for verifying inbound webhook payloads.
     #[serde(default)]
     pub webhook_secret: Option<String>,
-    /// Extra commands allowed in `exec_shell` beyond the built-in allowlist.
-    /// Example: `["python", "git", "cargo", "node", "npm"]`
+    /// Additional shell commands the agent is allowed to execute.
     #[serde(default)]
     pub extra_exec_commands: Vec<String>,
 }

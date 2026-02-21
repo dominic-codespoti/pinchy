@@ -24,18 +24,13 @@ fn empty_registry_skill_description_returns_none() {
 fn load_global_skills_no_dir_is_ok() {
     // With PINCHY_HOME pointing at an empty temp dir, loading should succeed
     // (no skills directory simply means zero skills).
-    // Run from the temp dir so the repo-local `skills/global/` fallback
-    // is also absent.
     let tmp = tempfile::tempdir().expect("tempdir");
-    let orig_dir = std::env::current_dir().unwrap();
     unsafe { std::env::set_var("PINCHY_HOME", tmp.path()); }
-    std::env::set_current_dir(tmp.path()).unwrap();
 
     let mut reg = SkillRegistry::new(None);
     let res = reg.load_global_skills();
     assert!(res.is_ok(), "missing skills dir should not error: {res:?}");
     assert!(reg.global_skills.is_empty());
 
-    std::env::set_current_dir(orig_dir).unwrap();
     unsafe { std::env::remove_var("PINCHY_HOME"); }
 }

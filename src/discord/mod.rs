@@ -12,7 +12,7 @@ use serenity::client::{Client, Context, EventHandler};
 use serenity::http::Http;
 use serenity::model::channel::Message;
 use serenity::model::gateway::GatewayIntents;
-use serenity::model::id::ChannelId;
+use serenity::model::id::{ChannelId, UserId};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use tracing::{debug, info, warn};
@@ -148,19 +148,30 @@ impl ChannelConnector for DiscordConnector {
     }
 
     fn matches(&self, channel: &str) -> bool {
-        // Discord channels are numeric ids; reject known prefixes from other
-        // connectors.
+        // dm:<user_id> — direct message to a user
+        if let Some(uid) = channel.strip_prefix("dm:") {
+            return !uid.is_empty() && uid.chars().all(|c| c.is_ascii_digit());
+        }
+        // Plain numeric — Discord channel id
         !channel.contains(':')
             && !channel.is_empty()
             && channel.chars().all(|c| c.is_ascii_digit())
     }
 
     async fn send(&self, channel: &str, text: &str) -> anyhow::Result<()> {
-        send_channel_message(channel, text).await
+        if let Some(uid) = channel.strip_prefix("dm:") {
+            send_dm_message(uid, text).await
+        } else {
+            send_channel_message(channel, text).await
+        }
     }
 
     async fn send_rich(&self, channel: &str, msg: RichMessage) -> anyhow::Result<()> {
-        send_rich_channel_message(channel, &msg).await
+        if let Some(uid) = channel.strip_prefix("dm:") {
+            send_rich_dm_message(uid, &msg).await
+        } else {
+            send_rich_channel_message(channel, &msg).await
+        }
     }
 }
 
@@ -266,6 +277,83 @@ pub(crate) async fn send_channel_message(channel: &str, text: &str) -> anyhow::R
     ch.say(http, text)
         .await
         .map_err(|e| anyhow!(format!("discord send error: {e:?}")))?;
+    Ok(())
+}
+
+/// Send a plain-text DM to a Discord user by their numeric user id.
+pub(crate) async fn send_dm_message(user_id: &str, text: &str) -> anyhow::Result<()> {
+    let http = HTTP_CLIENT
+        .get()
+        .ok_or_else(|| anyhow!("discord http client not initialised"))?;
+
+    let uid: u64 = user_id
+        .parse()
+        .with_context(|| format!("invalid user id: {user_id}"))?;
+    let user = UserId::new(uid);
+    let dm_channel = user
+        .create_dm_channel(http)
+        .await
+        .map_err(|e| anyhow!("failed to create DM channel for user {user_id}: {e:?}"))?;
+    dm_channel
+        .say(http, text)
+        .await
+        .map_err(|e| anyhow!("discord DM send error: {e:?}"))?;
+    Ok(())
+}
+
+/// Send a rich (embed) DM to a Discord user by their numeric user id.
+pub(crate) async fn send_rich_dm_message(user_id: &str, msg: &RichMessage) -> anyhow::Result<()> {
+    let http = HTTP_CLIENT
+        .get()
+        .ok_or_else(|| anyhow!("discord http client not initialised"))?;
+
+    let uid: u64 = user_id
+        .parse()
+        .with_context(|| format!("invalid user id: {user_id}"))?;
+    let user = UserId::new(uid);
+    let dm_channel = user
+        .create_dm_channel(http)
+        .await
+        .map_err(|e| anyhow!("failed to create DM channel for user {user_id}: {e:?}"))?;
+
+    let mut embed = CreateEmbed::new();
+    if let Some(t) = &msg.title {
+        embed = embed.title(truncate(t, 256));
+    }
+    if let Some(t) = &msg.text {
+        embed = embed.description(truncate(t, 4096));
+    }
+    for s in &msg.sections {
+        embed = embed.field(
+            truncate(&s.name, 256),
+            truncate(&s.value, 1024),
+            s.inline,
+        );
+    }
+    if let Some(c) = &msg.color {
+        if let Some(hex) = parse_hex_color(c) {
+            embed = embed.colour(hex);
+        }
+    }
+    if let Some(f) = &msg.footer {
+        embed = embed.footer(CreateEmbedFooter::new(truncate(f, 2048)));
+    }
+    if let Some(url) = &msg.image_url {
+        embed = embed.image(url);
+    }
+
+    let mut create_msg = CreateMessage::new().embed(embed);
+    if let Some((filename, bytes)) = &msg.attachment {
+        create_msg = create_msg.add_file(CreateAttachment::bytes(
+            bytes.clone(),
+            filename.as_str(),
+        ));
+    }
+
+    dm_channel
+        .send_message(http, create_msg)
+        .await
+        .map_err(|e| anyhow!("discord DM rich send error: {e:?}"))?;
     Ok(())
 }
 

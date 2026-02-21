@@ -389,6 +389,7 @@ pub fn register_builtin_commands(registry: &Registry) {
                     ));
                 }
                 let config_path = ctx.config_path.clone();
+                let _guard = crate::config::config_lock().await;
                 let mut cfg: crate::config::Config = crate::config::Config::load(&config_path)
                     .await
                     .map_err(|e| SlashError::Handler(format!("load config: {e}")))?;

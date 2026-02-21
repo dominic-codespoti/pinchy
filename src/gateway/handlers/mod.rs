@@ -6,4 +6,5 @@ pub(crate) mod heartbeat;
 pub(crate) mod receipts;
 pub(crate) mod sessions;
 pub(crate) mod skills;
+pub(crate) mod slash_cmds;
 pub(crate) mod webhook;

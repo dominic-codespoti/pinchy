@@ -369,6 +369,7 @@ pub fn reload_skills(cfg: Option<&crate::config::Config>) {
         .lock()
         .ok()
         .and_then(|id| id.clone());
+    let _ = crate::skills::defaults::seed_defaults();
     let mut loader = crate::skills::SkillRegistry::new(agent_id);
     let _ = loader.load_global_skills_with_config(cfg);
     let _ = loader.load_agent_skills_with_config(cfg);

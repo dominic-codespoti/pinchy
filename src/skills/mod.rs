@@ -2,9 +2,12 @@
 //!
 //! Skills are declarative tool bundles described by `SKILL.md` manifests
 //! (YAML front-matter between `---` fences, markdown body = instructions).
-//! Two scopes exist: **global** (`skills/global/*/SKILL.md`) and
-//! **per-agent** (`agents/<id>/workspace/skills/*/SKILL.md`).  Per-agent
-//! skills override global skills with the same id.
+//! Two scopes exist: **global** (`pinchy_home()/skills/global/*/SKILL.md`)
+//! and **per-agent** (`agents/<id>/workspace/skills/*/SKILL.md`).
+//! Per-agent skills override global skills with the same id.
+//!
+//! Built-in default skills are embedded in the binary and seeded into
+//! `pinchy_home()` on first run (see [`defaults`]).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -12,6 +15,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
+
+pub mod defaults;
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -114,46 +119,29 @@ impl SkillRegistry {
 
     /// Load global skills and then gate them according to `cfg.skills`.
     ///
-    /// Searches `pinchy_home()/skills/global` first, then falls back to
-    /// (or merges with) the repo-local `skills/global` directory.
-    /// pinchy_home entries take precedence on duplicate ids.
+    /// Loads from `pinchy_home()/skills/global`.  Built-in defaults are
+    /// seeded there automatically by [`defaults::seed_defaults`].
     pub fn load_global_skills_with_config(
         &mut self,
         cfg: Option<&crate::config::Config>,
     ) -> anyhow::Result<()> {
         let home_base = crate::pinchy_home().join("skills").join("global");
-        let repo_base = std::path::Path::new("skills").join("global");
 
-        let home_exists = home_base.is_dir();
-        let repo_exists = repo_base.is_dir();
-
-        if !home_exists && !repo_exists {
+        if !home_base.is_dir() {
             debug!(
-                "no global skills directory at {} or {}",
+                "no global skills directory at {}",
                 home_base.display(),
-                repo_base.display()
             );
             return Ok(());
         }
 
-        // Collect into a temp map to avoid borrow issues with &mut self.
         let mut dest = self.global_skills.clone();
 
-        // Load repo-local first so pinchy_home entries can override.
-        if repo_exists {
-            debug!(
-                "loading repo-local global skills from {}",
-                repo_base.display()
-            );
-            self.load_skills_from(&repo_base, "global", &mut dest)?;
-        }
-        if home_exists {
-            debug!(
-                "loading pinchy_home global skills from {}",
-                home_base.display()
-            );
-            self.load_skills_from(&home_base, "global", &mut dest)?;
-        }
+        debug!(
+            "loading global skills from {}",
+            home_base.display()
+        );
+        self.load_skills_from(&home_base, "global", &mut dest)?;
 
         self.global_skills = dest;
 

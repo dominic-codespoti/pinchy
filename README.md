@@ -106,3 +106,16 @@ A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and PR
 
 
 Agents now use a canonical per-agent workspace at agents/<id>/workspace. Each workspace contains agent-specific files (`SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `sessions/`) and a `BOOTSTRAP.md` template to document onboarding. See CONSOLIDATION.md and agents/default/BOOTSTRAP.md for the consolidation plan and bootstrap template.
+
+## React Admin UI (In Progress)
+
+A new React frontend is being migrated under `web/`.
+
+```bash
+cd web
+npm install
+npm run dev
+npm run build
+```
+
+Production build artifacts are emitted to `static/react/` and can be opened at `/react/index.html` while the legacy UI remains at `/`.

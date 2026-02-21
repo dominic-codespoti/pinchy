@@ -15,10 +15,11 @@ use axum::{
     Router,
 };
 use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 use async_trait::async_trait;
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
@@ -202,17 +203,36 @@ pub async fn start_gateway_with_config(
         .route("/cron/jobs/:job_id/update", put(handlers::cron::api_cron_jobs_update))
         // Skills
         .route("/skills", get(handlers::skills::api_skills_list))
+        // AI
+        .route("/ai/enhance-prompt", post(handlers::cron::api_ai_enhance_prompt))
+        // Slash commands
+        .route("/slash/commands", get(handlers::slash_cmds::api_slash_commands))
         // Webhooks (outside auth middleware — uses per-agent ?secret= param)
         .route("/webhook/:agent_id", post(handlers::webhook::api_webhook_ingest))
         .layer(middleware::from_fn_with_state(state.clone(), auth::auth_middleware));
 
+    let (static_root, index_file, ui_label) = resolve_ui_paths();
+    info!(
+        root = %static_root.display(),
+        index = %index_file.display(),
+        ui = %ui_label,
+        "serving web UI"
+    );
+    let static_service =
+        ServeDir::new(static_root.clone()).not_found_service(ServeFile::new(index_file.clone()));
+    let react_mount_service = ServeDir::new(static_root.clone());
+
     let app = Router::new()
         .nest("/api", api_router)
+        // Serve SPA entry on "/" explicitly to avoid directory-root 404 behavior.
+        .route_service("/", ServeFile::new(index_file))
+        // Support Vite builds with `base: "/react/"` for hashed assets.
+        .nest_service("/react", react_mount_service)
         // WebSocket
         .route("/ws", get(ws::ws_handler))
         .route("/ws/logs", get(ws::ws_logs_handler))
         .with_state(state)
-        .fallback_service(ServeDir::new("static"));
+        .fallback_service(static_service);
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let bound_addr = listener.local_addr()?;
@@ -285,6 +305,54 @@ pub async fn spawn_gateway_if_enabled() -> Option<Gateway> {
         }
     }
     None
+}
+
+fn resolve_ui_paths() -> (PathBuf, PathBuf, &'static str) {
+    let cwd_react_index = Path::new("static/react/index.html");
+    if cwd_react_index.exists() {
+        return (
+            PathBuf::from("static/react"),
+            PathBuf::from("static/react/index.html"),
+            "react",
+        );
+    }
+
+    let manifest_react_index = Path::new(env!("CARGO_MANIFEST_DIR")).join("static/react/index.html");
+    if manifest_react_index.exists() {
+        return (
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("static/react"),
+            manifest_react_index,
+            "react",
+        );
+    }
+
+    let cwd_legacy_index = Path::new("static/index.html");
+    if cwd_legacy_index.exists() {
+        warn!("React UI not built (missing static/react/index.html), falling back to legacy static/");
+        return (
+            PathBuf::from("static"),
+            PathBuf::from("static/index.html"),
+            "legacy",
+        );
+    }
+
+    let manifest_legacy_index = Path::new(env!("CARGO_MANIFEST_DIR")).join("static/index.html");
+    if manifest_legacy_index.exists() {
+        warn!("React UI not built (missing static/react/index.html), falling back to legacy static/");
+        return (
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("static"),
+            manifest_legacy_index,
+            "legacy",
+        );
+    }
+
+    // Last resort: keep predictable startup.
+    warn!("No UI assets found under static/react or static; serving from static/ with expected 404s");
+    (
+        PathBuf::from("static"),
+        PathBuf::from("static/index.html"),
+        "missing",
+    )
 }
 
 // ---------------------------------------------------------------------------

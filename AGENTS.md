@@ -247,3 +247,7 @@ F3, F4, F5 are independent of each other and can be reordered.
 **Workspace additions:**
 - `memory.jsonl` — persistent knowledge store
 - `memory_embeddings.bin` — cached embedding vectors
+
+## Remember
+- Ensure strict type safety and error handling; avoid panics
+- Ensure TypeScript / Rust boundary is well-defined and types are kept in sync

@@ -18,10 +18,19 @@ const MAX_ATTACHMENT_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Execute the `send_message` tool.
 pub async fn send_message(workspace: &Path, args: Value) -> anyhow::Result<Value> {
-    let channel_id = args["channel_id"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("send_message requires 'channel_id' (string)"))?
-        .to_string();
+    let channel_id = match args["channel_id"].as_str() {
+        Some(id) => id.to_string(),
+        None => {
+            let config_path = crate::pinchy_home().join("config.yaml");
+            let cfg = crate::config::Config::load(&config_path).await?;
+            cfg.channels
+                .default_channel
+                .map(|dc| dc.to_channel_string())
+                .ok_or_else(|| anyhow::anyhow!(
+                    "send_message requires 'channel_id' (string) or channels.default_channel in config"
+                ))?
+        }
+    };
 
     // Build the RichMessage from args.
     let text = args["text"].as_str().map(String::from);
@@ -140,7 +149,7 @@ pub fn register() {
             "properties": {
                 "channel_id": {
                     "type": "string",
-                    "description": "Target channel identifier (e.g. Discord numeric channel id, or 'gateway:...')"
+                    "description": "Target channel identifier (e.g. Discord numeric channel id, or 'gateway:...'). Optional — defaults to channels.default_channel from config if omitted."
                 },
                 "text": {
                     "type": "string",
@@ -184,7 +193,7 @@ pub fn register() {
                     "description": "Per-platform overrides (e.g. { \"discord\": { \"reactions\": [\"👍\"] } })"
                 }
             },
-            "required": ["channel_id"]
+            "required": []
         }),
     });
 }
