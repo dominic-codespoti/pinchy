@@ -1,8 +1,13 @@
 [package]
 name = "mini_claw"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Lightweight Rust agent platform for Raspberry Pi"
+license = "MIT"
+repository = "https://github.com/dominic-codespoti/pinchy"
+homepage = "https://github.com/dominic-codespoti/pinchy"
+keywords = ["agent", "ai", "raspberry-pi", "discord", "copilot"]
+categories = ["command-line-utilities"]
 build = "build.rs"
 
 [dependencies]
@@ -27,7 +32,7 @@ async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 once_cell = "1"
-copilot-sdk = { git = "https://github.com/copilot-community-sdk/copilot-sdk-rust" }
+copilot-sdk = { package = "copilot-sdk-supercharged", version = "1.0" }
 keyring = "1"
 dirs = "5"
 uuid = { version = "1", features = ["v4"] }
@@ -39,7 +44,7 @@ tokio-util = "0.7"
 ring = "0.17"
 base64 = "0.22"
 libc = "0.2"
-playwright-rust = { git = "https://github.com/padamson/playwright-rust", package = "playwright-rs", optional = true }
+playwright-rust = { version = "0.8", package = "playwright-rs", optional = true }
 
 [features]
 default = ["playwright"]

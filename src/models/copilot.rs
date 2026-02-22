@@ -34,7 +34,7 @@ pub struct CopilotProvider {
     /// A cached Copilot session token obtained via token exchange.
     /// Wrapped in `Mutex` for interior mutability (token refresh).
     copilot_token: Arc<Mutex<Option<copilot_token::CopilotToken>>>,
-    client: Arc<Mutex<Option<copilot_sdk::Client>>>,
+    client: Arc<Mutex<Option<copilot_sdk::CopilotClient>>>,
 }
 
 impl Default for CopilotProvider {
@@ -90,13 +90,11 @@ impl CopilotProvider {
             // When we have a direct Copilot token we bypass the SDK.
             None
         } else {
-            token.as_ref().and_then(|t| {
-                copilot_sdk::Client::builder()
-                    .github_token(t.clone())
-                    .use_logged_in_user(false)
-                    .build()
-                    .map_err(|e| warn!("copilot_sdk::Client build failed: {e}"))
-                    .ok()
+            token.as_ref().map(|t| {
+                copilot_sdk::CopilotClient::new(copilot_sdk::CopilotClientOptions {
+                    github_token: Some(t.clone()),
+                    ..Default::default()
+                })
             })
         };
 
@@ -639,21 +637,17 @@ impl ModelProvider for CopilotProvider {
         // -----------------------------------------------------------------
         // Standard path: use the copilot-sdk CLI client.
         // -----------------------------------------------------------------
-        let mut guard = self.client.lock().await;
+        let mut guard: tokio::sync::MutexGuard<'_, Option<copilot_sdk::CopilotClient>> = self.client.lock().await;
 
         // Lazy-build the client when we have a token but no client yet.
         if guard.is_none() {
             if let Some(ref t) = self.token {
-                match copilot_sdk::Client::builder()
-                    .github_token(t.clone())
-                    .use_logged_in_user(false)
-                    .build()
-                {
-                    Ok(c) => *guard = Some(c),
-                    Err(e) => {
-                        return Ok(format!("[copilot stub] client build failed: {e}"));
-                    }
-                }
+                *guard = Some(copilot_sdk::CopilotClient::new(
+                    copilot_sdk::CopilotClientOptions {
+                        github_token: Some(t.clone()),
+                        ..Default::default()
+                    },
+                ));
             } else {
                 anyhow::bail!("CopilotProvider: not configured — set COPILOT_TOKEN");
             }
@@ -678,11 +672,26 @@ impl ModelProvider for CopilotProvider {
         let config = copilot_sdk::SessionConfig::default();
         match client.create_session(config).await {
             Ok(session) => {
-                let result = session.send_and_collect(prompt.as_str(), None).await;
+                let result = session
+                    .send_and_wait(
+                        copilot_sdk::MessageOptions {
+                            prompt: prompt.to_string(),
+                            attachments: None,
+                            mode: None,
+                        },
+                        None,
+                    )
+                    .await;
                 // Best-effort cleanup; ignore errors.
                 let _ = session.destroy().await;
                 match result {
-                    Ok(text) => Ok(text),
+                    Ok(Some(event)) => {
+                        Ok(event
+                            .assistant_message_content()
+                            .unwrap_or("[copilot stub] no content in response")
+                            .to_string())
+                    }
+                    Ok(None) => Ok("[copilot stub] no response event".to_string()),
                     Err(e) => Ok(format!("[copilot stub] send failed: {e}")),
                 }
             }
