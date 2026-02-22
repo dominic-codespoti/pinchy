@@ -13,8 +13,10 @@ use serenity::http::Http;
 use serenity::model::channel::Message;
 use serenity::model::gateway::GatewayIntents;
 use serenity::model::id::{ChannelId, UserId};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
 struct Handler;
@@ -33,6 +35,44 @@ fn slash_registry() -> &'static slash::Registry {
 // Shared HTTP client initialised by `init` so other modules can send
 // messages without holding the full `Client` instance.
 static HTTP_CLIENT: OnceLock<Http> = OnceLock::new();
+
+// ---------------------------------------------------------------------------
+// Reply tracking — maps Discord message IDs to agent/session context so
+// that when a user replies to an agent's message, the reply is routed to
+// the correct agent and session.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+pub struct ReplyContext {
+    pub agent_id: String,
+    pub session_id: Option<String>,
+}
+
+const REPLY_TRACKER_CAPACITY: usize = 2000;
+
+static REPLY_TRACKER: OnceLock<RwLock<HashMap<u64, ReplyContext>>> = OnceLock::new();
+
+fn reply_tracker() -> &'static RwLock<HashMap<u64, ReplyContext>> {
+    REPLY_TRACKER.get_or_init(|| RwLock::new(HashMap::new()))
+}
+
+pub async fn track_reply(discord_msg_id: u64, ctx: ReplyContext) {
+    let mut map = reply_tracker().write().await;
+    if map.len() >= REPLY_TRACKER_CAPACITY {
+        if let Some(&old_key) = map.keys().next() {
+            map.remove(&old_key);
+        }
+    }
+    map.insert(discord_msg_id, ctx);
+}
+
+async fn lookup_reply(discord_msg_id: u64) -> Option<ReplyContext> {
+    reply_tracker().read().await.get(&discord_msg_id).cloned()
+}
+
+tokio::task_local! {
+    pub static CURRENT_REPLY_CONTEXT: ReplyContext;
+}
 
 #[serenity_async_trait]
 impl EventHandler for Handler {
@@ -112,15 +152,34 @@ impl EventHandler for Handler {
             }
             return;
         }
+        // If the user is replying to a bot message, look up the original
+        // message to determine which agent/session to route to.
+        let reply_meta = if let Some(ref mref) = msg.message_reference {
+            if let Some(mid) = mref.message_id {
+                lookup_reply(mid.get()).await
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         let incoming = IncomingMessage {
-            agent_id: None,
+            agent_id: reply_meta.as_ref().map(|r| r.agent_id.clone()),
             channel: msg.channel_id.to_string(),
             author: msg.author.name.clone(),
             content: msg.content.clone(),
             timestamp: msg.timestamp.unix_timestamp(),
-            session_id: None,
+            session_id: reply_meta.as_ref().and_then(|r| r.session_id.clone()),
         };
+
+        if reply_meta.is_some() {
+            debug!(
+                agent = ?incoming.agent_id,
+                session = ?incoming.session_id,
+                "routed reply to agent via message reference"
+            );
+        }
 
         if let Err(e) = comm::sender().send(incoming) {
             warn!(error = %e, "failed to send message to comm bus (no receivers?)");
@@ -274,9 +333,17 @@ pub(crate) async fn send_channel_message(channel: &str, text: &str) -> anyhow::R
         .parse()
         .with_context(|| format!("invalid channel id: {}", channel))?;
     let ch = ChannelId::new(cid);
-    ch.say(http, text)
-        .await
-        .map_err(|e| anyhow!(format!("discord send error: {e:?}")))?;
+
+    // Discord imposes a 2 000-character limit per message.  Split long
+    // text into chunks so nothing is silently truncated.
+    for chunk in chunk_message(text, 2000) {
+        let sent = ch.say(http, &chunk)
+            .await
+            .map_err(|e| anyhow!(format!("discord send error: {e:?}")))?;
+        if let Ok(ctx) = CURRENT_REPLY_CONTEXT.try_with(|c| c.clone()) {
+            track_reply(sent.id.get(), ctx).await;
+        }
+    }
     Ok(())
 }
 
@@ -294,10 +361,16 @@ pub(crate) async fn send_dm_message(user_id: &str, text: &str) -> anyhow::Result
         .create_dm_channel(http)
         .await
         .map_err(|e| anyhow!("failed to create DM channel for user {user_id}: {e:?}"))?;
-    dm_channel
-        .say(http, text)
-        .await
-        .map_err(|e| anyhow!("discord DM send error: {e:?}"))?;
+
+    for chunk in chunk_message(text, 2000) {
+        let sent = dm_channel
+            .say(http, &chunk)
+            .await
+            .map_err(|e| anyhow!("discord DM send error: {e:?}"))?;
+        if let Ok(ctx) = CURRENT_REPLY_CONTEXT.try_with(|c| c.clone()) {
+            track_reply(sent.id.get(), ctx).await;
+        }
+    }
     Ok(())
 }
 
@@ -343,6 +416,15 @@ pub(crate) async fn send_rich_dm_message(user_id: &str, msg: &RichMessage) -> an
     }
 
     let mut create_msg = CreateMessage::new().embed(embed);
+
+    // Include a plain-text fallback so the message is always readable
+    // even when embeds fail to render (e.g. compact mode, some mobile views).
+    let fallback = msg.as_plain_text();
+    if !fallback.is_empty() && fallback != "(empty message)" {
+        let truncated = truncate(&fallback, 2000);
+        create_msg = create_msg.content(truncated);
+    }
+
     if let Some((filename, bytes)) = &msg.attachment {
         create_msg = create_msg.add_file(CreateAttachment::bytes(
             bytes.clone(),
@@ -350,10 +432,13 @@ pub(crate) async fn send_rich_dm_message(user_id: &str, msg: &RichMessage) -> an
         ));
     }
 
-    dm_channel
+    let sent = dm_channel
         .send_message(http, create_msg)
         .await
         .map_err(|e| anyhow!("discord DM rich send error: {e:?}"))?;
+    if let Ok(ctx) = CURRENT_REPLY_CONTEXT.try_with(|c| c.clone()) {
+        track_reply(sent.id.get(), ctx).await;
+    }
     Ok(())
 }
 
@@ -400,6 +485,14 @@ pub(crate) async fn send_rich_channel_message(
 
     let mut create_msg = CreateMessage::new().embed(embed);
 
+    // Include a plain-text fallback so the message is always readable
+    // even when embeds fail to render (e.g. compact mode, some mobile views).
+    let fallback = msg.as_plain_text();
+    if !fallback.is_empty() && fallback != "(empty message)" {
+        let truncated = truncate(&fallback, 2000);
+        create_msg = create_msg.content(truncated);
+    }
+
     // Attach file if provided — ownership lets us move bytes without cloning.
     if let Some((filename, bytes)) = &msg.attachment {
         create_msg = create_msg.add_file(CreateAttachment::bytes(
@@ -408,9 +501,12 @@ pub(crate) async fn send_rich_channel_message(
         ));
     }
 
-    ch.send_message(http, create_msg)
+    let sent = ch.send_message(http, create_msg)
         .await
         .map_err(|e| anyhow!("discord rich send error: {e:?}"))?;
+    if let Ok(ctx) = CURRENT_REPLY_CONTEXT.try_with(|c| c.clone()) {
+        track_reply(sent.id.get(), ctx).await;
+    }
 
     // Apply reactions if specified in channel_hints.discord.reactions
     if let Some(discord_hints) = msg.channel_hints.get("discord") {
@@ -448,6 +544,47 @@ fn truncate(s: &str, max: usize) -> String {
         end -= 1;
     }
     format!("{}…", &s[..end])
+}
+
+/// Split text into chunks of at most `max` characters, preferring line
+/// boundaries so messages don't break mid-sentence.
+fn chunk_message(text: &str, max: usize) -> Vec<String> {
+    if text.len() <= max {
+        return vec![text.to_string()];
+    }
+    let mut chunks = Vec::new();
+    let mut remaining = text;
+    while !remaining.is_empty() {
+        if remaining.len() <= max {
+            chunks.push(remaining.to_string());
+            break;
+        }
+        // Try to split at the last newline within the limit.
+        let boundary = remaining[..max]
+            .rfind('\n')
+            .map(|i| i + 1)
+            .unwrap_or_else(|| {
+                // No newline — split at last space.
+                remaining[..max]
+                    .rfind(' ')
+                    .map(|i| i + 1)
+                    .unwrap_or(max)
+            });
+        // Ensure we're on a char boundary.
+        let mut end = boundary;
+        while end > 0 && !remaining.is_char_boundary(end) {
+            end -= 1;
+        }
+        if end == 0 {
+            end = max.min(remaining.len());
+            while end < remaining.len() && !remaining.is_char_boundary(end) {
+                end += 1;
+            }
+        }
+        chunks.push(remaining[..end].to_string());
+        remaining = &remaining[end..];
+    }
+    chunks
 }
 
 /// Resolve the configured Discord token using the precedence rules described

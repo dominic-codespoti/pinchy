@@ -48,6 +48,15 @@ enum Command {
     Onboard,
     /// Check if the Pinchy daemon is running
     Status,
+    /// Pull latest code, rebuild, and restart
+    Update {
+        /// Skip the git pull step (just rebuild in-place)
+        #[arg(long)]
+        no_pull: bool,
+        /// Restart the systemd service after building
+        #[arg(long)]
+        restart: bool,
+    },
     /// Manage secrets
     Secrets {
         #[command(subcommand)]
@@ -225,6 +234,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 },
                 Command::Status => cli::check_status().await,
+                Command::Update { no_pull, restart } => cli::self_update(no_pull, restart).await,
                 Command::Onboard => cli::app_onboard(&config_path).await,
                 Command::Secrets { command } => match command {
                     SecretsCmd::Set { key } => {
@@ -294,7 +304,6 @@ async fn main() -> anyhow::Result<()> {
     agent::Agent::init(&cfg, bus.clone(), cancel.clone());
     models::init();
     tools::init();
-    tools::builtins::exec_shell::load_extra_allowlists(&cfg.agents);
 
     // --- Housekeeping janitor ---
     // Run an immediate cleanup pass at startup, then spawn a background

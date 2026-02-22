@@ -38,10 +38,6 @@ static BG_PROCS: Lazy<Mutex<HashMap<u64, BgProcess>>> =
 /// Monotonically increasing process counter.
 static BG_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
 
-/// Legacy stub — kept so callers don't break. Now a no-op since we use a
-/// blocklist instead of a per-agent allowlist.
-pub fn load_extra_allowlists(_agents: &[crate::config::AgentConfig]) {}
-
 /// Check if a command is blocked by the blacklist.
 fn is_command_blocked(cmd_name: &str, _workspace: &Path) -> bool {
     EXEC_BLOCKLIST.contains(&cmd_name)

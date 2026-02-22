@@ -15,6 +15,7 @@ use thiserror::Error;
 use tracing::debug;
 
 use crate::session::SessionStore;
+use crate::models::ModelProvider;
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -423,7 +424,7 @@ pub fn register_builtin_commands(registry: &Registry) {
                         Ok(s) if !s.trim().is_empty() => s.trim().to_string(),
                         _ => "(none)".to_string(),
                     };
-                let (model, provider) = match crate::config::Config::load(&ctx.config_path).await {
+                let (model, provider, tz_str) = match crate::config::Config::load(&ctx.config_path).await {
                     Ok(cfg) => {
                         let ac = cfg.agents.iter().find(|a| a.id == ctx.agent_id);
                         let model_ref = ac.and_then(|a| a.model.clone());
@@ -433,13 +434,18 @@ pub fn register_builtin_commands(registry: &Registry) {
                             .map(|m| m.provider.clone())
                             .unwrap_or_else(|| "(default)".to_string());
                         let model = model_ref.unwrap_or_else(|| "(default)".to_string());
-                        (model, provider)
+                        let tz = cfg.resolve_timezone(&ctx.agent_id);
+                        (model, provider, tz.to_string())
                     }
-                    Err(_) => ("(unknown)".to_string(), "(unknown)".to_string()),
+                    Err(_) => ("(unknown)".to_string(), "(unknown)".to_string(), "UTC".to_string()),
                 };
+                let now = chrono::Utc::now();
+                let tz: chrono_tz::Tz = tz_str.parse::<chrono_tz::Tz>().unwrap_or(chrono_tz::UTC);
+                let local_now = now.with_timezone(&tz);
                 Ok(SlashResponse::Text(format!(
-                    "agent: {}\nprovider: {provider}\nmodel: {model}\nsession: {session}\nworkspace: {}",
+                    "agent: {}\nprovider: {provider}\nmodel: {model}\nsession: {session}\ntimezone: {tz_str}\nlocal time: {}\nworkspace: {}",
                     ctx.agent_id,
+                    local_now.format("%Y-%m-%d %H:%M %Z"),
                     ctx.workspace.display()
                 )))
             })
@@ -580,10 +586,106 @@ pub fn register_builtin_commands(registry: &Registry) {
                     "/list_agents           — List all agent folders",
                     "/set-model <id>        — Change the model for this agent",
                     "/status                — Show agent status",
+                    "/compact               — Summarise older messages into a compact card",
                     "/help                  — Show this help message",
                     "/exit                  — Quit the REPL (TUI only)",
                 ];
                 Ok(SlashResponse::Text(lines.join("\n")))
+            })
+        }),
+    );
+
+    // /compact — summarise older messages into a compact card via LLM
+    registry.register(
+        cmd(
+            "compact",
+            "Summarise older session messages into a compact knowledge card (non-destructive)",
+            "/compact",
+        ),
+        Arc::new(|ctx, _args| {
+            Box::pin(async move {
+                let session_id = SessionStore::load_current_async(&ctx.workspace)
+                    .await
+                    .ok_or_else(|| SlashError::Handler("no active session".to_string()))?;
+
+                let history = SessionStore::load_history(&ctx.workspace, &session_id, 200)
+                    .await
+                    .map_err(|e| SlashError::Handler(format!("load history: {e}")))?;
+
+                if history.len() < 4 {
+                    return Ok(SlashResponse::Text(
+                        "not enough messages to compact (need at least 4)".to_string(),
+                    ));
+                }
+
+                let config_path = ctx.config_path.clone();
+                let history_limit = crate::config::Config::load(&config_path)
+                    .await
+                    .ok()
+                    .and_then(|cfg| {
+                        cfg.agents
+                            .iter()
+                            .find(|a| a.id == ctx.agent_id)
+                            .and_then(|a| a.history_messages)
+                    })
+                    .unwrap_or(40);
+
+                let keep_tail = history_limit.min(history.len());
+                let to_summarise_end = history.len().saturating_sub(keep_tail);
+                if to_summarise_end == 0 {
+                    return Ok(SlashResponse::Text(
+                        "all messages are within the context window — nothing to compact".to_string(),
+                    ));
+                }
+
+                let older: Vec<String> = history[..to_summarise_end]
+                    .iter()
+                    .map(|ex| {
+                        let content = if ex.content.len() > 600 {
+                            format!("{}…[truncated]", &ex.content[..600])
+                        } else {
+                            ex.content.clone()
+                        };
+                        format!("[{}]: {}", ex.role, content)
+                    })
+                    .collect();
+
+                let summary_prompt = format!(
+                    "Summarise the following conversation history into a concise but thorough summary. \
+                     Preserve key facts, decisions, file paths mentioned, tool results, and action items. \
+                     Use markdown formatting (headers, bullets). Omit greetings and filler.\n\n{}",
+                    older.join("\n")
+                );
+
+                let pm = crate::models::GLOBAL_PROVIDERS
+                    .get()
+                    .and_then(|m| m.lock().ok())
+                    .map(|pm| pm.clone())
+                    .ok_or_else(|| {
+                        SlashError::Handler("no model provider available".to_string())
+                    })?;
+
+                let msgs = vec![crate::models::ChatMessage::new("user", summary_prompt)];
+                let summary: String = pm
+                    .send_chat(&msgs)
+                    .await
+                    .map_err(|e| SlashError::Handler(format!("LLM summarisation failed: {e}")))?;
+
+                let summary_text = summary.trim().to_string();
+
+                crate::gateway::publish_event_json(&serde_json::json!({
+                    "type": "compact_summary",
+                    "agent": ctx.agent_id,
+                    "session": session_id,
+                    "summary": summary_text,
+                    "messages_compacted": to_summarise_end,
+                    "messages_kept": keep_tail,
+                }));
+
+                Ok(SlashResponse::Text(format!(
+                    "✅ Compacted {} older messages into a summary card. {} recent messages remain in context.",
+                    to_summarise_end, keep_tail
+                )))
             })
         }),
     );

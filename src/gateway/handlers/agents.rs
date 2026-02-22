@@ -60,6 +60,14 @@ pub(crate) async fn api_agents_list() -> impl IntoResponse {
                         "cron_jobs_count".into(),
                         serde_json::json!(ac.cron_jobs.len()),
                     );
+                    m.insert(
+                        "history_messages".into(),
+                        serde_json::json!(ac.history_messages),
+                    );
+                    m.insert(
+                        "timezone".into(),
+                        serde_json::json!(cfg.resolve_timezone(&id).to_string()),
+                    );
                 }
             }
 
@@ -124,6 +132,14 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
             m.insert(
                 "enabled_skills".into(),
                 serde_json::json!(ac.enabled_skills),
+            );
+            m.insert(
+                "history_messages".into(),
+                serde_json::json!(ac.history_messages),
+            );
+            m.insert(
+                "timezone".into(),
+                serde_json::json!(cfg.resolve_timezone(&agent_id).to_string()),
             );
         }
     }
@@ -241,6 +257,8 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
                         fallback_models: Vec::new(),
                         webhook_secret: None,
                         extra_exec_commands: Vec::new(),
+                        history_messages: None,
+                        timezone: None,
                     });
                     if let Err(e) = cfg.save(&config_path).await {
                         tracing::warn!(error = %e, "failed to save config after agent creation");

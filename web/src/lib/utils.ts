@@ -22,3 +22,34 @@ export function formatRelativeTime(ts: number): string {
   return new Date(ms).toLocaleTimeString();
 }
 
+export function toText(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") {
+    try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+  }
+  return String(value);
+}
+
+export const CRON_RE = /^(@(annually|yearly|monthly|weekly|daily|midnight|hourly|reboot|every\s+\S+))$|^(\S+\s+){4,6}\S+$/i;
+
+export function computeNextFires(expr: string, count: number): Date[] {
+  if (!expr || !CRON_RE.test(expr)) return [];
+  if (expr.startsWith("@")) return [];
+  const parts = expr.split(/\s+/);
+  if (parts.length < 5) return [];
+  const m = parts[0] === "*" ? null : parseInt(parts[0], 10);
+  const h = parts[1] === "*" ? null : parseInt(parts[1], 10);
+  if ((m !== null && Number.isNaN(m)) || (h !== null && Number.isNaN(h))) return [];
+  const results: Date[] = [];
+  let cursor = new Date();
+  cursor.setSeconds(0, 0);
+  for (let tries = 0; tries < 1440 * 7 && results.length < count; tries += 1) {
+    cursor = new Date(cursor.getTime() + 60_000);
+    if ((m === null || cursor.getMinutes() === m) && (h === null || cursor.getHours() === h)) {
+      results.push(new Date(cursor));
+    }
+  }
+  return results;
+}
+

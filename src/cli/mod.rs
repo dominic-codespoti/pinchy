@@ -270,6 +270,8 @@ pub fn interactive_onboard_tui(
                             fallback_models: Vec::new(),
                             webhook_secret: None,
                             extra_exec_commands: Vec::new(),
+                            history_messages: None,
+                            timezone: None,
                         });
                     }
 
@@ -552,7 +554,36 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
         }
     }
 
-    // 6. Summary
+    // 6. Timezone
+    println!("\n── Timezone ──\n");
+    println!("  Pinchy uses your timezone for cron schedules, timestamps in");
+    println!("  agent prompts, and display. Enter an IANA timezone name.");
+    println!("  Examples: America/New_York, Europe/London, Asia/Tokyo, UTC");
+
+    let system_tz = iana_tz_from_system().unwrap_or_else(|| "UTC".to_string());
+    let tz_input: String = dialoguer::Input::new()
+        .with_prompt("Timezone")
+        .default(system_tz.clone())
+        .interact_text()
+        .unwrap_or(system_tz);
+
+    if !tz_input.is_empty() {
+        if tz_input.parse::<chrono_tz::Tz>().is_ok() {
+            let cfg_contents = std::fs::read_to_string(config_path).unwrap_or_default();
+            if let Ok(mut cfg) = serde_yaml::from_str::<config::Config>(&cfg_contents) {
+                cfg.timezone = Some(tz_input.clone());
+                let yaml_out = serde_yaml::to_string(&cfg).unwrap_or_default();
+                sync_backup_file(config_path).ok();
+                std::fs::write(config_path, &yaml_out).ok();
+                println!("  Timezone set to: {tz_input}");
+            }
+        } else {
+            println!("  Warning: '{tz_input}' is not a valid IANA timezone. Skipping.");
+            println!("  You can set it later in config.yaml: timezone: America/New_York");
+        }
+    }
+
+    // 7. Summary
     println!("\n╔══════════════════════════════════════════╗");
     println!("║       onboarding complete! 🦀            ║");
     println!("╚══════════════════════════════════════════╝");
@@ -1169,4 +1200,109 @@ pub async fn debug_run_turn(
 
     println!("{reply}");
     Ok(())
+}
+
+// ── Self-update ──────────────────────────────────────────────────────────────
+
+pub async fn self_update(no_pull: bool, restart: bool) -> anyhow::Result<()> {
+    use std::process::Command;
+
+    let repo_root = std::env::current_exe()
+        .ok()
+        .and_then(|p| {
+            let mut dir = p.parent()?.to_path_buf();
+            for _ in 0..3 {
+                if dir.join("Cargo.toml").exists() {
+                    return Some(dir);
+                }
+                dir = dir.parent()?.to_path_buf();
+            }
+            None
+        })
+        .unwrap_or_else(|| std::env::current_dir().expect("cannot determine repo root"));
+
+    println!("📂 Repo: {}", repo_root.display());
+
+    if !no_pull {
+        println!("⬇️  Pulling latest…");
+        let s = Command::new("git")
+            .args(["pull", "--ff-only"])
+            .current_dir(&repo_root)
+            .status()
+            .context("git pull failed")?;
+        if !s.success() {
+            anyhow::bail!("git pull failed. Use --no-pull to skip.");
+        }
+    }
+
+    let web_dir = repo_root.join("web");
+    if web_dir.join("package.json").exists() {
+        println!("🌐 Building frontend…");
+        let s = Command::new("pnpm")
+            .args(["run", "build"])
+            .current_dir(&web_dir)
+            .status()
+            .context("pnpm build failed")?;
+        if !s.success() {
+            anyhow::bail!("frontend build failed");
+        }
+    }
+
+    println!("🔨 Building release…");
+    let s = Command::new("cargo")
+        .args(["build", "--release"])
+        .current_dir(&repo_root)
+        .status()
+        .context("cargo build failed")?;
+    if !s.success() {
+        anyhow::bail!("cargo build --release failed");
+    }
+
+    let binary = repo_root.join("target/release/mini_claw");
+    println!("✅ Built: {}", binary.display());
+
+    if std::path::Path::new("/opt/pinchy").exists() {
+        println!("📦 Installing to /opt/pinchy/…");
+        let _ = Command::new("cp")
+            .args([binary.to_str().unwrap(), "/opt/pinchy/mini_claw"])
+            .status();
+    }
+
+    if restart {
+        println!("🔄 Restarting service…");
+        let _ = Command::new("systemctl")
+            .args(["restart", "pinchy"])
+            .status();
+        println!("✅ Restarted");
+    } else {
+        println!("💡 Use --restart to also restart the systemd service");
+    }
+
+    Ok(())
+}
+
+/// Try to detect the system's IANA timezone from `/etc/timezone` or the
+/// `TZ` environment variable.
+fn iana_tz_from_system() -> Option<String> {
+    if let Ok(tz) = std::env::var("TZ") {
+        if !tz.is_empty() && tz.parse::<chrono_tz::Tz>().is_ok() {
+            return Some(tz);
+        }
+    }
+    if let Ok(link) = std::fs::read_link("/etc/localtime") {
+        let path = link.to_string_lossy();
+        if let Some(pos) = path.find("zoneinfo/") {
+            let tz = &path[pos + 9..];
+            if tz.parse::<chrono_tz::Tz>().is_ok() {
+                return Some(tz.to_string());
+            }
+        }
+    }
+    if let Ok(contents) = std::fs::read_to_string("/etc/timezone") {
+        let tz = contents.trim().to_string();
+        if tz.parse::<chrono_tz::Tz>().is_ok() {
+            return Some(tz);
+        }
+    }
+    None
 }

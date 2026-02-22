@@ -28,6 +28,8 @@ fn test_config(workspace: &std::path::Path, agent_id: &str, heartbeat_secs: u64)
             fallback_models: Vec::new(),
             webhook_secret: None,
             extra_exec_commands: Vec::new(),
+            history_messages: None,
+            timezone: None,
         }],
         secrets: None,
         routing: None,
@@ -35,6 +37,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str, heartbeat_secs: u64)
         session_expiry_days: None,
         cron_session_expiry_days: None,
         cron_events_max_keep: None,
+        timezone: None,
     }
 }
 
@@ -184,6 +187,8 @@ async fn cron_merge_persisted_jobs_on_startup() {
             fallback_models: Vec::new(),
             webhook_secret: None,
             extra_exec_commands: Vec::new(),
+            history_messages: None,
+            timezone: None,
         }],
         secrets: None,
         routing: None,
@@ -191,6 +196,7 @@ async fn cron_merge_persisted_jobs_on_startup() {
         session_expiry_days: None,
         cron_session_expiry_days: None,
         cron_events_max_keep: None,
+        timezone: None,
     };
 
     let handle = mini_claw::scheduler::start(&cfg)

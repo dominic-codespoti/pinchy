@@ -17,4 +17,5 @@ pub mod search_tools;
 pub mod send_message;
 pub mod session;
 pub mod skill_author;
+pub mod self_update;
 pub mod write_file;

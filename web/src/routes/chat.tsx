@@ -1,4 +1,4 @@
-import { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -37,6 +37,9 @@ import {
   WifiOff,
   ChevronRight,
   X,
+  Layers,
+  EyeOff,
+  Minimize2,
 } from "lucide-react";
 import { useUiStore } from "@/state/ui";
 
@@ -97,6 +100,9 @@ type GatewayEvent = {
   duration_ms?: number;
   model_calls?: number;
   tool_calls?: Array<{ tool?: string; success?: boolean; duration_ms?: number; args_summary?: string; error?: string }>;
+  summary?: string;
+  messages_compacted?: number;
+  messages_kept?: number;
 };
 
 export function ChatRoute() {
@@ -120,6 +126,8 @@ export function ChatRoute() {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [expandedReceipt, setExpandedReceipt] = useState<number | null>(null);
+  const [collapsedOutOfContext, setCollapsedOutOfContext] = useState(true);
+  const [compactSummaries, setCompactSummaries] = useState<Array<{ summary: string; messagesCompacted: number; messagesKept: number; timestamp: number }>>([]);
   const [wsConnected, setWsConnectedLocal] = useState(true);
   const setWsConnectedGlobal = useUiStore((s) => s.setWsConnected);
 
@@ -373,6 +381,7 @@ export function ChatRoute() {
     setLiveMessages([]);
     setActivityItems([]);
     setReceipts([]);
+    setCompactSummaries([]);
     seenKeysRef.current.clear();
     streamBufferRef.current = "";
     revealedLenRef.current = 0;
@@ -516,27 +525,15 @@ export function ChatRoute() {
           appendActivity(setActivityItems, "Slash command failed", "error");
           return;
         }
-        if (type === "turn_receipt") {
-          const tokens = payload.tokens?.total_tokens ?? 0;
-          const tools = payload.tool_calls?.length ?? 0;
-          const duration = payload.duration_ms ? `${(payload.duration_ms / 1000).toFixed(1)}s` : "-";
-          setReceipts((prev) => [
-            ...prev.slice(-39),
-            {
-              timestamp: Date.now(),
-              tokens: { prompt: payload.tokens?.prompt_tokens ?? 0, completion: payload.tokens?.completion_tokens ?? 0, total: payload.tokens?.total_tokens ?? 0 },
-              durationMs: payload.duration_ms ?? null,
-              modelCalls: payload.model_calls ?? null,
-              tools: (payload.tool_calls ?? []).map((c) => ({ tool: c.tool ?? "tool", success: c.success ?? true, durationMs: c.duration_ms ?? null })),
-              toolCalls: (payload.tool_calls ?? []).map((c) => ({
-                name: c.tool ?? "unknown",
-                args: c.args_summary ?? "",
-                success: c.success ?? true,
-                duration: c.duration_ms ?? 0,
-                error: c.error,
-              })),
-            },
-          ]);
+        if (type === "compact_summary") {
+          setCompactSummaries((prev) => [...prev, {
+            summary: toText(payload.summary),
+            messagesCompacted: payload.messages_compacted ?? 0,
+            messagesKept: payload.messages_kept ?? 0,
+            timestamp: Date.now(),
+          }]);
+          appendActivity(setActivityItems, `Compacted ${payload.messages_compacted ?? 0} messages`, "info");
+          return;
         }
       };
 
@@ -626,6 +623,55 @@ export function ChatRoute() {
     return allMessages.filter((m) => m.content.toLowerCase().includes(q));
   }, [allMessages, searchQuery]);
 
+  const contextWindowSize = useMemo(() => {
+    const agents = agentsQuery.data?.agents ?? [];
+    const current = agents.find((a) => a.id === selectedAgent);
+    return current?.history_messages ?? 40;
+  }, [agentsQuery.data, selectedAgent]);
+
+  const contextBoundary = useMemo(() => {
+    if (filteredMessages.length <= contextWindowSize) return 0;
+    return filteredMessages.length - contextWindowSize;
+  }, [filteredMessages.length, contextWindowSize]);
+
+  const outOfContextCount = contextBoundary;
+
+  // Map receipt → the assistant message index it belongs to.
+  // A receipt's started_at should fall between the previous user message and the
+  // assistant reply, so we match each receipt to the next assistant message whose
+  // timestamp is >= receipt.started_at.
+  const receiptByMsgIndex = useMemo(() => {
+    const map = new Map<number, ReceiptItem>();
+    if (!allReceipts.length || !filteredMessages.length) return map;
+
+    // Build a list of assistant message indices sorted by timestamp.
+    const assistants: Array<{ idx: number; ts: number }> = [];
+    for (let i = 0; i < filteredMessages.length; i++) {
+      if (filteredMessages[i].role.toLowerCase() === "assistant") {
+        assistants.push({ idx: i, ts: filteredMessages[i].timestamp });
+      }
+    }
+
+    for (const receipt of allReceipts) {
+      // Find the assistant message whose timestamp is closest to receipt end time.
+      const receiptEnd = receipt.timestamp + (receipt.durationMs ?? 0);
+      let best: { idx: number; ts: number } | null = null;
+      let bestDist = Infinity;
+      for (const a of assistants) {
+        const dist = Math.abs(a.ts - receiptEnd);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = a;
+        }
+      }
+      // Only match if within 60 seconds
+      if (best && bestDist < 60_000) {
+        map.set(best.idx, receipt);
+      }
+    }
+    return map;
+  }, [allReceipts, filteredMessages]);
+
   const toggleSearch = () => {
     setSearchOpen((prev) => {
       if (!prev) setTimeout(() => searchInputRef.current?.focus(), 50);
@@ -672,6 +718,14 @@ export function ChatRoute() {
     }
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendMessage(); return; }
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  };
+
+  const compactSession = () => {
+    if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    wsRef.current.send(JSON.stringify({ type: "client_command", command: "/compact", target_agent: selectedAgent }));
+    setLiveMessages((prev) => [...prev, { role: "system", content: "⏳ Compacting session history…", timestamp: Date.now() }]);
+    setTyping(true);
+    setTypingLabel("Compacting…");
   };
 
   const exampleCommands = [
@@ -729,7 +783,7 @@ export function ChatRoute() {
           )}
           {allMessages.length > 0 && (
             <span className="hidden md:inline-flex items-center gap-1 mr-2 text-[10px] tabular-nums text-slate-500">
-              {allMessages.length} msgs · {recentReceiptTokens.toLocaleString()} tok
+              {allMessages.length} msgs{contextBoundary > 0 && ` (${contextWindowSize} in ctx)`} · {recentReceiptTokens.toLocaleString()} tok
             </span>
           )}
           <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={toggleSearch} title="Search messages (⌘F)">
@@ -737,6 +791,9 @@ export function ChatRoute() {
           </Button>
           <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={exportSession} title="Export session" disabled={!allMessages.length}>
             <Download className="h-3.5 w-3.5" />
+          </Button>
+          <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={compactSession} title="Compact history" disabled={!allMessages.length}>
+            <Minimize2 className="h-3.5 w-3.5" />
           </Button>
           <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={startNewSession} title="New session">
             <Plus className="h-3.5 w-3.5" />
@@ -825,52 +882,157 @@ export function ChatRoute() {
               </div>
             )}
 
+            {/* ── Compact summary cards ──────── */}
+            {compactSummaries.map((cs, i) => (
+              <CompactSummaryCard key={`compact-${cs.timestamp}-${i}`} summary={cs} />
+            ))}
+
+            {/* ── Out-of-context collapse banner ──────── */}
+            {contextBoundary > 0 && (
+              <div className="py-3">
+                <button
+                  onClick={() => setCollapsedOutOfContext((p) => !p)}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-purple-400/15 bg-purple-400/[0.04] text-xs text-purple-300 hover:bg-purple-400/[0.08] transition-colors"
+                >
+                  <EyeOff className="h-3.5 w-3.5 text-purple-400/60" />
+                  <span>
+                    {collapsedOutOfContext
+                      ? `${outOfContextCount} older messages outside context window${compactSummaries.length > 0 ? " (summarised above)" : ""} — click to show`
+                      : `Showing ${outOfContextCount} out-of-context messages — click to hide`}
+                  </span>
+                  {collapsedOutOfContext ? <ChevronDown className="h-3 w-3 ml-auto" /> : <ChevronUp className="h-3 w-3 ml-auto" />}
+                </button>
+              </div>
+            )}
+
             {filteredMessages.map((message, index) => {
               const role = message.role.toLowerCase();
               const isUser = role === "user";
               const isSystem = role === "system";
+              const isOutOfContext = contextBoundary > 0 && index < contextBoundary;
+              const isCompactedHistory = isSystem && message.content.includes("<compacted_history>");
+              const isContextDivider = contextBoundary > 0 && index === contextBoundary;
+
+              if (isOutOfContext && collapsedOutOfContext && !isCompactedHistory) return null;
 
               return (
-                <div key={`${message.role}-${message.timestamp}-${index}`} className="py-5 group">
-                  <div className="flex gap-3">
-                    <div className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                      isUser ? "bg-emerald-400/10" : isSystem ? "bg-amber-400/10" : "bg-white/[0.06]"
-                    }`}>
-                      {isUser ? <User className="h-3.5 w-3.5 text-emerald-400" />
-                        : isSystem ? <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
-                        : <Bot className="h-3.5 w-3.5 text-slate-400" />}
+                <React.Fragment key={`${message.role}-${message.timestamp}-${index}`}>
+                  {isCompactedHistory && (
+                    <CompactedHistoryCard content={message.content} />
+                  )}
+                  {isContextDivider && (
+                    <div className="flex items-center gap-3 py-3 select-none">
+                      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
+                      <div className="flex items-center gap-1.5 text-[10px] text-purple-300/70 font-medium uppercase tracking-wider">
+                        <Layers className="h-3 w-3" />
+                        Context window
+                      </div>
+                      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-xs font-medium text-slate-200">
-                          {isUser ? "You" : isSystem ? "System" : "Agent"}
-                        </span>
-                        <span className="text-[10px] tabular-nums text-slate-600">
-                          {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                        </span>
-                        {!isUser && (
-                          <button
-                            onClick={() => copyMessage(message.content, index)}
-                            className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-slate-300"
-                          >
-                            {copiedIdx === index
-                              ? <Check className="h-3 w-3 text-emerald-400" />
-                              : <Copy className="h-3 w-3" />}
-                          </button>
+                  )}
+                  {!isCompactedHistory && (
+                    <div className={`py-5 group ${isOutOfContext ? "opacity-40 hover:opacity-70 transition-opacity" : ""}`}>
+                      <div className="flex gap-3">
+                        <div className="relative">
+                          <div className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                            isUser ? "bg-emerald-400/10" : isSystem ? "bg-amber-400/10" : "bg-white/[0.06]"
+                          }`}>
+                            {isUser ? <User className="h-3.5 w-3.5 text-emerald-400" />
+                              : isSystem ? <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
+                              : <Bot className="h-3.5 w-3.5 text-slate-400" />}
+                          </div>
+                          {isOutOfContext && (
+                            <div className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-purple-500/20 flex items-center justify-center">
+                              <EyeOff className="h-2 w-2 text-purple-400" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-xs font-medium text-slate-200">
+                              {isUser ? "You" : isSystem ? "System" : "Agent"}
+                            </span>
+                            <span className="text-[10px] tabular-nums text-slate-600">
+                              {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                            {isOutOfContext && (
+                              <span className="text-[9px] text-purple-400/60 font-medium">out of context</span>
+                            )}
+                            {!isUser && (
+                              <button
+                                onClick={() => copyMessage(message.content, index)}
+                                className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-slate-300"
+                              >
+                                {copiedIdx === index
+                                  ? <Check className="h-3 w-3 text-emerald-400" />
+                                  : <Copy className="h-3 w-3" />}
+                              </button>
+                            )}
+                          </div>
+                          {isUser ? (
+                            <div className="text-sm text-slate-200 whitespace-pre-wrap break-words overflow-hidden">{message.content}</div>
+                          ) : isSystem ? (
+                            <div className="text-sm text-amber-200/80 whitespace-pre-wrap break-words overflow-hidden">{message.content}</div>
+                          ) : (
+                            <div className="markdown-body text-sm text-slate-300 leading-relaxed overflow-hidden">
+                              <MarkdownBlock content={message.content} />
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {/* Inline receipt for this assistant message */}
+                  {!isUser && !isSystem && !isCompactedHistory && receiptByMsgIndex.has(index) && (() => {
+                    const r = receiptByMsgIndex.get(index)!;
+                    const okCount = r.tools.filter(t => t.success).length;
+                    const failCount = r.tools.length - okCount;
+                    const grouped = new Map<string, { total: number; ok: number }>();
+                    for (const t of r.tools) {
+                      const g = grouped.get(t.tool) ?? { total: 0, ok: 0 };
+                      g.total++;
+                      if (t.success) g.ok++;
+                      grouped.set(t.tool, g);
+                    }
+                    return (
+                      <div className="ml-10 -mt-3 mb-2 rounded-lg border border-white/[0.04] bg-white/[0.015] px-3 py-2">
+                        <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                          <Zap className="h-2.5 w-2.5 text-slate-600" />
+                          <span className="font-medium text-slate-400">Receipt</span>
+                          <span className="tabular-nums">
+                            {new Date(r.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                          </span>
+                          <span className="text-slate-600">·</span>
+                          <span><span className="text-emerald-300">{r.tokens.total}</span> tok</span>
+                          <span className="text-slate-600">·</span>
+                          {failCount > 0
+                            ? <span>{okCount} <span className="text-emerald-400">✓</span> · {failCount} <span className="text-rose-400">✗</span></span>
+                            : <span>{r.tools.length} tools</span>
+                          }
+                          <span className="text-slate-600">·</span>
+                          <span>{r.durationMs ? `${(r.durationMs / 1000).toFixed(1)}s` : "-"}</span>
+                        </div>
+                        {r.tools.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {Array.from(grouped.entries()).slice(0, 8).map(([name, { total, ok }]) => (
+                              <span
+                                key={name}
+                                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] ${
+                                  ok > 0
+                                    ? "bg-emerald-400/8 text-emerald-300 border border-emerald-400/15"
+                                    : "bg-rose-400/8 text-rose-300 border border-rose-400/15"
+                                }`}
+                              >
+                                {name}
+                                {total > 1 && <span className="text-[8px] opacity-60">{ok}/{total}</span>}
+                              </span>
+                            ))}
+                          </div>
                         )}
                       </div>
-                      {isUser ? (
-                        <div className="text-sm text-slate-200 whitespace-pre-wrap break-words overflow-hidden">{message.content}</div>
-                      ) : isSystem ? (
-                        <div className="text-sm text-amber-200/80 whitespace-pre-wrap break-words overflow-hidden">{message.content}</div>
-                      ) : (
-                        <div className="markdown-body text-sm text-slate-300 leading-relaxed overflow-hidden">
-                          <MarkdownBlock content={message.content} />
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
+                    );
+                  })()}
+                </React.Fragment>
               );
             })}
 
@@ -955,24 +1117,61 @@ export function ChatRoute() {
                       <div className="text-[11px] text-slate-300">
                         <span className="text-emerald-300 font-medium">{receipt.tokens.total}</span> tok
                         <span className="text-slate-600"> · </span>
-                        {receipt.tools.length} tools
+                        {(() => {
+                          const ok = receipt.tools.filter(t => t.success).length;
+                          const fail = receipt.tools.length - ok;
+                          return fail > 0
+                            ? <>{ok} <span className="text-emerald-400">✓</span> · {fail} <span className="text-rose-400">✗</span></>
+                            : <>{receipt.tools.length} tools</>;
+                        })()}
                         <span className="text-slate-600"> · </span>
                         {receipt.durationMs ? `${(receipt.durationMs / 1000).toFixed(1)}s` : "-"}
                       </div>
                       {receipt.tools.length > 0 && (
                         <div className="mt-1.5 flex flex-wrap gap-1">
-                          {receipt.tools.slice(0, 5).map((tool, ti) => (
-                            <span
-                              key={`${tool.tool}-${ti}`}
-                              className={`inline-flex items-center rounded px-1.5 py-0.5 text-[9px] ${
-                                tool.success
-                                  ? "bg-emerald-400/8 text-emerald-300 border border-emerald-400/15"
-                                  : "bg-rose-400/8 text-rose-300 border border-rose-400/15"
-                              }`}
-                            >
-                              {tool.tool}
-                            </span>
-                          ))}
+                          {(() => {
+                            // Deduplicate: group by tool name, show best status
+                            const grouped = new Map<string, { total: number; ok: number }>();
+                            for (const t of receipt.tools) {
+                              const g = grouped.get(t.tool) ?? { total: 0, ok: 0 };
+                              g.total++;
+                              if (t.success) g.ok++;
+                              grouped.set(t.tool, g);
+                            }
+                            const entries = Array.from(grouped.entries());
+                            const shown = entries.slice(0, 8);
+                            const overflow = entries.length - shown.length;
+                            return (
+                              <>
+                                {shown.map(([name, { total, ok }]) => {
+                                  const anyOk = ok > 0;
+                                  const retried = total > 1;
+                                  return (
+                                    <span
+                                      key={name}
+                                      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] ${
+                                        anyOk
+                                          ? "bg-emerald-400/8 text-emerald-300 border border-emerald-400/15"
+                                          : "bg-rose-400/8 text-rose-300 border border-rose-400/15"
+                                      }`}
+                                    >
+                                      {name}
+                                      {retried && (
+                                        <span className="text-[8px] opacity-60">
+                                          {ok}/{total}
+                                        </span>
+                                      )}
+                                    </span>
+                                  );
+                                })}
+                                {overflow > 0 && (
+                                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[9px] text-slate-500">
+                                    +{overflow}
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
                       {expandedReceipt === idx && receipt.toolCalls && receipt.toolCalls.length > 0 && (
@@ -1116,6 +1315,71 @@ function toText(value: unknown): string {
     try { return JSON.stringify(value, null, 2); } catch { return String(value); }
   }
   return String(value);
+}
+
+function CompactSummaryCard({ summary }: { summary: { summary: string; messagesCompacted: number; messagesKept: number; timestamp: number } }) {
+  const [expanded, setExpanded] = useState(true);
+
+  return (
+    <div className="py-3">
+      <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.04] overflow-hidden">
+        <button
+          onClick={() => setExpanded((p) => !p)}
+          className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-emerald-400/[0.06] transition-colors"
+        >
+          <Minimize2 className="h-3.5 w-3.5 text-emerald-400" />
+          <span className="text-xs font-medium text-emerald-300">Session Summary</span>
+          <span className="text-[10px] text-emerald-400/50 ml-1">
+            {summary.messagesCompacted} msgs compacted · {summary.messagesKept} in context
+          </span>
+          <span className="text-[10px] text-slate-600 ml-auto mr-1">
+            {new Date(summary.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+          {expanded ? <ChevronUp className="h-3 w-3 text-emerald-400/60" /> : <ChevronDown className="h-3 w-3 text-emerald-400/60" />}
+        </button>
+        {expanded && (
+          <div className="px-3 pb-3 border-t border-emerald-400/10">
+            <div className="mt-2 text-xs text-slate-300 leading-relaxed markdown-body">
+              <MarkdownBlock content={summary.summary} />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CompactedHistoryCard({ content }: { content: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const inner = content.replace(/<\/?compacted_history>/g, "").trim();
+
+  return (
+    <div className="py-3">
+      <div className="rounded-xl border border-purple-400/15 bg-purple-400/[0.04] overflow-hidden">
+        <button
+          onClick={() => setExpanded((p) => !p)}
+          className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-purple-400/[0.06] transition-colors"
+        >
+          <Layers className="h-3.5 w-3.5 text-purple-400" />
+          <span className="text-xs font-medium text-purple-300">Compacted History</span>
+          <span className="text-[10px] text-purple-400/50 ml-1">
+            {inner.length > 200 ? `${Math.ceil(inner.length / 4)} tokens approx` : "summary"}
+          </span>
+          <span className="text-[10px] text-slate-600 ml-auto mr-1">
+            {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          </span>
+          {expanded ? <ChevronUp className="h-3 w-3 text-purple-400/60" /> : <ChevronDown className="h-3 w-3 text-purple-400/60" />}
+        </button>
+        {expanded && (
+          <div className="px-3 pb-3 border-t border-purple-400/10">
+            <div className="mt-2 text-xs text-slate-300 leading-relaxed markdown-body">
+              <MarkdownBlock content={inner} />
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function MarkdownBlock({ content }: { content: string }) {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, Download, Pause, Play, Radio } from "lucide-react";
 
 import { Badge, Button, Input, Select, SelectItem, Separator } from "@/components/ui";
+import { wsUrl } from "@/lib/ws";
 
 type LogEntry = {
   ts?: string;
@@ -60,8 +61,7 @@ export function LogsRoute() {
     let mounted = true;
 
     const connect = () => {
-      const proto = window.location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${window.location.host}/ws/logs`);
+      ws = new WebSocket(wsUrl("/ws/logs"));
 
       ws.onmessage = (event) => {
         let parsed: LogEntry;

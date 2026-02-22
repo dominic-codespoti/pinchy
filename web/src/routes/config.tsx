@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Save, Trash2, RotateCcw, Settings, FileCode } from "lucide-react";
+import { Plus, Save, Trash2, Settings, FileCode, Sparkles } from "lucide-react";
+import yaml from "js-yaml";
+import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from "@codemirror/view";
+import { EditorState } from "@codemirror/state";
+import { yaml as yamlLang } from "@codemirror/lang-yaml";
+import { oneDark } from "@codemirror/theme-one-dark";
 
 import { getConfig, queryKeys, saveConfig } from "@/api/client";
 import {
   Input,
   Separator,
-  TextArea,
 } from "@/components/ui";
 
 const modelSchema = z.object({
@@ -36,7 +40,6 @@ export function ConfigRoute() {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<Mode>("form");
   const [rawYaml, setRawYaml] = useState("");
-  const [loadedYaml, setLoadedYaml] = useState("");
 
   const configQuery = useQuery({ queryKey: queryKeys.config, queryFn: getConfig });
 
@@ -77,9 +80,8 @@ export function ConfigRoute() {
       discordToken: secretToString(discord.token),
     });
 
-    const yaml = jsonToYaml(cfg);
-    setRawYaml(yaml);
-    setLoadedYaml(yaml);
+    const yamlStr = yaml.dump(cfg, { lineWidth: -1, noRefs: true, sortKeys: false });
+    setRawYaml(yamlStr);
   }, [configQuery.data, form]);
 
   const saveMutation = useMutation({
@@ -124,14 +126,14 @@ export function ConfigRoute() {
     channels.discord = discord;
     next.channels = channels;
 
-    setRawYaml(jsonToYaml(next));
+    setRawYaml(yaml.dump(next, { lineWidth: -1, noRefs: true, sortKeys: false }));
     saveMutation.mutate(next);
   });
 
   const onSaveYaml = () => {
     let parsed: unknown;
     try {
-      parsed = yamlToJson(rawYaml);
+      parsed = yaml.load(rawYaml);
     } catch (error) {
       toast.error(`Invalid YAML: ${(error as Error).message}`);
       return;
@@ -326,18 +328,27 @@ export function ConfigRoute() {
                 <FileCode className="h-3.5 w-3.5 text-emerald-400/60" />
                 <span className="text-xs font-medium text-slate-300">Raw YAML</span>
               </div>
-              <TextArea
-                className="min-h-96 font-mono text-xs"
-                value={rawYaml}
-                onChange={(event) => setRawYaml(event.target.value)}
-              />
+              <YamlEditor value={rawYaml} onChange={setRawYaml} />
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setRawYaml(loadedYaml)}
+                  onClick={() => {
+                    try {
+                      const parsed = yaml.load(rawYaml);
+                      if (parsed && typeof parsed === "object") {
+                        let dumped = yaml.dump(parsed, { lineWidth: -1, noRefs: true, sortKeys: false, indent: 2 });
+                        // Add blank lines between top-level keys for readability
+                        dumped = dumped.replace(/\n(?=[a-zA-Z_][\w_-]*:)/g, "\n\n");
+                        setRawYaml(dumped);
+                        toast.success("YAML formatted");
+                      }
+                    } catch (e) {
+                      toast.error(`Cannot prettify: ${(e as Error).message}`);
+                    }
+                  }}
                   className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
                 >
-                  <RotateCcw className="h-3 w-3" /> Reset
+                  <Sparkles className="h-3 w-3" /> Prettify
                 </button>
                 <button
                   type="button"
@@ -388,143 +399,82 @@ function secretToString(value: unknown): string {
   return "";
 }
 
-// Minimal YAML helpers for config editing parity.
-function jsonToYaml(obj: unknown, indent = 0): string {
-  const pad = "  ".repeat(indent);
-  const lines: string[] = [];
+function YamlEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<EditorView | null>(null);
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
 
-  if (Array.isArray(obj)) {
-    for (const item of obj) {
-      if (item && typeof item === "object") {
-        const inner = jsonToYaml(item, indent + 1).split("\n");
-        lines.push(`${pad}- ${inner[0]?.trim() ?? ""}`);
-        for (let i = 1; i < inner.length; i += 1) {
-          if (inner[i].trim()) lines.push(`${pad}  ${inner[i].trim()}`);
-        }
-      } else {
-        lines.push(`${pad}- ${yamlValue(item)}`);
-      }
+  useEffect(() => {
+    if (!containerRef.current) return;
+
+    const pinchyTheme = EditorView.theme({
+      "&": {
+        backgroundColor: "rgba(0, 0, 0, 0.3)",
+        color: "#cbd5e1",
+        fontSize: "12px",
+        borderRadius: "8px",
+        border: "1px solid rgba(255, 255, 255, 0.06)",
+        minHeight: "24rem",
+      },
+      ".cm-content": {
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+        caretColor: "#34d399",
+        padding: "8px 0",
+      },
+      ".cm-cursor": { borderLeftColor: "#34d399" },
+      ".cm-activeLine": { backgroundColor: "rgba(255, 255, 255, 0.03)" },
+      ".cm-activeLineGutter": { backgroundColor: "rgba(255, 255, 255, 0.03)" },
+      ".cm-gutters": {
+        backgroundColor: "rgba(0, 0, 0, 0.2)",
+        color: "rgba(100, 116, 139, 0.5)",
+        border: "none",
+        borderRight: "1px solid rgba(255, 255, 255, 0.04)",
+      },
+      ".cm-selectionBackground": { backgroundColor: "rgba(52, 211, 153, 0.15) !important" },
+      "&.cm-focused .cm-selectionBackground": { backgroundColor: "rgba(52, 211, 153, 0.2) !important" },
+      ".cm-matchingBracket": { backgroundColor: "rgba(52, 211, 153, 0.2)", outline: "none" },
+    });
+
+    const state = EditorState.create({
+      doc: value,
+      extensions: [
+        lineNumbers(),
+        highlightActiveLine(),
+        highlightActiveLineGutter(),
+        yamlLang(),
+        oneDark,
+        pinchyTheme,
+        EditorView.updateListener.of((update) => {
+          if (update.docChanged) {
+            onChangeRef.current(update.state.doc.toString());
+          }
+        }),
+        EditorView.lineWrapping,
+      ],
+    });
+
+    const view = new EditorView({ state, parent: containerRef.current });
+    viewRef.current = view;
+
+    return () => {
+      view.destroy();
+      viewRef.current = null;
+    };
+    // Only create editor once
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const current = view.state.doc.toString();
+    if (current !== value) {
+      view.dispatch({
+        changes: { from: 0, to: current.length, insert: value },
+      });
     }
-  } else if (obj && typeof obj === "object") {
-    for (const [key, value] of Object.entries(obj as Record<string, unknown>)) {
-      if (value === null || value === undefined) {
-        lines.push(`${pad}${key}: null`);
-      } else if (typeof value === "object") {
-        lines.push(`${pad}${key}:`);
-        lines.push(jsonToYaml(value, indent + 1));
-      } else {
-        lines.push(`${pad}${key}: ${yamlValue(value)}`);
-      }
-    }
-  }
+  }, [value]);
 
-  return lines.join("\n");
-}
-
-function yamlValue(value: unknown): string {
-  if (typeof value === "string") {
-    if (
-      value === "" ||
-      /[:#{}[\],&*?|>!%@`]/.test(value) ||
-      /^\s|\s$/.test(value)
-    ) {
-      return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-    }
-    return value;
-  }
-  return String(value);
-}
-
-function yamlToJson(text: string): Record<string, unknown> {
-  const trimmed = text.trim();
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    return JSON.parse(trimmed) as Record<string, unknown>;
-  }
-
-  const result: Record<string, unknown> = {};
-  const lines = text.split("\n");
-  const stack: Array<{ obj: unknown; indent: number }> = [{ obj: result, indent: -1 }];
-
-  for (const rawLine of lines) {
-    const stripped = rawLine.replace(/\s+$/, "");
-    if (!stripped || stripped.trim().startsWith("#")) continue;
-
-    const indent = rawLine.search(/\S/);
-    const content = stripped.trim();
-
-    while (stack.length > 1 && stack[stack.length - 1].indent >= indent) {
-      stack.pop();
-    }
-
-    let parent = stack[stack.length - 1].obj;
-
-    if (content.startsWith("- ")) {
-      if (!Array.isArray(parent)) {
-        if (!parent || typeof parent !== "object" || Array.isArray(parent)) {
-          throw new Error("Invalid YAML structure");
-        }
-        const objParent = parent as Record<string, unknown>;
-        const keys = Object.keys(objParent);
-        const lastKey = keys[keys.length - 1];
-        if (!lastKey) throw new Error("Invalid YAML array placement");
-        if (!Array.isArray(objParent[lastKey])) objParent[lastKey] = [];
-        parent = objParent[lastKey];
-        stack.push({ obj: parent, indent });
-      }
-
-      const arr = parent as unknown[];
-      const itemText = content.slice(2);
-      if (itemText.includes(":")) {
-        const obj: Record<string, unknown> = {};
-        arr.push(obj);
-        stack.push({ obj, indent });
-        const [key, ...rest] = itemText.split(":");
-        obj[key.trim()] = parseYamlValue(rest.join(":").trim());
-      } else {
-        arr.push(parseYamlValue(itemText));
-      }
-      continue;
-    }
-
-    const colon = content.indexOf(":");
-    if (colon === -1) continue;
-
-    const key = content.slice(0, colon).trim();
-    const valueText = content.slice(colon + 1).trim();
-
-    if (!parent || typeof parent !== "object" || Array.isArray(parent)) {
-      throw new Error("Invalid YAML object placement");
-    }
-
-    const objParent = parent as Record<string, unknown>;
-
-    if (valueText === "") {
-      objParent[key] = {};
-      stack.push({ obj: objParent[key], indent });
-    } else {
-      objParent[key] = parseYamlValue(valueText);
-    }
-  }
-
-  return result;
-}
-
-function parseYamlValue(valueText: string): unknown {
-  if (valueText === "null") return null;
-  if (valueText === "true") return true;
-  if (valueText === "false") return false;
-
-  if (/^".*"$/.test(valueText)) {
-    return valueText
-      .slice(1, -1)
-      .replace(/\\"/g, "\"")
-      .replace(/\\\\/g, "\\");
-  }
-
-  if (/^-?\d+(\.\d+)?$/.test(valueText)) {
-    const num = Number(valueText);
-    if (!Number.isNaN(num)) return num;
-  }
-
-  return valueText;
+  return <div ref={containerRef} className="rounded-lg overflow-hidden" />;
 }

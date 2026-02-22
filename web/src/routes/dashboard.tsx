@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   Server,
 } from "lucide-react";
+import { wsUrl, sendOneShot } from "@/lib/ws";
 
 import {
   getHealth,
@@ -59,8 +60,7 @@ export function DashboardRoute() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
 
   useEffect(() => {
-    const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${window.location.host}/ws`);
+    const ws = new WebSocket(wsUrl());
 
     ws.onmessage = (event) => {
       try {
@@ -483,27 +483,7 @@ export function DashboardRoute() {
 }
 
 function forceHeartbeatTick(agentId: string) {
-  return new Promise<void>((resolve, reject) => {
-    const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${window.location.host}/ws`);
-
-    ws.onopen = () => {
-      ws.send(
-        JSON.stringify({
-          type: "client_command",
-          command: `/heartbeat check ${agentId}`,
-          target_agent: agentId,
-        }),
-      );
-      ws.close();
-      resolve();
-    };
-
-    ws.onerror = () => {
-      ws.close();
-      reject(new Error("WebSocket error"));
-    };
-  });
+  return sendOneShot(`/heartbeat check ${agentId}`, agentId);
 }
 
 function StatCard({ label, value, loading, icon: Icon, accent }: { label: string; value: string; loading: boolean; icon: React.ComponentType<{ className?: string }>; accent?: boolean }) {

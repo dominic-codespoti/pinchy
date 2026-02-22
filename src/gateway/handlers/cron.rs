@@ -139,10 +139,12 @@ pub(crate) async fn api_cron_jobs_create(Json(body): Json<CreateCronJobRequest>)
         crate::scheduler::JobKind::default()
     };
 
+    let schedule = crate::scheduler::normalize_cron_schedule(&body.schedule);
+
     let entry = crate::scheduler::PersistedCronJob {
         agent_id: body.agent_id.clone(),
         name: name.clone(),
-        schedule: body.schedule.clone(),
+        schedule,
         message: Some(body.message.clone()),
         kind,
         depends_on: body.depends_on.clone(),
@@ -307,7 +309,7 @@ pub(crate) async fn api_cron_jobs_update(
     match job {
         Some(job) => {
             if let Some(schedule) = body.schedule {
-                job.schedule = schedule;
+                job.schedule = crate::scheduler::normalize_cron_schedule(&schedule);
             }
             if let Some(message) = body.message {
                 job.message = Some(message);

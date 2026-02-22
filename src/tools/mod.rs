@@ -624,6 +624,8 @@ pub fn builtin_skill_names() -> &'static [&'static str] {
         "session_send",
         "session_spawn",
         "search_tools",
+        "send_message",
+        "self_update",
     ]
 }
 
@@ -644,6 +646,7 @@ pub fn init() {
     builtins::session::register();
     builtins::search_tools::register();
     builtins::send_message::register();
+    builtins::self_update::register();
 
     // Attach handlers to the built-in tools.
     register_handler(
@@ -749,13 +752,18 @@ pub fn init() {
     register_handler(
         "session_spawn",
         Arc::new(|args, ws| Box::pin(async move { builtins::session::session_spawn(&ws, args).await })),
-    );    register_handler(
+    );
+    register_handler(
         "search_tools",
         Arc::new(|args, ws| Box::pin(async move { builtins::search_tools::search_tools(&ws, args).await })),
     );
     register_handler(
         "send_message",
         Arc::new(|args, ws| Box::pin(async move { builtins::send_message::send_message(&ws, args).await })),
+    );
+    register_handler(
+        "self_update",
+        Arc::new(|args, ws| Box::pin(async move { builtins::self_update::self_update(&ws, args).await })),
     );
 
     // Mark less-common tools as deferred (discoverable via search_tools,
@@ -767,6 +775,7 @@ pub fn init() {
             "delete_cron_job", "run_cron_job", "cron_job_history",
             "session_list", "session_status", "session_send", "session_spawn",
             "create_skill", "list_skills", "delete_skill", "edit_skill",
+            "self_update",
         ];
         let mut reg = REGISTRY.lock().expect("tool registry poisoned");
         for entry in reg.iter_mut() {

@@ -1,11 +1,8 @@
 import * as React from "react";
 import * as CheckboxPrimitive from "@radix-ui/react-checkbox";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import * as ScrollAreaPrimitive from "@radix-ui/react-scroll-area";
 import * as SelectPrimitive from "@radix-ui/react-select";
 import { Slot } from "@radix-ui/react-slot";
-import * as TabsPrimitive from "@radix-ui/react-tabs";
-import * as TooltipPrimitive from "@radix-ui/react-tooltip";
 import { cva, type VariantProps } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
@@ -111,61 +108,6 @@ export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDi
 
 export function Separator({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn("h-px w-full bg-gradient-to-r from-transparent via-slate-300/12 to-transparent", className)} {...props} />;
-}
-
-/* ── Panel ─────────────────────────────────────────── */
-
-export function Panel({
-  children,
-  className,
-  title,
-  actions,
-}: {
-  children: React.ReactNode;
-  className?: string;
-  title?: React.ReactNode;
-  actions?: React.ReactNode;
-}) {
-  return (
-    <Card className={cn("space-y-3 p-4", className)}>
-      {(title || actions) && (
-        <div className="flex items-center justify-between gap-2">
-          {title ? (
-            <h2 className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-wide text-slate-300">
-              <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400/70" />
-              {title}
-            </h2>
-          ) : (
-            <span />
-          )}
-          {actions}
-        </div>
-      )}
-      {children}
-    </Card>
-  );
-}
-
-/* ── Field ─────────────────────────────────────────── */
-
-export function Field({
-  label,
-  children,
-  error,
-  className,
-}: {
-  label: React.ReactNode;
-  children: React.ReactNode;
-  error?: string;
-  className?: string;
-}) {
-  return (
-    <label className={cn("block text-sm", className)}>
-      <span className="mb-1.5 block text-xs font-medium text-slate-300">{label}</span>
-      {children}
-      {error ? <span className="mt-1.5 block text-xs text-rose-300">{error}</span> : null}
-    </label>
-  );
 }
 
 /* ── Input ─────────────────────────────────────────── */
@@ -378,125 +320,6 @@ export function DialogContent({
   );
 }
 
-/* ── Tabs ──────────────────────────────────────────── */
-
-export const Tabs = TabsPrimitive.Root;
-
-export const TabsList = React.forwardRef<
-  React.ElementRef<typeof TabsPrimitive.List>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.List>
->(function TabsList({ className, ...props }, ref) {
-  return (
-    <TabsPrimitive.List
-      ref={ref}
-      className={cn(
-        "inline-flex h-9 items-center rounded-lg border border-slate-300/18 bg-white/[0.04] p-0.5 backdrop-blur-sm",
-        className,
-      )}
-      {...props}
-    />
-  );
-});
-TabsList.displayName = "TabsList";
-
-export const TabsTrigger = React.forwardRef<
-  React.ElementRef<typeof TabsPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Trigger>
->(function TabsTrigger({ className, ...props }, ref) {
-  return (
-    <TabsPrimitive.Trigger
-      ref={ref}
-      className={cn(
-        "inline-flex h-7 items-center justify-center rounded-md px-2.5 text-xs text-slate-400 transition-all duration-200",
-        "data-[state=active]:bg-emerald-300/10 data-[state=active]:text-emerald-100 data-[state=active]:shadow-sm",
-        "hover:text-slate-200",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/30",
-        className,
-      )}
-      {...props}
-    />
-  );
-});
-TabsTrigger.displayName = "TabsTrigger";
-
-export const TabsContent = React.forwardRef<
-  React.ElementRef<typeof TabsPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof TabsPrimitive.Content>
->(function TabsContent({ className, ...props }, ref) {
-  return (
-    <TabsPrimitive.Content
-      ref={ref}
-      className={cn("focus-visible:outline-none", className)}
-      {...props}
-    />
-  );
-});
-TabsContent.displayName = "TabsContent";
-
-/* ── ScrollArea ────────────────────────────────────── */
-
-export const ScrollArea = React.forwardRef<
-  React.ElementRef<typeof ScrollAreaPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.Root>
->(function ScrollArea({ className, children, ...props }, ref) {
-  return (
-    <ScrollAreaPrimitive.Root ref={ref} className={cn("relative overflow-hidden", className)} {...props}>
-      <ScrollAreaPrimitive.Viewport className="h-full w-full rounded-[inherit]">{children}</ScrollAreaPrimitive.Viewport>
-      <ScrollBar />
-      <ScrollAreaPrimitive.Corner className="bg-transparent" />
-    </ScrollAreaPrimitive.Root>
-  );
-});
-ScrollArea.displayName = "ScrollArea";
-
-const ScrollBar = React.forwardRef<
-  React.ElementRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>,
-  React.ComponentPropsWithoutRef<typeof ScrollAreaPrimitive.ScrollAreaScrollbar>
->(function ScrollBar({ className, orientation = "vertical", ...props }, ref) {
-  return (
-    <ScrollAreaPrimitive.ScrollAreaScrollbar
-      ref={ref}
-      orientation={orientation}
-      className={cn(
-        "flex select-none touch-none p-0.5 transition-colors",
-        orientation === "vertical" && "h-full w-2.5 border-l border-l-transparent",
-        orientation === "horizontal" && "h-2.5 flex-col border-t border-t-transparent",
-        className,
-      )}
-      {...props}
-    >
-      <ScrollAreaPrimitive.ScrollAreaThumb className="relative flex-1 rounded-full bg-slate-400/35" />
-    </ScrollAreaPrimitive.ScrollAreaScrollbar>
-  );
-});
-ScrollBar.displayName = "ScrollBar";
-
-/* ── Tooltip ───────────────────────────────────────── */
-
-export const TooltipProvider = TooltipPrimitive.Provider;
-export const Tooltip = TooltipPrimitive.Root;
-export const TooltipTrigger = TooltipPrimitive.Trigger;
-
-export const TooltipContent = React.forwardRef<
-  React.ElementRef<typeof TooltipPrimitive.Content>,
-  React.ComponentPropsWithoutRef<typeof TooltipPrimitive.Content>
->(function TooltipContent({ className, sideOffset = 6, ...props }, ref) {
-  return (
-    <TooltipPrimitive.Portal>
-      <TooltipPrimitive.Content
-        ref={ref}
-        sideOffset={sideOffset}
-        className={cn(
-          "z-50 overflow-hidden rounded-lg border border-[var(--glass-border)] bg-[#0b111d]/95 px-2.5 py-1.5 text-xs text-slate-200 shadow-glass backdrop-blur-sm",
-          className,
-        )}
-        {...props}
-      />
-    </TooltipPrimitive.Portal>
-  );
-});
-TooltipContent.displayName = "TooltipContent";
-
 /* ── Skeleton ──────────────────────────────────────── */
 
 export function Skeleton({ className }: { className?: string }) {
@@ -514,26 +337,16 @@ export function Skeleton({ className }: { className?: string }) {
   );
 }
 
-/* ── EmptyState ────────────────────────────────────── */
+/* ── StatusPill ────────────────────────────────────── */
 
-export function EmptyState({
-  title,
-  detail,
-  className,
-}: {
-  title: string;
-  detail?: string;
-  className?: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "glass-panel rounded-xl px-4 py-5 text-center",
-        className,
-      )}
-    >
-      <p className="text-sm font-semibold tracking-tight text-slate-100">{title}</p>
-      {detail ? <p className="mt-1 text-xs text-slate-400">{detail}</p> : null}
-    </div>
-  );
+export function StatusPill({ status }: { status: string }) {
+  const normalized = status.toUpperCase();
+  const variant = normalized.startsWith("FAILED")
+    ? "danger"
+    : normalized === "SUCCESS"
+      ? "success"
+      : normalized === "RUNNING"
+        ? "info"
+        : "neutral";
+  return <Badge variant={variant}>{status}</Badge>;
 }

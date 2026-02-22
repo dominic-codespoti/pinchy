@@ -31,6 +31,8 @@ fn test_config(workspace: &std::path::Path, agent_id: &str) -> Config {
             fallback_models: Vec::new(),
             webhook_secret: None,
             extra_exec_commands: Vec::new(),
+            history_messages: None,
+            timezone: None,
         }],
         secrets: None,
         routing: None,
@@ -38,6 +40,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str) -> Config {
         session_expiry_days: None,
         cron_session_expiry_days: None,
         cron_events_max_keep: None,
+        timezone: None,
     }
 }
 

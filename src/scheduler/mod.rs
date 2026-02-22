@@ -110,6 +110,11 @@ pub struct PersistedCronJob {
     pub last_status: Option<String>,
 }
 
+/// Resolve the effective timezone for an agent from config.
+fn resolve_agent_timezone(config: &Config, agent_id: &str) -> chrono_tz::Tz {
+    config.resolve_timezone(agent_id)
+}
+
 /// Read the heartbeat interval from `PINCHY_HEARTBEAT_SECS` env var,
 /// falling back to the per-agent config value, then to the provided
 /// `default`.
@@ -128,8 +133,9 @@ impl SchedulerHandle {
     pub async fn register_job(
         &self,
         workspace: &Path,
-        entry: PersistedCronJob,
+        mut entry: PersistedCronJob,
     ) -> anyhow::Result<()> {
+        entry.schedule = normalize_cron_schedule(&entry.schedule);
         let agent_id = entry.agent_id.clone();
         let name = entry.name.clone();
         let schedule = entry.schedule.clone();
@@ -167,7 +173,16 @@ impl SchedulerHandle {
             let jn = name.to_string();
             let msg = message.unwrap_or_else(|| format!("[cron:{}]", jn));
 
-            let job = Job::new_async(schedule, move |_uuid, _lock| {
+            // Resolve timezone for this agent.
+            let tz = {
+                let config_path = crate::pinchy_home().join("config.yaml");
+                crate::config::Config::load(&config_path)
+                    .await
+                    .map(|cfg| resolve_agent_timezone(&cfg, &aid))
+                    .unwrap_or(chrono_tz::UTC)
+            };
+
+            let job = Job::new_async_tz(schedule, tz, move |_uuid, _lock| {
                 let aid = aid.clone();
                 let jn = jn.clone();
                 let msg = msg.clone();
@@ -334,7 +349,7 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
                 debug!(agent = %agent_id, job = %job_name, schedule = %schedule,
                       "registering cron job");
 
-                let job = Job::new_async(schedule.as_str(), move |_uuid, _lock| {
+                let job = Job::new_async_tz(schedule.as_str(), resolve_agent_timezone(&config, &agent_id), move |_uuid, _lock| {
                     let agent_id = agent_id.clone();
                     let job_name = job_name.clone();
                     let message = message.clone();
@@ -392,12 +407,14 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
         for (workspace, pjobs) in &all_persisted {
             for pjob in pjobs {
                 let ws = workspace.clone();
-                let pj = pjob.clone();
+                let mut pj = pjob.clone();
+                pj.schedule = normalize_cron_schedule(&pj.schedule);
 
-                debug!(agent = %pjob.agent_id, job = %pjob.name, schedule = %pjob.schedule,
+                debug!(agent = %pj.agent_id, job = %pj.name, schedule = %pj.schedule,
                        "registering persisted cron job");
 
-                let job = Job::new_async(pjob.schedule.as_str(), move |_uuid, _lock| {
+                let schedule = pj.schedule.clone();
+                let job = Job::new_async_tz(schedule.as_str(), resolve_agent_timezone(&config, &pj.agent_id), move |_uuid, _lock| {
                     let ws = ws.clone();
                     let pj = pj.clone();
                     Box::pin(async move {
@@ -440,15 +457,6 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
         cron_scheduler: cron_sched_for_handle,
         job_uuids: job_uuids_map,
     })
-}
-
-/// Backwards-compatible alias used by existing call-sites.
-pub async fn init(config: &Config) -> anyhow::Result<()> {
-    // Start and intentionally leak the handle so background tasks
-    // keep running for the process lifetime (matches the old behaviour).
-    let handle = start(config).await?;
-    std::mem::forget(handle);
-    Ok(())
 }
 
 /// Global handle storage so other modules can access the scheduler at runtime.
@@ -1126,4 +1134,17 @@ async fn prune_global_index() -> usize {
     }
 
     pruned
+}
+
+/// Normalize a cron schedule expression to the 6-field format required by
+/// `tokio_cron_scheduler` (sec min hour dom month dow).
+/// Accepts 5-field (standard crontab) by prepending `0` for seconds,
+/// and passes 6/7-field expressions through unchanged.
+pub fn normalize_cron_schedule(schedule: &str) -> String {
+    let fields: Vec<&str> = schedule.split_whitespace().collect();
+    if fields.len() == 5 {
+        format!("0 {schedule}")
+    } else {
+        schedule.to_string()
+    }
 }

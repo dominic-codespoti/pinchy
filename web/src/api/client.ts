@@ -16,6 +16,7 @@ const agentSchema = z.object({
   enabled_skills: z.array(z.string()).nullable().optional(),
   cron_jobs_count: z.number().optional(),
   cron_job_count: z.number().optional(),
+  history_messages: z.number().nullable().optional(),
 });
 
 const agentDetailSchema = agentSchema.extend({

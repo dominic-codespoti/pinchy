@@ -110,6 +110,10 @@ pub async fn get_agent(_workspace: &Path, args: Value) -> anyhow::Result<Value> 
 }
 
 /// `create_agent` — scaffold a new agent workspace + update config.
+///
+/// Fields not explicitly provided are inherited from the `default` agent
+/// (its on-disk files and config entry), so new agents start with a
+/// sensible baseline rather than bare-bones placeholders.
 pub async fn create_agent(_workspace: &Path, args: Value) -> anyhow::Result<Value> {
     let id = args["id"]
         .as_str()
@@ -131,49 +135,104 @@ pub async fn create_agent(_workspace: &Path, args: Value) -> anyhow::Result<Valu
         anyhow::bail!("agent '{id}' already exists");
     }
 
+    // ── Inherit defaults from the "default" agent ──────────────────────
+    let default_root = crate::utils::agent_root("default");
+
+    let config_path = crate::pinchy_home().join("config.yaml");
+    let cfg_result = crate::config::Config::load(&config_path).await;
+    let default_cfg = cfg_result
+        .as_ref()
+        .ok()
+        .and_then(|cfg| cfg.agents.iter().find(|a| a.id == "default").cloned());
+
+    // Helper: read a file from the default agent, returning None on failure.
+    async fn read_default(root: &Path, file: &str) -> Option<String> {
+        tokio::fs::read_to_string(root.join(file)).await.ok()
+    }
+
     // Create directory structure.
     tokio::fs::create_dir_all(base.join("workspace").join("sessions")).await?;
 
-    // Write default template files.
-    let soul = args["soul"].as_str().map(String::from).unwrap_or_else(|| {
-        format!(
-            "# {id}\n\nDescribe this agent's personality, role, and boundaries here.\n"
-        )
-    });
-    let tools_content = args["tools"]
-        .as_str()
-        .map(String::from)
-        .unwrap_or_else(|| {
-            "# Tools\n\nList the tools this agent is allowed to use.\n\n- read\n- write\n- exec\n"
-                .to_string()
-        });
-    let heartbeat_content = args["heartbeat"]
-        .as_str()
-        .map(String::from)
-        .unwrap_or_else(|| {
-            "# Heartbeat\n\nInstructions the agent executes on each heartbeat tick.\n".to_string()
-        });
+    // ── Resolve file contents: explicit arg > default agent file > placeholder ──
+    let soul = match args["soul"].as_str() {
+        Some(s) => s.to_string(),
+        None => match read_default(&default_root, "SOUL.md").await {
+            Some(s) => s,
+            None => format!(
+                "# {id}\n\nDescribe this agent's personality, role, and boundaries here.\n"
+            ),
+        },
+    };
+
+    let tools_content = match args["tools"].as_str() {
+        Some(s) => s.to_string(),
+        None => read_default(&default_root, "TOOLS.md")
+            .await
+            .unwrap_or_else(|| {
+                "# Tools\n\nList the tools this agent is allowed to use.\n\n- read\n- write\n- exec\n"
+                    .to_string()
+            }),
+    };
+
+    let heartbeat_content = match args["heartbeat"].as_str() {
+        Some(s) => s.to_string(),
+        None => read_default(&default_root, "HEARTBEAT.md")
+            .await
+            .unwrap_or_else(|| {
+                "# Heartbeat\n\nInstructions the agent executes on each heartbeat tick.\n"
+                    .to_string()
+            }),
+    };
 
     tokio::fs::write(base.join("SOUL.md"), &soul).await?;
     tokio::fs::write(base.join("TOOLS.md"), &tools_content).await?;
     tokio::fs::write(base.join("HEARTBEAT.md"), &heartbeat_content).await?;
 
+    // ── Resolve config fields: explicit arg > default agent config > None ──
+    let model = args["model"]
+        .as_str()
+        .map(String::from)
+        .or_else(|| default_cfg.as_ref().and_then(|c| c.model.clone()));
+
+    let heartbeat_secs = args["heartbeat_secs"]
+        .as_u64()
+        .or_else(|| default_cfg.as_ref().and_then(|c| c.heartbeat_secs));
+
+    let max_tool_iterations = args["max_tool_iterations"]
+        .as_u64()
+        .map(|v| v as usize)
+        .or_else(|| default_cfg.as_ref().and_then(|c| c.max_tool_iterations));
+
+    let enabled_skills = args["enabled_skills"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect::<Vec<_>>()
+        })
+        .or_else(|| default_cfg.as_ref().and_then(|c| c.enabled_skills.clone()));
+
+    let fallback_models = default_cfg
+        .as_ref()
+        .map(|c| c.fallback_models.clone())
+        .unwrap_or_default();
+
     // Add to config.yaml.
-    let model = args["model"].as_str().map(String::from);
-    let config_path = crate::pinchy_home().join("config.yaml");
-    if let Ok(mut cfg) = crate::config::Config::load(&config_path).await {
+    if let Ok(mut cfg) = cfg_result {
         if !cfg.agents.iter().any(|a| a.id == id) {
             cfg.agents.push(crate::config::AgentConfig {
                 id: id.to_string(),
                 root: format!("agents/{id}"),
                 model: model.clone(),
-                heartbeat_secs: None,
+                heartbeat_secs,
                 cron_jobs: Vec::new(),
-                max_tool_iterations: None,
-                enabled_skills: None,
-                fallback_models: Vec::new(),
+                max_tool_iterations,
+                enabled_skills: enabled_skills.clone(),
+                fallback_models,
                 webhook_secret: None,
                 extra_exec_commands: Vec::new(),
+                history_messages: None,
+                timezone: None,
             });
             if let Err(e) = cfg.save(&config_path).await {
                 tracing::warn!(error = %e, "failed to save config after agent creation");
@@ -185,6 +244,7 @@ pub async fn create_agent(_workspace: &Path, args: Value) -> anyhow::Result<Valu
         "status": "created",
         "id": id,
         "model": model,
+        "inherited_from": "default",
     }))
 }
 

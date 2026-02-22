@@ -21,7 +21,9 @@ import {
   listCronJobs,
   queryKeys,
 } from "@/api/client";
-import { Badge, Button, Checkbox, Dialog, DialogContent, Input, Select, SelectItem, Separator, TextArea } from "@/components/ui";
+import { Button, Checkbox, Dialog, DialogContent, Input, Select, SelectItem, Separator, StatusPill, TextArea } from "@/components/ui";
+import { CRON_RE, computeNextFires } from "@/lib/utils";
+import { sendOneShot } from "@/lib/ws";
 
 type CronJobView = {
   id: string;
@@ -32,8 +34,6 @@ type CronJobView = {
   kind?: string;
   last_status?: string | null;
 };
-
-const CRON_RE = /^(@(annually|yearly|monthly|weekly|daily|midnight|hourly|reboot|every\s+\S+))$|^(\S+\s+){4,6}\S+$/i;
 
 export function CronRoute() {
   const queryClient = useQueryClient();
@@ -123,25 +123,10 @@ export function CronRoute() {
 
   const runNow = (job: CronJobView) => {
     setRunningJobId(job.id);
-    const proto = window.location.protocol === "https:" ? "wss" : "ws";
-    const ws = new WebSocket(`${proto}://${window.location.host}/ws`);
-    ws.onopen = () => {
-      ws.send(
-        JSON.stringify({
-          type: "client_command",
-          command: `/cron run ${job.id}`,
-          target_agent: job.agent_id,
-        }),
-      );
-      ws.close();
-      setRunningJobId(null);
-      toast.success(`Triggered ${job.name}`);
-    };
-    ws.onerror = () => {
-      ws.close();
-      setRunningJobId(null);
-      toast.error("Failed to trigger cron run");
-    };
+    sendOneShot(`/cron run ${job.id}`, job.agent_id)
+      .then(() => toast.success(`Triggered ${job.name}`))
+      .catch(() => toast.error("Failed to trigger cron run"))
+      .finally(() => setRunningJobId(null));
   };
 
   const schedulePreview = computeNextFires(schedule, 5);
@@ -488,45 +473,3 @@ function CronCard({
   );
 }
 
-function StatusPill({ status }: { status: string }) {
-  const normalized = status.toUpperCase();
-  const variant = normalized.startsWith("FAILED")
-    ? "danger"
-    : normalized === "SUCCESS"
-      ? "success"
-      : normalized === "RUNNING"
-        ? "info"
-        : "neutral";
-
-  return <Badge variant={variant}>{status}</Badge>;
-}
-
-function computeNextFires(expr: string, count: number): Date[] {
-  if (!expr || !CRON_RE.test(expr)) return [];
-  if (expr.startsWith("@")) return [];
-
-  const parts = expr.split(/\s+/);
-  if (parts.length < 5) return [];
-
-  const minute = parts[0];
-  const hour = parts[1];
-
-  const m = minute === "*" ? null : parseInt(minute, 10);
-  const h = hour === "*" ? null : parseInt(hour, 10);
-  if ((m !== null && Number.isNaN(m)) || (h !== null && Number.isNaN(h))) return [];
-
-  const results: Date[] = [];
-  let cursor = new Date();
-  cursor.setSeconds(0, 0);
-
-  for (let tries = 0; tries < 1440 * 7 && results.length < count; tries += 1) {
-    cursor = new Date(cursor.getTime() + 60_000);
-    const cm = cursor.getMinutes();
-    const ch = cursor.getHours();
-    if ((m === null || cm === m) && (h === null || ch === h)) {
-      results.push(new Date(cursor));
-    }
-  }
-
-  return results;
-}

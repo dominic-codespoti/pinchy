@@ -2,6 +2,26 @@ import { useEffect, useRef } from "react";
 
 import { useUiStore } from "@/state/ui";
 
+export function wsUrl(path = "/ws"): string {
+  const proto = window.location.protocol === "https:" ? "wss" : "ws";
+  return `${proto}://${window.location.host}${path}`;
+}
+
+export function sendOneShot(command: string, targetAgent: string): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const ws = new WebSocket(wsUrl());
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: "client_command", command, target_agent: targetAgent }));
+      ws.close();
+      resolve();
+    };
+    ws.onerror = () => {
+      ws.close();
+      reject(new Error("WebSocket error"));
+    };
+  });
+}
+
 export function useGatewayStatusSocket() {
   const setWsConnected = useUiStore((s) => s.setWsConnected);
   const retriesRef = useRef(0);
@@ -12,8 +32,7 @@ export function useGatewayStatusSocket() {
     let mounted = true;
 
     const connect = () => {
-      const proto = window.location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${window.location.host}/ws`);
+      ws = new WebSocket(wsUrl());
 
       ws.onopen = () => {
         retriesRef.current = 0;

@@ -63,6 +63,10 @@ async fn load_most_recent_session_lines(dir: &std::path::Path) -> Option<Vec<Str
         if !is_jsonl {
             continue;
         }
+        // Skip receipt files — they are not session messages.
+        if path.to_str().map(|s| s.contains(".receipts.")).unwrap_or(false) {
+            continue;
+        }
         if let Ok(meta) = tokio::fs::metadata(&path).await {
             if let Ok(modified) = meta.modified() {
                 if best.as_ref().is_none_or(|(t, _)| modified > *t) {

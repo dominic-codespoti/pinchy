@@ -24,7 +24,7 @@ import {
   updateSession,
 } from "@/api/client";
 import { Button, Dialog, DialogContent, Select, SelectItem, Separator, TextArea } from "@/components/ui";
-import { humanBytes, estimateMessages } from "@/lib/utils";
+import { humanBytes, estimateMessages, toText, formatRelativeTime } from "@/lib/utils";
 
 export function SessionsListRoute() {
   const navigate = useNavigate();
@@ -262,7 +262,7 @@ export function SessionDetailRoute() {
 
   const openEditor = (index: number) => {
     setEditingIndex(index);
-    setEditValue(stringifyValue(messages[index]?.content));
+    setEditValue(toText(messages[index]?.content));
   };
 
   const saveMutation = useMutation({
@@ -378,7 +378,7 @@ export function SessionDetailRoute() {
                         {isUser ? "You" : isSystem ? "System" : "Agent"}
                       </span>
                       <span className="text-[10px] tabular-nums text-slate-600">
-                        {message.timestamp ? formatTimestamp(message.timestamp) : ""}
+                        {message.timestamp ? formatRelativeTime(message.timestamp) : ""}
                       </span>
                       <div className="ml-auto flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
@@ -397,7 +397,7 @@ export function SessionDetailRoute() {
                         </button>
                       </div>
                     </div>
-                    <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{stringifyValue(message.content)}</div>
+                    <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{toText(message.content)}</div>
                   </div>
                 </div>
               </div>
@@ -529,19 +529,9 @@ export function SessionDetailRoute() {
   );
 }
 
-function stringifyValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value === null || value === undefined) return "";
-  try { return JSON.stringify(value, null, 2); } catch { return String(value); }
-}
-
 function formatSessionLabel(sessionId: string): string {
   if (sessionId.startsWith("cron_")) return "cron: " + sessionId.replace(/_/g, " ");
   return "chat: " + sessionId;
 }
 
-function formatTimestamp(ts: number): string {
-  const ms = ts > 10000000000 ? ts : ts * 1000;
-  return new Date(ms).toLocaleTimeString();
-}
 

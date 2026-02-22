@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
+use chrono_tz::Tz;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -33,10 +34,10 @@ pub enum SecretRef {
 #[serde(deny_unknown_fields)]
 pub struct SecretsConfig {
     /// Path to the file-backed secrets directory.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
     /// OS keyring service name (future use).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub keyring_service: Option<String>,
 }
 
@@ -49,13 +50,13 @@ pub struct SkillsConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
     /// Allowlist of skill ids. When non-empty only these skills are kept.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub allow: Vec<String>,
     /// Denylist of skill ids. Matching skills are removed after allow filtering.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub deny: Vec<String>,
     /// Skills with `operator_managed: true` are only kept if listed here.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub operator_allowed: Vec<String>,
 }
 
@@ -74,27 +75,31 @@ pub struct Config {
     /// Agent definitions.
     pub agents: Vec<AgentConfig>,
     /// Global secrets configuration.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub secrets: Option<SecretsConfig>,
     /// Channel routing rules.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing: Option<RoutingConfig>,
     /// Skills gating configuration.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills: Option<SkillsConfig>,
+    /// IANA timezone for the instance (e.g. "America/New_York").
+    /// Used for cron scheduling, prompt context, and display.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
     /// Session expiry in days. Sessions older than this are cleaned up
     /// on startup and by the periodic janitor. `None` or `0` disables expiry.
     /// Default: 30 days.
-    #[serde(default = "default_session_expiry_days")]
+    #[serde(default = "default_session_expiry_days", skip_serializing_if = "Option::is_none")]
     pub session_expiry_days: Option<u64>,
     /// Cron-session expiry in days. Cron sessions are short-lived one-turn
     /// files that accumulate quickly. Default: 7 days.
-    #[serde(default = "default_cron_session_expiry_days")]
+    #[serde(default = "default_cron_session_expiry_days", skip_serializing_if = "Option::is_none")]
     pub cron_session_expiry_days: Option<u64>,
     /// Maximum number of heartbeat event files to keep in each agent's
     /// `cron_events/` directory. Oldest files are pruned first.
     /// Default: 50.
-    #[serde(default = "default_cron_events_max_keep")]
+    #[serde(default = "default_cron_events_max_keep", skip_serializing_if = "Option::is_none")]
     pub cron_events_max_keep: Option<usize>,
 }
 
@@ -117,7 +122,7 @@ pub struct RoutingConfig {
     #[serde(flatten)]
     pub channels: std::collections::HashMap<String, String>,
     /// Fallback agent_id if no specific mapping exists.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_agent: Option<String>,
 }
 
@@ -129,19 +134,19 @@ pub struct ModelConfig {
     /// Provider kind: "openai", "azure-openai", "copilot", etc.
     pub provider: String,
     /// Model name to request (e.g. "gpt-4o").
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// API key (plain text or env-var reference like `$OPENAI_API_KEY`).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
     /// Azure OpenAI endpoint URL (e.g. "https://myresource.openai.azure.com").
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub endpoint: Option<String>,
     /// Azure API version (e.g. "2024-10-21").
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_version: Option<String>,
     /// Azure embedding deployment name.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedding_deployment: Option<String>,
 }
 
@@ -150,10 +155,10 @@ pub struct ModelConfig {
 #[serde(deny_unknown_fields)]
 pub struct ChannelsConfig {
     /// Discord bot configuration. Optional so the daemon can start without it.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discord: Option<DiscordConfig>,
     /// Default channel for outbound messages when the agent omits `channel_id`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_channel: Option<DefaultChannel>,
 }
 
@@ -268,29 +273,37 @@ pub struct AgentConfig {
     /// Filesystem path to the agent's **root** directory.
     pub root: String,
     /// Model id to use for inference.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     /// Seconds between heartbeat pings (0 = disabled).
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heartbeat_secs: Option<u64>,
     /// Cron jobs scheduled by this agent.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cron_jobs: Vec<CronJobConfig>,
     /// Maximum tool call iterations per agent turn.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_tool_iterations: Option<usize>,
     /// Skills explicitly enabled for this agent.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled_skills: Option<Vec<String>>,
     /// Fallback model ids tried when the primary model fails.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub fallback_models: Vec<String>,
     /// Shared secret for verifying inbound webhook payloads.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub webhook_secret: Option<String>,
     /// Additional shell commands the agent is allowed to execute.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub extra_exec_commands: Vec<String>,
+    /// Number of recent messages to load as conversational context.
+    /// Defaults to 40 if unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub history_messages: Option<usize>,
+    /// Per-agent IANA timezone override (e.g. "Europe/London").
+    /// Falls back to the global `timezone` if unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timezone: Option<String>,
 }
 
 /// A cron job definition attached to an agent.
@@ -302,11 +315,33 @@ pub struct CronJobConfig {
     /// Cron expression (6-field: sec min hour dom month dow).
     pub schedule: String,
     /// Optional message to dispatch when the job fires.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
 }
 
 impl Config {
+    /// Resolve the effective timezone for an agent.
+    ///
+    /// Priority: agent-level → global config → system local → UTC.
+    pub fn resolve_timezone(&self, agent_id: &str) -> chrono_tz::Tz {
+        let agent_tz = self
+            .agents
+            .iter()
+            .find(|a| a.id == agent_id)
+            .and_then(|a| a.timezone.as_deref());
+
+        let raw = agent_tz.or(self.timezone.as_deref()).unwrap_or("UTC");
+        raw.parse::<chrono_tz::Tz>().unwrap_or(chrono_tz::UTC)
+    }
+
+    /// Resolve the global timezone (ignoring per-agent overrides).
+    pub fn resolve_global_timezone(&self) -> chrono_tz::Tz {
+        self.timezone
+            .as_deref()
+            .and_then(|s| s.parse::<chrono_tz::Tz>().ok())
+            .unwrap_or(chrono_tz::UTC)
+    }
+
     /// Read and parse a YAML configuration file.
     pub async fn load(path: &Path) -> anyhow::Result<Config> {
         let contents = match tokio::fs::read_to_string(path).await {

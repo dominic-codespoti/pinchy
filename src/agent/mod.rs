@@ -100,6 +100,15 @@ pub async fn drain_in_flight(timeout: std::time::Duration) {
     }
 }
 
+/// Resolve the configured `default_channel` to a connector-ready channel
+/// string (e.g. `"dm:12345"` or a numeric channel id).  Returns `None`
+/// when no default channel is set.
+async fn resolve_default_channel() -> Option<String> {
+    let config_path = crate::pinchy_home().join("config.yaml");
+    let cfg = crate::config::Config::load(&config_path).await.ok()?;
+    cfg.channels.default_channel.map(|dc| dc.to_channel_string())
+}
+
 // ---------------------------------------------------------------------------
 // Turn receipt types
 // ---------------------------------------------------------------------------
@@ -361,12 +370,40 @@ impl Agent {
                                         info!(reply_len = reply.len(), "agent turn completed");
                                         let channel = msg.channel.clone();
                                         let reply_clone = reply.clone();
+                                        let reply_agent = guard.id.clone();
+                                        let reply_session = guard.current_session.clone();
                                         tokio::spawn(async move {
-                                            if let Err(e) =
-                                                crate::comm::send_reply(&channel, &reply_clone)
-                                                    .await
-                                            {
-                                                warn!(error = %e, channel = %channel, "failed to send reply");
+                                            let ctx = crate::discord::ReplyContext {
+                                                agent_id: reply_agent,
+                                                session_id: reply_session,
+                                            };
+                                            let ch = channel.clone();
+                                            let rp = reply_clone.clone();
+                                            let send_result = crate::discord::CURRENT_REPLY_CONTEXT
+                                                .scope(ctx.clone(), async move {
+                                                    crate::comm::send_reply(&ch, &rp).await
+                                                })
+                                                .await;
+                                            if let Err(_) = send_result {
+                                                if channel.starts_with("cron:") || channel == "heartbeat" {
+                                                    let fallback = resolve_default_channel().await;
+                                                    if let Some(fb) = fallback {
+                                                        let fb2 = fb.clone();
+                                                        let rp2 = reply_clone.clone();
+                                                        let send_fb = crate::discord::CURRENT_REPLY_CONTEXT
+                                                            .scope(ctx, async move {
+                                                                crate::comm::send_reply(&fb2, &rp2).await
+                                                            })
+                                                            .await;
+                                                        if let Err(e) = send_fb {
+                                                            warn!(error = %e, channel = %fb, "failed to send reply to default channel");
+                                                        }
+                                                    } else {
+                                                        debug!(channel = %channel, "no default_channel configured, reply dropped");
+                                                    }
+                                                } else {
+                                                    warn!(channel = %channel, "failed to send reply (no matching connector)");
+                                                }
                                             }
                                         });
                                     }
@@ -561,6 +598,8 @@ impl Agent {
                 fallback_models: self.fallback_models.clone(),
                 webhook_secret: None,
                 extra_exec_commands: Vec::new(),
+                history_messages: None,
+                timezone: None,
             };
             // Try to load config for model resolution; fall back to basic manager.
             let config_path = crate::pinchy_home().join("config.yaml");
@@ -612,6 +651,22 @@ impl Agent {
             messages.push(ChatMessage::new("system", bootstrap));
         }
 
+        // Inject current date/time with timezone context.
+        {
+            let config_path = crate::pinchy_home().join("config.yaml");
+            let tz = crate::config::Config::load(&config_path)
+                .await
+                .map(|cfg| cfg.resolve_timezone(&self.id))
+                .unwrap_or(chrono_tz::UTC);
+            let now = chrono::Utc::now().with_timezone(&tz);
+            let time_ctx = format!(
+                "Current date and time: {} ({}).",
+                now.format("%A, %B %-d, %Y %H:%M %Z"),
+                tz,
+            );
+            messages.push(ChatMessage::new("system", time_ctx));
+        }
+
         // Inject skill instructions from the unified tool registry.
         let skill_prompt =
             crate::tools::prompt_instructions(self.enabled_skills.as_deref());
@@ -652,7 +707,15 @@ impl Agent {
         }
 
         // Inject recent session history for conversational context.
-        let history = self.load_history(40).await.unwrap_or_default();
+        let history_limit = {
+            let config_path = crate::pinchy_home().join("config.yaml");
+            crate::config::Config::load(&config_path)
+                .await
+                .ok()
+                .and_then(|cfg| cfg.agents.iter().find(|a| a.id == self.id).and_then(|a| a.history_messages))
+                .unwrap_or(40)
+        };
+        let history = self.load_history(history_limit).await.unwrap_or_default();
         messages.extend(history);
 
         messages.push(ChatMessage::new("user", msg.content.clone()));
@@ -937,10 +1000,7 @@ impl Agent {
                                   "error": err_msg,
                             }));
                             (
-                                serde_json::to_string(&serde_json::json!({"error": &err_msg}))?,
-                                true,
-                                Some(err_msg),
-                            )
+                                serde_json::to_string(&serde_json::json!({"error": &err_msg})).unwrap_or_default(), true, Some(err_msg))
                         }
                     };
 

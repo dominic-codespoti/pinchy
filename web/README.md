@@ -14,8 +14,8 @@ New React/TypeScript frontend for the gateway dashboard.
 
 ```bash
 cd web
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 Vite dev server defaults to port 5173 and proxies are not required for same-host usage if launched with the daemon.
@@ -24,7 +24,7 @@ Vite dev server defaults to port 5173 and proxies are not required for same-host
 
 ```bash
 cd web
-npm run build
+pnpm run build
 ```
 
 Build output is written to `static/react/`.
@@ -32,5 +32,3 @@ Build output is written to `static/react/`.
 Access via:
 
 - `http://127.0.0.1:3000/react/index.html`
-
-The legacy static UI at `http://127.0.0.1:3000/` remains unchanged until migration is complete.

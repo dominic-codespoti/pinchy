@@ -76,6 +76,7 @@ pub async fn create_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
     let schedule = args["schedule"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("create_cron_job requires a 'schedule' string (6-field cron)"))?;
+    let schedule = crate::scheduler::normalize_cron_schedule(schedule);
     let message = args["message"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("create_cron_job requires a 'message' string"))?;
@@ -202,7 +203,7 @@ pub async fn update_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
     let mut changed = Vec::new();
 
     if let Some(new_schedule) = args.get("schedule").and_then(Value::as_str) {
-        job.schedule = new_schedule.to_string();
+        job.schedule = crate::scheduler::normalize_cron_schedule(new_schedule);
         changed.push("schedule");
     }
     if let Some(new_message) = args.get("message").and_then(Value::as_str) {
