@@ -100,7 +100,7 @@ jobs:
 
       - name: Build release (cross)
         if: matrix.cross
-        run: cross build --release --no-default-features --target ${{ matrix.target }}
+        run: cross build --release --no-default-features --features vendored-openssl --target ${{ matrix.target }}
 
       - name: Build release (native)
         if: ${{ !matrix.cross }}
