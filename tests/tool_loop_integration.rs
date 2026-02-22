@@ -25,7 +25,12 @@ impl MockProvider {
 
 #[async_trait]
 impl ModelProvider for MockProvider {
-    fn send_chat_stream<'a>(&'a self, messages: &'a [ChatMessage]) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>> {
+    fn send_chat_stream<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+    ) -> std::pin::Pin<
+        Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>,
+    > {
         Box::pin(async_stream::try_stream! { let r = self.send_chat(messages).await?; yield r; })
     }
     async fn send_chat(&self, _messages: &[ChatMessage]) -> Result<String, anyhow::Error> {
@@ -121,8 +126,15 @@ async fn tool_loop_stops_on_plain_reply() {
         async fn send_chat(&self, _messages: &[ChatMessage]) -> Result<String, anyhow::Error> {
             Ok("Just a simple answer.".to_string())
         }
-        fn send_chat_stream<'a>(&'a self, messages: &'a [ChatMessage]) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>> {
-            Box::pin(async_stream::try_stream! { let r = self.send_chat(messages).await?; yield r; })
+        fn send_chat_stream<'a>(
+            &'a self,
+            messages: &'a [ChatMessage],
+        ) -> std::pin::Pin<
+            Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>,
+        > {
+            Box::pin(
+                async_stream::try_stream! { let r = self.send_chat(messages).await?; yield r; },
+            )
         }
         fn as_any(&self) -> &dyn std::any::Any {
             self

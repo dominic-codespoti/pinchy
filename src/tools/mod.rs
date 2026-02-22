@@ -26,10 +26,10 @@ use std::sync::{Arc, Mutex};
 use tracing::info;
 
 // Re-export per-tool public functions so existing callers keep working.
+pub use builtins::edit_file::edit_file;
 pub use builtins::exec_shell::{exec_shell, extract_command_names};
 pub use builtins::read_file::read_file;
 pub use builtins::write_file::write_file;
-pub use builtins::edit_file::edit_file;
 
 // ── Tool metadata registry ──────────────────────────────────
 
@@ -178,9 +178,7 @@ pub fn search_tools_registry(query: &str, limit: usize) -> Vec<ToolMeta> {
             let name_lower = e.meta.name.to_lowercase();
             let desc_lower = e.meta.description.to_lowercase();
             // Split name on underscores/hyphens for token-level matching.
-            let name_tokens: Vec<&str> = name_lower
-                .split(|c: char| c == '_' || c == '-')
-                .collect();
+            let name_tokens: Vec<&str> = name_lower.split(|c: char| c == '_' || c == '-').collect();
             let mut score = 0usize;
 
             // Exact name match (highest priority).
@@ -272,7 +270,13 @@ fn synonyms(term: &str) -> Vec<String> {
             vec!["exec".into(), "shell".into(), "exec_shell".into()]
         }
         "file" | "read" | "write" | "edit" | "list" | "ls" | "dir" => {
-            vec!["file".into(), "read_file".into(), "write_file".into(), "edit_file".into(), "list_file".into()]
+            vec![
+                "file".into(),
+                "read_file".into(),
+                "write_file".into(),
+                "edit_file".into(),
+                "list_file".into(),
+            ]
         }
         "browse" | "web" | "url" | "http" | "page" => {
             vec!["browser".into()]
@@ -341,11 +345,7 @@ pub fn sync_skills(registry: &crate::skills::SkillRegistry) {
         reg.push(ToolEntry {
             meta: ToolMeta {
                 name: id.clone(),
-                description: skill
-                    .meta
-                    .description
-                    .clone()
-                    .unwrap_or_default(),
+                description: skill.meta.description.clone().unwrap_or_default(),
                 args_schema: serde_json::json!(null),
             },
             handler: None,
@@ -365,10 +365,7 @@ pub fn sync_skills(registry: &crate::skills::SkillRegistry) {
 ///
 /// Used after skill creation/deletion to pick up changes without restart.
 pub fn reload_skills(cfg: Option<&crate::config::Config>) {
-    let agent_id = SKILL_AGENT_ID
-        .lock()
-        .ok()
-        .and_then(|id| id.clone());
+    let agent_id = SKILL_AGENT_ID.lock().ok().and_then(|id| id.clone());
     let _ = crate::skills::defaults::seed_defaults();
     let mut loader = crate::skills::SkillRegistry::new(agent_id);
     let _ = loader.load_global_skills_with_config(cfg);
@@ -651,51 +648,75 @@ pub fn init() {
     // Attach handlers to the built-in tools.
     register_handler(
         "read_file",
-        Arc::new(|args, ws| Box::pin(async move { builtins::read_file::read_file(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::read_file::read_file(&ws, args).await })
+        }),
     );
     register_handler(
         "write_file",
-        Arc::new(|args, ws| Box::pin(async move { builtins::write_file::write_file(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::write_file::write_file(&ws, args).await })
+        }),
     );
     register_handler(
         "edit_file",
-        Arc::new(|args, ws| Box::pin(async move { builtins::edit_file::edit_file(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::edit_file::edit_file(&ws, args).await })
+        }),
     );
     register_handler(
         "list_files",
-        Arc::new(|args, ws| Box::pin(async move { builtins::list_files::list_files(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::list_files::list_files(&ws, args).await })
+        }),
     );
     register_handler(
         "exec_shell",
-        Arc::new(|args, ws| Box::pin(async move { builtins::exec_shell::exec_shell(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::exec_shell::exec_shell(&ws, args).await })
+        }),
     );
     register_handler(
         "save_memory",
-        Arc::new(|args, ws| Box::pin(async move { builtins::memory::save_memory(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::memory::save_memory(&ws, args).await })
+        }),
     );
     register_handler(
         "recall_memory",
-        Arc::new(|args, ws| Box::pin(async move { builtins::memory::recall_memory(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::memory::recall_memory(&ws, args).await })
+        }),
     );
     register_handler(
         "forget_memory",
-        Arc::new(|args, ws| Box::pin(async move { builtins::memory::forget_memory(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::memory::forget_memory(&ws, args).await })
+        }),
     );
     register_handler(
         "create_skill",
-        Arc::new(|args, ws| Box::pin(async move { builtins::skill_author::create_skill(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::skill_author::create_skill(&ws, args).await })
+        }),
     );
     register_handler(
         "list_skills",
-        Arc::new(|args, ws| Box::pin(async move { builtins::skill_author::list_skills(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::skill_author::list_skills(&ws, args).await })
+        }),
     );
     register_handler(
         "delete_skill",
-        Arc::new(|args, ws| Box::pin(async move { builtins::skill_author::delete_skill(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::skill_author::delete_skill(&ws, args).await })
+        }),
     );
     register_handler(
         "edit_skill",
-        Arc::new(|args, ws| Box::pin(async move { builtins::skill_author::edit_skill(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::skill_author::edit_skill(&ws, args).await })
+        }),
     );
     register_handler(
         "browser",
@@ -711,23 +732,33 @@ pub fn init() {
     );
     register_handler(
         "create_agent",
-        Arc::new(|args, ws| Box::pin(async move { builtins::agent::create_agent(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::agent::create_agent(&ws, args).await })
+        }),
     );
     register_handler(
         "list_cron_jobs",
-        Arc::new(|args, ws| Box::pin(async move { builtins::cron::list_cron_jobs(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::cron::list_cron_jobs(&ws, args).await })
+        }),
     );
     register_handler(
         "create_cron_job",
-        Arc::new(|args, ws| Box::pin(async move { builtins::cron::create_cron_job(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::cron::create_cron_job(&ws, args).await })
+        }),
     );
     register_handler(
         "update_cron_job",
-        Arc::new(|args, ws| Box::pin(async move { builtins::cron::update_cron_job(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::cron::update_cron_job(&ws, args).await })
+        }),
     );
     register_handler(
         "delete_cron_job",
-        Arc::new(|args, ws| Box::pin(async move { builtins::cron::delete_cron_job(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::cron::delete_cron_job(&ws, args).await })
+        }),
     );
     register_handler(
         "run_cron_job",
@@ -735,46 +766,74 @@ pub fn init() {
     );
     register_handler(
         "cron_job_history",
-        Arc::new(|args, ws| Box::pin(async move { builtins::cron::cron_job_history(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::cron::cron_job_history(&ws, args).await })
+        }),
     );
     register_handler(
         "session_list",
-        Arc::new(|args, ws| Box::pin(async move { builtins::session::session_list(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::session::session_list(&ws, args).await })
+        }),
     );
     register_handler(
         "session_status",
-        Arc::new(|args, ws| Box::pin(async move { builtins::session::session_status(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::session::session_status(&ws, args).await })
+        }),
     );
     register_handler(
         "session_send",
-        Arc::new(|args, ws| Box::pin(async move { builtins::session::session_send(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::session::session_send(&ws, args).await })
+        }),
     );
     register_handler(
         "session_spawn",
-        Arc::new(|args, ws| Box::pin(async move { builtins::session::session_spawn(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::session::session_spawn(&ws, args).await })
+        }),
     );
     register_handler(
         "search_tools",
-        Arc::new(|args, ws| Box::pin(async move { builtins::search_tools::search_tools(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::search_tools::search_tools(&ws, args).await })
+        }),
     );
     register_handler(
         "send_message",
-        Arc::new(|args, ws| Box::pin(async move { builtins::send_message::send_message(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::send_message::send_message(&ws, args).await })
+        }),
     );
     register_handler(
         "self_update",
-        Arc::new(|args, ws| Box::pin(async move { builtins::self_update::self_update(&ws, args).await })),
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::self_update::self_update(&ws, args).await })
+        }),
     );
 
     // Mark less-common tools as deferred (discoverable via search_tools,
     // but not injected into the prompt upfront — saves tokens).
     {
         let deferred = [
-            "list_agents", "get_agent", "create_agent",
-            "list_cron_jobs", "create_cron_job", "update_cron_job",
-            "delete_cron_job", "run_cron_job", "cron_job_history",
-            "session_list", "session_status", "session_send", "session_spawn",
-            "create_skill", "list_skills", "delete_skill", "edit_skill",
+            "list_agents",
+            "get_agent",
+            "create_agent",
+            "list_cron_jobs",
+            "create_cron_job",
+            "update_cron_job",
+            "delete_cron_job",
+            "run_cron_job",
+            "cron_job_history",
+            "session_list",
+            "session_status",
+            "session_send",
+            "session_spawn",
+            "create_skill",
+            "list_skills",
+            "delete_skill",
+            "edit_skill",
             "self_update",
         ];
         let mut reg = REGISTRY.lock().expect("tool registry poisoned");

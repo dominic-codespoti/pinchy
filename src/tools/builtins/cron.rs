@@ -73,9 +73,9 @@ pub async fn create_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
     let agent_id = args["agent_id"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("create_cron_job requires an 'agent_id' string"))?;
-    let schedule = args["schedule"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("create_cron_job requires a 'schedule' string (6-field cron)"))?;
+    let schedule = args["schedule"].as_str().ok_or_else(|| {
+        anyhow::anyhow!("create_cron_job requires a 'schedule' string (6-field cron)")
+    })?;
     let schedule = crate::scheduler::normalize_cron_schedule(schedule);
     let message = args["message"]
         .as_str()
@@ -86,13 +86,10 @@ pub async fn create_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
         anyhow::bail!("agent not found: {agent_id}");
     }
 
-    let name = args["name"]
-        .as_str()
-        .map(String::from)
-        .unwrap_or_else(|| {
-            let ts = crate::scheduler::now_secs();
-            format!("job_{ts}")
-        });
+    let name = args["name"].as_str().map(String::from).unwrap_or_else(|| {
+        let ts = crate::scheduler::now_secs();
+        format!("job_{ts}")
+    });
 
     let one_shot = args["one_shot"].as_bool().unwrap_or(false);
     let kind = if one_shot {
@@ -220,7 +217,9 @@ pub async fn update_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
     }
 
     if changed.is_empty() {
-        anyhow::bail!("update_cron_job: no fields to update (provide schedule, message, or one_shot)");
+        anyhow::bail!(
+            "update_cron_job: no fields to update (provide schedule, message, or one_shot)"
+        );
     }
 
     // Persist back.
@@ -263,7 +262,8 @@ pub async fn run_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<Valu
         .unwrap_or_else(|| format!("[cron:{}]", name));
 
     // Publish the message as an IncomingMessage to the agent's comm bus.
-    let cron_session = format!("cron_{}_{}",
+    let cron_session = format!(
+        "cron_{}_{}",
         name.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "_"),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -300,7 +300,11 @@ pub async fn run_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<Valu
             crate::scheduler::JobStatus::FAILED("no receivers".into())
         },
         output_preview: Some("manual trigger".into()),
-        error: if delivered { None } else { Some("no active receivers on comm bus".into()) },
+        error: if delivered {
+            None
+        } else {
+            Some("no active receivers on comm bus".into())
+        },
         duration_ms: Some(0),
     };
 
@@ -315,7 +319,9 @@ pub async fn run_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<Valu
         .await
         .map(|mut f| {
             use tokio::io::AsyncWriteExt;
-            tokio::spawn(async move { let _ = f.write_all(line.as_bytes()).await; })
+            tokio::spawn(async move {
+                let _ = f.write_all(line.as_bytes()).await;
+            })
         });
 
     Ok(json!({
@@ -330,10 +336,7 @@ pub async fn run_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<Valu
 pub async fn cron_job_history(_workspace: &Path, args: Value) -> anyhow::Result<Value> {
     let filter_agent = args.get("agent_id").and_then(Value::as_str);
     let filter_name = args.get("name").and_then(Value::as_str);
-    let limit = args
-        .get("limit")
-        .and_then(Value::as_u64)
-        .unwrap_or(25) as usize;
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(25) as usize;
 
     let agents_dir = crate::utils::agents_dir();
     let mut all_runs: Vec<Value> = Vec::new();

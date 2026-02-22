@@ -434,8 +434,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
 
             if !endpoint.is_empty() && !key.is_empty() && !deployment.is_empty() {
                 // Write an azure model entry into config
-                let cfg_contents = std::fs::read_to_string(config_path)
-                    .unwrap_or_default();
+                let cfg_contents = std::fs::read_to_string(config_path).unwrap_or_default();
                 if let Ok(mut cfg) = serde_yaml::from_str::<config::Config>(&cfg_contents) {
                     let embed = if embed_dep.is_empty() {
                         None
@@ -451,8 +450,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                         api_version: Some("2024-10-21".into()),
                         embedding_deployment: embed,
                     });
-                    let yaml_out =
-                        serde_yaml::to_string(&cfg).unwrap_or_default();
+                    let yaml_out = serde_yaml::to_string(&cfg).unwrap_or_default();
                     sync_backup_file(config_path).ok();
                     std::fs::write(config_path, &yaml_out).ok();
                     println!("  Azure model entry written to config.yaml");
@@ -469,7 +467,9 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                     } else {
                         println!("GitHub token stored.");
                         println!("Exchanging GitHub token for Copilot session token…");
-                        match auth::copilot_token::exchange_github_for_copilot_token(&github_token).await {
+                        match auth::copilot_token::exchange_github_for_copilot_token(&github_token)
+                            .await
+                        {
                             Ok(ct) => {
                                 auth::copilot_token::cache_copilot_token(&ct).ok();
                                 println!("Copilot token obtained and cached.");
@@ -528,7 +528,9 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
             }
             1 => {
                 println!("  Azure embedding will use the embedding_deployment from your Azure model config.");
-                println!("  Make sure your config.yaml model entry includes 'embedding_deployment'.");
+                println!(
+                    "  Make sure your config.yaml model entry includes 'embedding_deployment'."
+                );
             }
             _ => {
                 println!("  Skipped embedding setup. Semantic search won't be available.");
@@ -1113,8 +1115,8 @@ pub async fn apply_manifest(
 
 /// Check whether the Pinchy daemon is running by hitting the gateway /api/status endpoint.
 pub async fn check_status() -> anyhow::Result<()> {
-    let addr = std::env::var("PINCHY_GATEWAY_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+    let addr =
+        std::env::var("PINCHY_GATEWAY_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
     let url = format!("http://{addr}/api/status");
 
     // Build request, optionally with auth token

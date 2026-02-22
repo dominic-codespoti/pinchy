@@ -1,9 +1,4 @@
-use axum::{
-    extract::Path,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
 
 use super::super::auth::validate_path_segment;
 
@@ -28,7 +23,11 @@ pub(crate) async fn api_receipts_list(Path(agent_id): Path<String>) -> impl Into
         }
     }
     receipt_files.sort();
-    (StatusCode::OK, Json(serde_json::json!({ "receipts": receipt_files }))).into_response()
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "receipts": receipt_files })),
+    )
+        .into_response()
 }
 
 /// `GET /api/agents/:id/receipts/:session_id` — return parsed receipts

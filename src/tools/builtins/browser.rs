@@ -59,7 +59,11 @@ fn truncate_result(s: &str) -> String {
 pub async fn browser_tool(args: Value) -> anyhow::Result<Value> {
     let action = args["action"].as_str().unwrap_or(
         // Backwards compat: if "url" is present with no action, assume navigate
-        if args.get("url").is_some() { "navigate" } else { "text" }
+        if args.get("url").is_some() {
+            "navigate"
+        } else {
+            "text"
+        },
     );
     let headless = args["headless"].as_bool().unwrap_or(true);
 
@@ -115,7 +119,10 @@ async fn action_navigate(args: &Value) -> anyhow::Result<Value> {
                 "suggestion": "The domain does not exist or is unreachable. Try: 1) Check the URL spelling, 2) Search for an alternative/mirror URL, 3) Try web.archive.org/web/{url}"
             }));
         }
-        if err_str.contains("ERR_CONNECTION_REFUSED") || err_str.contains("ERR_CONNECTION_TIMED_OUT") || err_str.contains("ERR_CONNECTION_RESET") {
+        if err_str.contains("ERR_CONNECTION_REFUSED")
+            || err_str.contains("ERR_CONNECTION_TIMED_OUT")
+            || err_str.contains("ERR_CONNECTION_RESET")
+        {
             return Ok(serde_json::json!({
                 "ok": false,
                 "error": format!("Connection failed for URL: {url}"),
@@ -188,7 +195,9 @@ async fn action_click(args: &Value) -> anyhow::Result<Value> {
             idx = idx,
         )
     } else {
-        return Err(anyhow::anyhow!("'click' action requires either 'selector' (CSS) or 'text' (link text to find)"));
+        return Err(anyhow::anyhow!(
+            "'click' action requires either 'selector' (CSS) or 'text' (link text to find)"
+        ));
     };
 
     let click_result = pb.svc.eval(&pb.session_id, &click_js).await?;
@@ -341,7 +350,10 @@ async fn action_back(_args: &Value) -> anyhow::Result<Value> {
     let pb = lock.as_mut().unwrap();
 
     let _ = pb.svc.eval(&pb.session_id, "window.history.back()").await;
-    let _ = pb.svc.eval(&pb.session_id, "new Promise(r => setTimeout(r, 1000))").await;
+    let _ = pb
+        .svc
+        .eval(&pb.session_id, "new Promise(r => setTimeout(r, 1000))")
+        .await;
 
     let url_result = pb.svc.eval(&pb.session_id, "window.location.href").await?;
     let new_url = url_result.as_str().unwrap_or("").to_string();

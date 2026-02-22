@@ -7,11 +7,14 @@ use axum::{
 };
 use tracing::warn;
 
-use super::AppState;
 use super::handlers::agents::collect_agent_ids;
+use super::AppState;
 
 /// `GET /ws` — upgrade to WebSocket.
-pub(crate) async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
+pub(crate) async fn ws_handler(
+    ws: WebSocketUpgrade,
+    State(state): State<AppState>,
+) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_ws(socket, state))
 }
 
@@ -64,7 +67,11 @@ async fn load_most_recent_session_lines(dir: &std::path::Path) -> Option<Vec<Str
             continue;
         }
         // Skip receipt files — they are not session messages.
-        if path.to_str().map(|s| s.contains(".receipts.")).unwrap_or(false) {
+        if path
+            .to_str()
+            .map(|s| s.contains(".receipts."))
+            .unwrap_or(false)
+        {
             continue;
         }
         if let Ok(meta) = tokio::fs::metadata(&path).await {
@@ -102,8 +109,7 @@ async fn handle_ws(mut socket: WebSocket, state: AppState) {
 
         // For each agent, send the most recent session's messages.
         for agent_id in &agent_ids {
-            let sessions_dir = crate::utils::agent_workspace(agent_id)
-                .join("sessions");
+            let sessions_dir = crate::utils::agent_workspace(agent_id).join("sessions");
 
             if let Some(lines) = load_most_recent_session_lines(&sessions_dir).await {
                 for line in lines {

@@ -18,10 +18,7 @@ use crate::tools::{register_tool, sandbox_path, ToolMeta};
 /// }
 /// ```
 pub async fn list_files(workspace: &Path, args: Value) -> anyhow::Result<Value> {
-    let raw = args
-        .get("path")
-        .and_then(Value::as_str)
-        .unwrap_or(".");
+    let raw = args.get("path").and_then(Value::as_str).unwrap_or(".");
 
     let dir = sandbox_path(workspace, raw)?;
 
@@ -42,7 +39,16 @@ pub async fn list_files(workspace: &Path, args: Value) -> anyhow::Result<Value> 
     let mut entries: Vec<Value> = Vec::new();
     let max_entries = 1000;
 
-    collect_entries(&dir, workspace, pattern, recursive, include_metadata, &mut entries, max_entries).await?;
+    collect_entries(
+        &dir,
+        workspace,
+        pattern,
+        recursive,
+        include_metadata,
+        &mut entries,
+        max_entries,
+    )
+    .await?;
 
     // Sort: directories first, then alphabetical.
     entries.sort_by(|a, b| {

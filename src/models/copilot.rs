@@ -401,7 +401,10 @@ fn copilot_headers(bearer: &str) -> reqwest::header::HeaderMap {
     h.insert("User-Agent", "GitHubCopilotChat/0.26.7".parse().unwrap());
     h.insert("Content-Type", "application/json".parse().unwrap());
     h.insert("Editor-Version", "vscode/1.96.2".parse().unwrap());
-    h.insert("Editor-Plugin-Version", "copilot-chat/0.26.7".parse().unwrap());
+    h.insert(
+        "Editor-Plugin-Version",
+        "copilot-chat/0.26.7".parse().unwrap(),
+    );
     h.insert("Copilot-Integration-Id", "vscode-chat".parse().unwrap());
     h.insert("Openai-Intent", "conversation-panel".parse().unwrap());
     h
@@ -637,7 +640,8 @@ impl ModelProvider for CopilotProvider {
         // -----------------------------------------------------------------
         // Standard path: use the copilot-sdk CLI client.
         // -----------------------------------------------------------------
-        let mut guard: tokio::sync::MutexGuard<'_, Option<copilot_sdk::CopilotClient>> = self.client.lock().await;
+        let mut guard: tokio::sync::MutexGuard<'_, Option<copilot_sdk::CopilotClient>> =
+            self.client.lock().await;
 
         // Lazy-build the client when we have a token but no client yet.
         if guard.is_none() {
@@ -685,12 +689,10 @@ impl ModelProvider for CopilotProvider {
                 // Best-effort cleanup; ignore errors.
                 let _ = session.destroy().await;
                 match result {
-                    Ok(Some(event)) => {
-                        Ok(event
-                            .assistant_message_content()
-                            .unwrap_or("[copilot stub] no content in response")
-                            .to_string())
-                    }
+                    Ok(Some(event)) => Ok(event
+                        .assistant_message_content()
+                        .unwrap_or("[copilot stub] no content in response")
+                        .to_string()),
                     Ok(None) => Ok("[copilot stub] no response event".to_string()),
                     Err(e) => Ok(format!("[copilot stub] send failed: {e}")),
                 }
@@ -711,7 +713,9 @@ impl ModelProvider for CopilotProvider {
     fn send_chat_stream<'a>(
         &'a self,
         messages: &'a [ChatMessage],
-    ) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>> {
+    ) -> std::pin::Pin<
+        Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>,
+    > {
         Box::pin(async_stream::try_stream! {
             let reply = ModelProvider::send_chat(self, messages).await?;
             yield reply;
@@ -1138,7 +1142,12 @@ mod tests {
 
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
         match result.unwrap() {
-            (super::ProviderResponse::FunctionCall { name, arguments, .. }, _usage) => {
+            (
+                super::ProviderResponse::FunctionCall {
+                    name, arguments, ..
+                },
+                _usage,
+            ) => {
                 assert_eq!(name, "read_file");
                 let args: serde_json::Value =
                     serde_json::from_str(&arguments).expect("arguments should parse");

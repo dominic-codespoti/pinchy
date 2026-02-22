@@ -156,6 +156,8 @@ description: "A test skill for integration tests"
 
     // ── Cleanup ─────────────────────────────────────────────────────────
     std::env::set_current_dir(orig_dir).unwrap();
-    unsafe { std::env::remove_var("PINCHY_HOME"); }
+    unsafe {
+        std::env::remove_var("PINCHY_HOME");
+    }
     gw.handle.abort();
 }

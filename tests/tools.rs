@@ -185,13 +185,9 @@ async fn save_and_recall_memory() {
     assert_eq!(result["status"], "saved");
     assert_eq!(result["key"], "color");
 
-    let result = tools::call_skill(
-        "recall_memory",
-        json!({ "query": "blue" }),
-        ws.path(),
-    )
-    .await
-    .unwrap();
+    let result = tools::call_skill("recall_memory", json!({ "query": "blue" }), ws.path())
+        .await
+        .unwrap();
     let memories = result["memories"].as_array().unwrap();
     assert_eq!(memories.len(), 1);
     assert_eq!(memories[0]["key"], "color");
@@ -201,13 +197,9 @@ async fn save_and_recall_memory() {
 #[tokio::test]
 async fn recall_empty_memory() {
     let ws = workspace();
-    let result = tools::call_skill(
-        "recall_memory",
-        json!({}),
-        ws.path(),
-    )
-    .await
-    .unwrap();
+    let result = tools::call_skill("recall_memory", json!({}), ws.path())
+        .await
+        .unwrap();
     let memories = result["memories"].as_array().unwrap();
     assert!(memories.is_empty());
 }
@@ -223,23 +215,15 @@ async fn forget_memory_existing() {
     .await
     .unwrap();
 
-    let result = tools::call_skill(
-        "forget_memory",
-        json!({ "key": "temp" }),
-        ws.path(),
-    )
-    .await
-    .unwrap();
+    let result = tools::call_skill("forget_memory", json!({ "key": "temp" }), ws.path())
+        .await
+        .unwrap();
     assert_eq!(result["status"], "deleted");
 
     // Verify gone.
-    let result = tools::call_skill(
-        "recall_memory",
-        json!({}),
-        ws.path(),
-    )
-    .await
-    .unwrap();
+    let result = tools::call_skill("recall_memory", json!({}), ws.path())
+        .await
+        .unwrap();
     let memories = result["memories"].as_array().unwrap();
     assert!(memories.is_empty());
 }
@@ -247,25 +231,17 @@ async fn forget_memory_existing() {
 #[tokio::test]
 async fn forget_memory_nonexistent() {
     let ws = workspace();
-    let result = tools::call_skill(
-        "forget_memory",
-        json!({ "key": "no_such_key" }),
-        ws.path(),
-    )
-    .await
-    .unwrap();
+    let result = tools::call_skill("forget_memory", json!({ "key": "no_such_key" }), ws.path())
+        .await
+        .unwrap();
     assert_eq!(result["status"], "not_found");
 }
 
 #[tokio::test]
 async fn save_memory_missing_key_returns_error() {
     let ws = workspace();
-    let result = tools::call_skill(
-        "save_memory",
-        json!({ "value": "lonely value" }),
-        ws.path(),
-    )
-    .await;
+    let result =
+        tools::call_skill("save_memory", json!({ "value": "lonely value" }), ws.path()).await;
     assert!(result.is_err());
 }
 
@@ -287,13 +263,9 @@ async fn recall_memory_with_tag_filter() {
     .await
     .unwrap();
 
-    let result = tools::call_skill(
-        "recall_memory",
-        json!({ "tag": "greek" }),
-        ws.path(),
-    )
-    .await
-    .unwrap();
+    let result = tools::call_skill("recall_memory", json!({ "tag": "greek" }), ws.path())
+        .await
+        .unwrap();
     let memories = result["memories"].as_array().unwrap();
     assert_eq!(memories.len(), 1);
     assert_eq!(memories[0]["key"], "a");

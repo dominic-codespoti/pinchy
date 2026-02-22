@@ -196,7 +196,7 @@ impl SchedulerHandle {
 
                     // Create a dedicated session for this cron fire.
                     let session_id = format!(
-                        "cron_{}_{}" ,
+                        "cron_{}_{}",
                         jn.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "_"),
                         now,
                     );
@@ -349,48 +349,55 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
                 debug!(agent = %agent_id, job = %job_name, schedule = %schedule,
                       "registering cron job");
 
-                let job = Job::new_async_tz(schedule.as_str(), resolve_agent_timezone(&config, &agent_id), move |_uuid, _lock| {
-                    let agent_id = agent_id.clone();
-                    let job_name = job_name.clone();
-                    let message = message.clone();
-                    Box::pin(async move {
-                        let now = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
+                let job = Job::new_async_tz(
+                    schedule.as_str(),
+                    resolve_agent_timezone(&config, &agent_id),
+                    move |_uuid, _lock| {
+                        let agent_id = agent_id.clone();
+                        let job_name = job_name.clone();
+                        let message = message.clone();
+                        Box::pin(async move {
+                            let now = SystemTime::now()
+                                .duration_since(UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs();
 
-                        debug!(agent = %agent_id, job = %job_name, "cron job fired");
+                            debug!(agent = %agent_id, job = %job_name, "cron job fired");
 
-                        let session_id = format!(
-                            "cron_{}_{}",
-                            job_name.replace(|c: char| !c.is_alphanumeric() && c != '-' && c != '_', "_"),
-                            now,
-                        );
-
-                        let msg = comm::IncomingMessage {
-                            agent_id: Some(agent_id.clone()),
-                            channel: format!("cron:{job_name}"),
-                            author: format!("cron:{job_name}"),
-                            content: message.clone(),
-                            timestamp: now as i64,
-                            session_id: Some(session_id),
-                        };
-
-                        if let Err(e) = comm::sender().send(msg) {
-                            error!(
-                                agent = %agent_id, job = %job_name,
-                                error = %e, "failed to dispatch cron message"
+                            let session_id = format!(
+                                "cron_{}_{}",
+                                job_name.replace(
+                                    |c: char| !c.is_alphanumeric() && c != '-' && c != '_',
+                                    "_"
+                                ),
+                                now,
                             );
-                        }
 
-                        gateway::publish_event_json(&serde_json::json!({
-                            "type": "cron",
-                            "agent": agent_id,
-                            "job": job_name,
-                            "timestamp": now,
-                        }));
-                    })
-                })
+                            let msg = comm::IncomingMessage {
+                                agent_id: Some(agent_id.clone()),
+                                channel: format!("cron:{job_name}"),
+                                author: format!("cron:{job_name}"),
+                                content: message.clone(),
+                                timestamp: now as i64,
+                                session_id: Some(session_id),
+                            };
+
+                            if let Err(e) = comm::sender().send(msg) {
+                                error!(
+                                    agent = %agent_id, job = %job_name,
+                                    error = %e, "failed to dispatch cron message"
+                                );
+                            }
+
+                            gateway::publish_event_json(&serde_json::json!({
+                                "type": "cron",
+                                "agent": agent_id,
+                                "job": job_name,
+                                "timestamp": now,
+                            }));
+                        })
+                    },
+                )
                 .context("failed to create cron job")?;
 
                 let uuid = sched
@@ -414,13 +421,17 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
                        "registering persisted cron job");
 
                 let schedule = pj.schedule.clone();
-                let job = Job::new_async_tz(schedule.as_str(), resolve_agent_timezone(&config, &pj.agent_id), move |_uuid, _lock| {
-                    let ws = ws.clone();
-                    let pj = pj.clone();
-                    Box::pin(async move {
-                        run_persisted_job_tick(&ws, &pj).await;
-                    })
-                })
+                let job = Job::new_async_tz(
+                    schedule.as_str(),
+                    resolve_agent_timezone(&config, &pj.agent_id),
+                    move |_uuid, _lock| {
+                        let ws = ws.clone();
+                        let pj = pj.clone();
+                        Box::pin(async move {
+                            run_persisted_job_tick(&ws, &pj).await;
+                        })
+                    },
+                )
                 .context("failed to create persisted cron job")?;
 
                 let uuid = sched
@@ -468,8 +479,6 @@ static SCHEDULER_HANDLE: tokio::sync::OnceCell<SchedulerHandle> =
 pub async fn set_scheduler_handle(handle: SchedulerHandle) {
     let _ = SCHEDULER_HANDLE.set(handle);
 }
-
-
 
 // ---------------------------------------------------------------------------
 // Heartbeat
@@ -797,7 +806,10 @@ async fn run_persisted_job_tick(workspace: &Path, job: &PersistedCronJob) {
         session_id: Some(session_id),
     };
 
-    let result = comm::sender().send(msg).map(|_| ()).map_err(|e| anyhow::anyhow!("{e}"));
+    let result = comm::sender()
+        .send(msg)
+        .map(|_| ())
+        .map_err(|e| anyhow::anyhow!("{e}"));
     let completed = now_secs();
     let elapsed_ms = (completed - now) * 1000;
 
@@ -973,7 +985,10 @@ async fn cleanup_cron_sessions(
     while let Some(entry) = rd.next_entry().await? {
         let name = entry.file_name().to_string_lossy().to_string();
         // Only target cron session files.
-        if !name.starts_with("cron_") || !name.ends_with(".jsonl") || name.ends_with(".receipts.jsonl") {
+        if !name.starts_with("cron_")
+            || !name.ends_with(".jsonl")
+            || name.ends_with(".receipts.jsonl")
+        {
             continue;
         }
 
@@ -1008,10 +1023,7 @@ async fn cleanup_cron_sessions(
 }
 
 /// Keep only the newest `max_keep` files in `<agent_root>/cron_events/`.
-async fn cleanup_cron_events(
-    agent_root: &Path,
-    max_keep: usize,
-) -> anyhow::Result<usize> {
+async fn cleanup_cron_events(agent_root: &Path, max_keep: usize) -> anyhow::Result<usize> {
     let events_dir = agent_root.join("cron_events");
     let mut rd = match tokio::fs::read_dir(&events_dir).await {
         Ok(rd) => rd,
@@ -1130,7 +1142,10 @@ async fn prune_global_index() -> usize {
             output.push('\n');
         }
         let _ = tokio::fs::write(&index_path, output).await;
-        info!(pruned, "janitor: pruned stale entries from global session index");
+        info!(
+            pruned,
+            "janitor: pruned stale entries from global session index"
+        );
     }
 
     pruned

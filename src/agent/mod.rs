@@ -69,7 +69,10 @@ fn expand_function_defs_from_search_result(
             "description": m.get("description").and_then(|d| d.as_str()).unwrap_or(""),
             "parameters": m.get("args_schema").cloned().unwrap_or(serde_json::json!({})),
         }));
-        tracing::debug!(tool = name, "dynamically added discovered tool to function_defs");
+        tracing::debug!(
+            tool = name,
+            "dynamically added discovered tool to function_defs"
+        );
     }
 }
 
@@ -106,7 +109,9 @@ pub async fn drain_in_flight(timeout: std::time::Duration) {
 async fn resolve_default_channel() -> Option<String> {
     let config_path = crate::pinchy_home().join("config.yaml");
     let cfg = crate::config::Config::load(&config_path).await.ok()?;
-    cfg.channels.default_channel.map(|dc| dc.to_channel_string())
+    cfg.channels
+        .default_channel
+        .map(|dc| dc.to_channel_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -604,18 +609,17 @@ impl Agent {
             // Try to load config for model resolution; fall back to basic manager.
             let config_path = crate::pinchy_home().join("config.yaml");
             match crate::config::Config::load(&config_path).await {
-                Ok(cfg) => {
-                    crate::models::build_provider_manager_from_config(&agent_cfg, &cfg)
-                }
+                Ok(cfg) => crate::models::build_provider_manager_from_config(&agent_cfg, &cfg),
                 Err(_) => build_provider_manager(&self.provider, &self.model_id),
             }
         };
 
         // Stash the providers globally so tools (e.g. semantic memory)
         // can embed text without plumbing.
-        crate::models::set_global_providers(std::sync::Arc::new(
-            build_provider_manager(&self.provider, &self.model_id),
-        ));
+        crate::models::set_global_providers(std::sync::Arc::new(build_provider_manager(
+            &self.provider,
+            &self.model_id,
+        )));
 
         let result = self.run_turn_with_provider(msg, &manager).await;
 
@@ -668,8 +672,7 @@ impl Agent {
         }
 
         // Inject skill instructions from the unified tool registry.
-        let skill_prompt =
-            crate::tools::prompt_instructions(self.enabled_skills.as_deref());
+        let skill_prompt = crate::tools::prompt_instructions(self.enabled_skills.as_deref());
         if !skill_prompt.is_empty() {
             messages.push(ChatMessage::new("system", skill_prompt));
         }
@@ -712,7 +715,12 @@ impl Agent {
             crate::config::Config::load(&config_path)
                 .await
                 .ok()
-                .and_then(|cfg| cfg.agents.iter().find(|a| a.id == self.id).and_then(|a| a.history_messages))
+                .and_then(|cfg| {
+                    cfg.agents
+                        .iter()
+                        .find(|a| a.id == self.id)
+                        .and_then(|a| a.history_messages)
+                })
                 .unwrap_or(40)
         };
         let history = self.load_history(history_limit).await.unwrap_or_default();
@@ -1000,7 +1008,11 @@ impl Agent {
                                   "error": err_msg,
                             }));
                             (
-                                serde_json::to_string(&serde_json::json!({"error": &err_msg})).unwrap_or_default(), true, Some(err_msg))
+                                serde_json::to_string(&serde_json::json!({"error": &err_msg}))
+                                    .unwrap_or_default(),
+                                true,
+                                Some(err_msg),
+                            )
                         }
                     };
 
@@ -1075,7 +1087,12 @@ impl Agent {
                             } else {
                                 c.id.clone()
                             };
-                            (cid, c.name.clone(), c.arguments.clone(), c.arguments.clone())
+                            (
+                                cid,
+                                c.name.clone(),
+                                c.arguments.clone(),
+                                c.arguments.clone(),
+                            )
                         })
                         .collect();
 
@@ -1103,7 +1120,7 @@ impl Agent {
                     // Execute all tool calls concurrently.
                     let ws = self.workspace.clone();
                     let agent_id = self.id.clone();
-                        let session_id = self.current_session.clone();
+                    let session_id = self.current_session.clone();
 
                     let mut handles = Vec::new();
                     for (cid, name, args_str, _) in call_entries.iter() {
@@ -1112,7 +1129,7 @@ impl Agent {
                         let cid = cid.clone();
                         let ws = ws.clone();
                         let agent_id = agent_id.clone();
-                            let session_id = session_id.clone();
+                        let session_id = session_id.clone();
 
                         handles.push(tokio::spawn(async move {
                             let args: serde_json::Value =
@@ -1131,7 +1148,9 @@ impl Agent {
                             let elapsed = timer.elapsed().as_millis() as u64;
 
                             let (result_json, failed, error) = match result {
-                                Ok(v) => (serde_json::to_string(&v).unwrap_or_default(), false, None),
+                                Ok(v) => {
+                                    (serde_json::to_string(&v).unwrap_or_default(), false, None)
+                                }
                                 Err(e) => {
                                     let err_msg = format!("{e}");
                                     crate::gateway::publish_event_json(&serde_json::json!({
@@ -1141,7 +1160,14 @@ impl Agent {
                                         "tool": name,
                                         "error": err_msg,
                                     }));
-                                    (serde_json::to_string(&serde_json::json!({"error": &err_msg})).unwrap_or_default(), true, Some(err_msg))
+                                    (
+                                        serde_json::to_string(
+                                            &serde_json::json!({"error": &err_msg}),
+                                        )
+                                        .unwrap_or_default(),
+                                        true,
+                                        Some(err_msg),
+                                    )
                                 }
                             };
 
@@ -1171,7 +1197,10 @@ impl Agent {
 
                             // Expand function_defs if search_tools discovered new tools.
                             if name == "search_tools" && !failed {
-                                expand_function_defs_from_search_result(&result_json, &mut function_defs);
+                                expand_function_defs_from_search_result(
+                                    &result_json,
+                                    &mut function_defs,
+                                );
                             }
 
                             // Append tool result with matching tool_call_id.
@@ -1215,7 +1244,9 @@ impl Agent {
                 self.stream_reply_to_gateway(&text).await;
                 text
             }
-            ProviderResponse::FunctionCall { name, arguments, .. } => {
+            ProviderResponse::FunctionCall {
+                name, arguments, ..
+            } => {
                 let t = format!("[tool loop exhausted] last call: {}({})", name, arguments);
                 crate::gateway::publish_event_json(&serde_json::json!({
                     "type": "stream_delta",

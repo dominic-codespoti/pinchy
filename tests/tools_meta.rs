@@ -129,10 +129,22 @@ fn list_tools_core_excludes_deferred() {
     let all = tools::list_tools();
 
     let core_names: Vec<&str> = core.iter().map(|m| m.name.as_str()).collect();
-    assert!(core_names.contains(&"read_file"), "core should have read_file");
-    assert!(core_names.contains(&"search_tools"), "core should have search_tools");
-    assert!(!core_names.contains(&"list_agents"), "deferred tool should not be in core");
-    assert!(!core_names.contains(&"create_cron_job"), "deferred tool should not be in core");
+    assert!(
+        core_names.contains(&"read_file"),
+        "core should have read_file"
+    );
+    assert!(
+        core_names.contains(&"search_tools"),
+        "core should have search_tools"
+    );
+    assert!(
+        !core_names.contains(&"list_agents"),
+        "deferred tool should not be in core"
+    );
+    assert!(
+        !core_names.contains(&"create_cron_job"),
+        "deferred tool should not be in core"
+    );
     assert!(all.len() > core.len(), "total should exceed core");
 }
 

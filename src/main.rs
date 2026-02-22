@@ -356,7 +356,9 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Startup summary ──────────────────────────────────────────────
     {
-        let api_token = std::env::var("PINCHY_API_TOKEN").ok().filter(|s| !s.is_empty());
+        let api_token = std::env::var("PINCHY_API_TOKEN")
+            .ok()
+            .filter(|s| !s.is_empty());
 
         let gw_url = _gateway.as_ref().map(|gw| format!("http://{}", gw.addr));
 
@@ -366,7 +368,11 @@ async fn main() -> anyhow::Result<()> {
         };
 
         let sched_status = if has_scheduled_work {
-            let hb_count = cfg.agents.iter().filter(|a| a.heartbeat_secs.is_some()).count();
+            let hb_count = cfg
+                .agents
+                .iter()
+                .filter(|a| a.heartbeat_secs.is_some())
+                .count();
             let cron_count: usize = cfg.agents.iter().map(|a| a.cron_jobs.len()).sum();
             format!("enabled ({hb_count} heartbeat(s), {cron_count} cron job(s))")
         } else {

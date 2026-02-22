@@ -98,7 +98,10 @@ pub async fn send_message(workspace: &Path, args: Value) -> anyhow::Result<Value
         }
 
         let bytes = tokio::fs::read(&canonical_file).await.map_err(|e| {
-            anyhow::anyhow!("failed to read attachment {}: {e}", canonical_file.display())
+            anyhow::anyhow!(
+                "failed to read attachment {}: {e}",
+                canonical_file.display()
+            )
         })?;
         let filename = canonical_file
             .file_name()
@@ -112,11 +115,7 @@ pub async fn send_message(workspace: &Path, args: Value) -> anyhow::Result<Value
     // channel_hints: pass through as-is.
     let channel_hints: HashMap<String, Value> = args["channel_hints"]
         .as_object()
-        .map(|obj| {
-            obj.iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect()
-        })
+        .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
         .unwrap_or_default();
 
     let rich = RichMessage {

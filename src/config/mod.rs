@@ -90,16 +90,25 @@ pub struct Config {
     /// Session expiry in days. Sessions older than this are cleaned up
     /// on startup and by the periodic janitor. `None` or `0` disables expiry.
     /// Default: 30 days.
-    #[serde(default = "default_session_expiry_days", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default = "default_session_expiry_days",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub session_expiry_days: Option<u64>,
     /// Cron-session expiry in days. Cron sessions are short-lived one-turn
     /// files that accumulate quickly. Default: 7 days.
-    #[serde(default = "default_cron_session_expiry_days", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default = "default_cron_session_expiry_days",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cron_session_expiry_days: Option<u64>,
     /// Maximum number of heartbeat event files to keep in each agent's
     /// `cron_events/` directory. Oldest files are pruned first.
     /// Default: 50.
-    #[serde(default = "default_cron_events_max_keep", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default = "default_cron_events_max_keep",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cron_events_max_keep: Option<usize>,
 }
 

@@ -9,6 +9,7 @@ mod auth;
 mod handlers;
 mod ws;
 
+use async_trait::async_trait;
 use axum::{
     middleware,
     routing::{delete, get, post, put},
@@ -16,12 +17,11 @@ use axum::{
 };
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tower_http::services::{ServeDir, ServeFile};
-use async_trait::async_trait;
-use std::sync::Arc;
 use tracing::{debug, error, info, warn};
 
 // ---------------------------------------------------------------------------
@@ -65,8 +65,12 @@ struct GatewayConnector;
 
 #[async_trait]
 impl crate::comm::ChannelConnector for GatewayConnector {
-    fn name(&self) -> &str { "gateway" }
-    fn matches(&self, channel: &str) -> bool { channel.starts_with("gateway:") }
+    fn name(&self) -> &str {
+        "gateway"
+    }
+    fn matches(&self, channel: &str) -> bool {
+        channel.starts_with("gateway:")
+    }
     async fn send(&self, _channel: &str, text: &str) -> anyhow::Result<()> {
         publish_event_json(&serde_json::json!({
             "type": "agent_reply",
@@ -133,7 +137,9 @@ pub async fn start_gateway_with_config(
     let (events_tx, _) = broadcast::channel::<String>(256);
     let (commands_tx, commands_rx) = mpsc::channel::<String>(256);
 
-    let api_token = std::env::var("PINCHY_API_TOKEN").ok().filter(|s| !s.is_empty());
+    let api_token = std::env::var("PINCHY_API_TOKEN")
+        .ok()
+        .filter(|s| !s.is_empty());
 
     let state = AppState {
         events_tx: events_tx.clone(),
@@ -154,9 +160,15 @@ pub async fn start_gateway_with_config(
         .route("/status", get(handlers::health::status_handler))
         .route("/health", get(handlers::health::api_health))
         // Config
-        .route("/config", get(handlers::config::api_config_get).put(handlers::config::api_config_put))
+        .route(
+            "/config",
+            get(handlers::config::api_config_get).put(handlers::config::api_config_put),
+        )
         // Agents
-        .route("/agents", get(handlers::agents::api_agents_list).post(handlers::agents::api_agent_create))
+        .route(
+            "/agents",
+            get(handlers::agents::api_agents_list).post(handlers::agents::api_agent_create),
+        )
         .route(
             "/agents/:agent_id",
             get(handlers::agents::api_agent_get)
@@ -169,8 +181,14 @@ pub async fn start_gateway_with_config(
             get(handlers::agents::api_agent_file_get).put(handlers::agents::api_agent_file_put),
         )
         // Sessions
-        .route("/agents/:agent_id/session/current", get(handlers::sessions::api_session_current))
-        .route("/agents/:agent_id/sessions", get(handlers::sessions::api_sessions_list))
+        .route(
+            "/agents/:agent_id/session/current",
+            get(handlers::sessions::api_session_current),
+        )
+        .route(
+            "/agents/:agent_id/sessions",
+            get(handlers::sessions::api_sessions_list),
+        )
         .route(
             "/agents/:agent_id/sessions/:session_file",
             get(handlers::sessions::api_session_get)
@@ -178,13 +196,19 @@ pub async fn start_gateway_with_config(
                 .delete(handlers::sessions::api_session_delete),
         )
         // Receipts
-        .route("/agents/:agent_id/receipts", get(handlers::receipts::api_receipts_list))
+        .route(
+            "/agents/:agent_id/receipts",
+            get(handlers::receipts::api_receipts_list),
+        )
         .route(
             "/agents/:agent_id/receipts/:session_id",
             get(handlers::receipts::api_receipts_by_session),
         )
         // Heartbeat
-        .route("/heartbeat/status", get(handlers::heartbeat::api_heartbeat_status_all))
+        .route(
+            "/heartbeat/status",
+            get(handlers::heartbeat::api_heartbeat_status_all),
+        )
         .route(
             "/heartbeat/status/:agent_id",
             get(handlers::heartbeat::api_heartbeat_status_one),
@@ -194,22 +218,43 @@ pub async fn start_gateway_with_config(
             "/cron/jobs",
             get(handlers::cron::api_cron_jobs_all).post(handlers::cron::api_cron_jobs_create),
         )
-        .route("/cron/jobs/:agent_id", get(handlers::cron::api_cron_jobs_by_agent))
-        .route("/cron/jobs/:job_id/runs", get(handlers::cron::api_cron_job_runs))
+        .route(
+            "/cron/jobs/:agent_id",
+            get(handlers::cron::api_cron_jobs_by_agent),
+        )
+        .route(
+            "/cron/jobs/:job_id/runs",
+            get(handlers::cron::api_cron_job_runs),
+        )
         .route(
             "/cron/jobs/:job_id/delete",
             delete(handlers::cron::api_cron_jobs_delete),
         )
-        .route("/cron/jobs/:job_id/update", put(handlers::cron::api_cron_jobs_update))
+        .route(
+            "/cron/jobs/:job_id/update",
+            put(handlers::cron::api_cron_jobs_update),
+        )
         // Skills
         .route("/skills", get(handlers::skills::api_skills_list))
         // AI
-        .route("/ai/enhance-prompt", post(handlers::cron::api_ai_enhance_prompt))
+        .route(
+            "/ai/enhance-prompt",
+            post(handlers::cron::api_ai_enhance_prompt),
+        )
         // Slash commands
-        .route("/slash/commands", get(handlers::slash_cmds::api_slash_commands))
+        .route(
+            "/slash/commands",
+            get(handlers::slash_cmds::api_slash_commands),
+        )
         // Webhooks (outside auth middleware — uses per-agent ?secret= param)
-        .route("/webhook/:agent_id", post(handlers::webhook::api_webhook_ingest))
-        .layer(middleware::from_fn_with_state(state.clone(), auth::auth_middleware));
+        .route(
+            "/webhook/:agent_id",
+            post(handlers::webhook::api_webhook_ingest),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::auth_middleware,
+        ));
 
     let (static_root, index_file, ui_label) = resolve_ui_paths();
     info!(
@@ -317,7 +362,8 @@ fn resolve_ui_paths() -> (PathBuf, PathBuf, &'static str) {
         );
     }
 
-    let manifest_react_index = Path::new(env!("CARGO_MANIFEST_DIR")).join("static/react/index.html");
+    let manifest_react_index =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("static/react/index.html");
     if manifest_react_index.exists() {
         return (
             Path::new(env!("CARGO_MANIFEST_DIR")).join("static/react"),
@@ -328,7 +374,9 @@ fn resolve_ui_paths() -> (PathBuf, PathBuf, &'static str) {
 
     let cwd_legacy_index = Path::new("static/index.html");
     if cwd_legacy_index.exists() {
-        warn!("React UI not built (missing static/react/index.html), falling back to legacy static/");
+        warn!(
+            "React UI not built (missing static/react/index.html), falling back to legacy static/"
+        );
         return (
             PathBuf::from("static"),
             PathBuf::from("static/index.html"),
@@ -338,7 +386,9 @@ fn resolve_ui_paths() -> (PathBuf, PathBuf, &'static str) {
 
     let manifest_legacy_index = Path::new(env!("CARGO_MANIFEST_DIR")).join("static/index.html");
     if manifest_legacy_index.exists() {
-        warn!("React UI not built (missing static/react/index.html), falling back to legacy static/");
+        warn!(
+            "React UI not built (missing static/react/index.html), falling back to legacy static/"
+        );
         return (
             Path::new(env!("CARGO_MANIFEST_DIR")).join("static"),
             manifest_legacy_index,
@@ -347,7 +397,9 @@ fn resolve_ui_paths() -> (PathBuf, PathBuf, &'static str) {
     }
 
     // Last resort: keep predictable startup.
-    warn!("No UI assets found under static/react or static; serving from static/ with expected 404s");
+    warn!(
+        "No UI assets found under static/react or static; serving from static/ with expected 404s"
+    );
     (
         PathBuf::from("static"),
         PathBuf::from("static/index.html"),

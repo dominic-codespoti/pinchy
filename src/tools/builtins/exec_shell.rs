@@ -32,8 +32,7 @@ struct BgProcess {
     done: bool,
 }
 
-static BG_PROCS: Lazy<Mutex<HashMap<u64, BgProcess>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+static BG_PROCS: Lazy<Mutex<HashMap<u64, BgProcess>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 /// Monotonically increasing process counter.
 static BG_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
@@ -53,12 +52,9 @@ fn is_command_blocked(cmd_name: &str, _workspace: &Path) -> bool {
 /// personal daemon, not a hostile multi-tenant sandbox.
 const EXEC_BLOCKLIST: &[&str] = &[
     // Privilege escalation
-    "sudo", "su", "doas", "pkexec",
-    // Dangerous disk / partition tools
-    "dd", "mkfs", "fdisk", "parted", "losetup",
-    // Kernel / module manipulation
-    "insmod", "rmmod", "modprobe",
-    // Namespace / chroot escapes
+    "sudo", "su", "doas", "pkexec", // Dangerous disk / partition tools
+    "dd", "mkfs", "fdisk", "parted", "losetup", // Kernel / module manipulation
+    "insmod", "rmmod", "modprobe", // Namespace / chroot escapes
     "nsenter", "unshare", "chroot",
 ];
 
@@ -69,10 +65,7 @@ const EXEC_BLOCKLIST: &[&str] = &[
 /// shell syntax provides no real security benefit — the agent is already
 /// in a shell.  We only block `eval` which can reassemble blocked
 /// command names from strings to bypass the blocklist.
-const SHELL_ESCAPE_PATTERNS: &[&str] = &[
-    "eval ",
-    "eval\t",
-];
+const SHELL_ESCAPE_PATTERNS: &[&str] = &["eval ", "eval\t"];
 
 /// Extract individual command names from a shell command string.
 ///
@@ -123,7 +116,9 @@ fn validate_command_safety(command: &str) -> Result<(), String> {
         if cmd_name == "sed" {
             for token in &tokens[1..] {
                 if token.ends_with("/e") || token.contains("/e;") || token.contains("/e}") {
-                    return Err("sed with '/e' flag is not allowed (executes shell commands)".into());
+                    return Err(
+                        "sed with '/e' flag is not allowed (executes shell commands)".into(),
+                    );
                 }
             }
         }
@@ -205,14 +200,17 @@ pub async fn exec_shell(workspace: &Path, args: Value) -> anyhow::Result<Value> 
         let cmd_str = command.to_string();
         {
             let mut registry = BG_PROCS.lock().expect("bg proc registry poisoned");
-            registry.insert(pid, BgProcess {
-                command: cmd_str.clone(),
-                child: Some(child),
-                exit_code: None,
-                stdout: String::new(),
-                stderr: String::new(),
-                done: false,
-            });
+            registry.insert(
+                pid,
+                BgProcess {
+                    command: cmd_str.clone(),
+                    child: Some(child),
+                    exit_code: None,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    done: false,
+                },
+            );
         }
 
         // Spawn a collector that auto-kills after 120 s and stores output.
@@ -334,7 +332,9 @@ async fn handle_bg_action(action: &str, args: &Value) -> anyhow::Result<Value> {
             let pid = args
                 .get("process_id")
                 .and_then(Value::as_u64)
-                .ok_or_else(|| anyhow::anyhow!("exec_shell: action='status' requires `process_id`"))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("exec_shell: action='status' requires `process_id`")
+                })?;
             let reg = BG_PROCS.lock().expect("bg proc registry poisoned");
             match reg.get(&pid) {
                 Some(p) => Ok(json!({
@@ -350,7 +350,9 @@ async fn handle_bg_action(action: &str, args: &Value) -> anyhow::Result<Value> {
             let pid = args
                 .get("process_id")
                 .and_then(Value::as_u64)
-                .ok_or_else(|| anyhow::anyhow!("exec_shell: action='output' requires `process_id`"))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("exec_shell: action='output' requires `process_id`")
+                })?;
 
             // Poll until done (up to 30 s).
             let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -389,7 +391,9 @@ async fn handle_bg_action(action: &str, args: &Value) -> anyhow::Result<Value> {
             let pid = args
                 .get("process_id")
                 .and_then(Value::as_u64)
-                .ok_or_else(|| anyhow::anyhow!("exec_shell: action='kill' requires `process_id`"))?;
+                .ok_or_else(|| {
+                    anyhow::anyhow!("exec_shell: action='kill' requires `process_id`")
+                })?;
             // Take the child out of the registry before awaiting kill.
             let child = {
                 let mut reg = BG_PROCS.lock().expect("bg proc registry poisoned");
@@ -411,7 +415,9 @@ async fn handle_bg_action(action: &str, args: &Value) -> anyhow::Result<Value> {
                 "killed": true,
             }))
         }
-        other => anyhow::bail!("exec_shell: unknown action '{other}'. Valid: list, status, output, kill"),
+        other => {
+            anyhow::bail!("exec_shell: unknown action '{other}'. Valid: list, status, output, kill")
+        }
     }
 }
 

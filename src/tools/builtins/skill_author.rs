@@ -23,7 +23,9 @@ pub async fn create_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
             .chars()
             .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
     {
-        anyhow::bail!("skill name must be non-empty and contain only alphanumeric, hyphens, or underscores");
+        anyhow::bail!(
+            "skill name must be non-empty and contain only alphanumeric, hyphens, or underscores"
+        );
     }
 
     let description = args["description"]
@@ -51,11 +53,7 @@ pub async fn create_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
     };
 
     if skill_dir.join("SKILL.md").exists() {
-        anyhow::bail!(
-            "skill '{}' already exists at {}",
-            name,
-            skill_dir.display()
-        );
+        anyhow::bail!("skill '{}' already exists at {}", name, skill_dir.display());
     }
 
     tokio::fs::create_dir_all(&skill_dir).await?;
@@ -67,9 +65,8 @@ pub async fn create_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
     tokio::fs::write(skill_dir.join("SKILL.md"), &skill_md).await?;
 
     // Also write skill.yaml for backwards compat.
-    let skill_yaml = format!(
-        "name: {name}\nversion: \"0.1\"\ndescription: \"{description}\"\nscope: {scope}\n"
-    );
+    let skill_yaml =
+        format!("name: {name}\nversion: \"0.1\"\ndescription: \"{description}\"\nscope: {scope}\n");
     tokio::fs::write(skill_dir.join("skill.yaml"), &skill_yaml).await?;
 
     // Reload skills into the unified tool registry.
@@ -100,7 +97,9 @@ pub async fn delete_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
             .chars()
             .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
     {
-        anyhow::bail!("skill name must be non-empty and contain only alphanumeric, hyphens, or underscores");
+        anyhow::bail!(
+            "skill name must be non-empty and contain only alphanumeric, hyphens, or underscores"
+        );
     }
 
     let scope = args["scope"].as_str().unwrap_or("agent");
@@ -179,9 +178,8 @@ pub async fn edit_skill(workspace: &Path, args: Value) -> anyhow::Result<Value> 
     tokio::fs::write(&skill_md_path, &skill_md).await?;
 
     // Update skill.yaml too.
-    let skill_yaml = format!(
-        "name: {name}\nversion: \"0.1\"\ndescription: \"{new_desc}\"\nscope: {scope}\n"
-    );
+    let skill_yaml =
+        format!("name: {name}\nversion: \"0.1\"\ndescription: \"{new_desc}\"\nscope: {scope}\n");
     tokio::fs::write(skill_dir.join("skill.yaml"), &skill_yaml).await?;
 
     crate::tools::reload_skills(None);
@@ -217,7 +215,10 @@ fn parse_skill_md(content: &str) -> (String, String) {
         for line in frontmatter.lines() {
             let line = line.trim();
             if line.starts_with("description:") {
-                description = line["description:".len()..].trim().trim_matches('"').to_string();
+                description = line["description:".len()..]
+                    .trim()
+                    .trim_matches('"')
+                    .to_string();
             }
         }
 

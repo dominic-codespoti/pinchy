@@ -1,16 +1,10 @@
-use axum::{
-    extract::Path,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
 
 use super::super::auth::validate_path_segment;
 
 /// `GET /api/agents/:id/sessions` — list session files for an agent.
 pub(crate) async fn api_sessions_list(Path(agent_id): Path<String>) -> impl IntoResponse {
-    let sessions_dir = crate::utils::agent_workspace(&agent_id)
-        .join("sessions");
+    let sessions_dir = crate::utils::agent_workspace(&agent_id).join("sessions");
 
     if !sessions_dir.exists() {
         return Json(serde_json::json!({ "sessions": [] })).into_response();
@@ -126,8 +120,7 @@ pub(crate) async fn api_session_update(
         format!("{session_file}.jsonl")
     };
 
-    let sessions_dir = crate::utils::agent_workspace(&agent_id)
-        .join("sessions");
+    let sessions_dir = crate::utils::agent_workspace(&agent_id).join("sessions");
 
     if let Err(e) = tokio::fs::create_dir_all(&sessions_dir).await {
         return (
@@ -172,9 +165,7 @@ pub(crate) async fn api_session_update(
 }
 
 /// `GET /api/agents/:id/session/current` — return the current active session id.
-pub(crate) async fn api_session_current(
-    Path(agent_id): Path<String>,
-) -> impl IntoResponse {
+pub(crate) async fn api_session_current(Path(agent_id): Path<String>) -> impl IntoResponse {
     if let Err(e) = validate_path_segment(&agent_id) {
         return e.into_response();
     }

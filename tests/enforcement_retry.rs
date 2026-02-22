@@ -6,7 +6,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use async_trait::async_trait;
 use mini_claw::agent::Agent;
 use mini_claw::comm::IncomingMessage;
-use mini_claw::models::{ChatMessage, ModelProvider, ProviderManager, ProviderResponse, TokenUsage};
+use mini_claw::models::{
+    ChatMessage, ModelProvider, ProviderManager, ProviderResponse, TokenUsage,
+};
 use tempfile::TempDir;
 
 /// Mock provider that:
@@ -28,7 +30,12 @@ impl EnforcementMockProvider {
 
 #[async_trait]
 impl ModelProvider for EnforcementMockProvider {
-    fn send_chat_stream<'a>(&'a self, messages: &'a [ChatMessage]) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>> {
+    fn send_chat_stream<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+    ) -> std::pin::Pin<
+        Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>,
+    > {
         Box::pin(async_stream::try_stream! { let r = self.send_chat(messages).await?; yield r; })
     }
     async fn send_chat(&self, _messages: &[ChatMessage]) -> Result<String, anyhow::Error> {
@@ -42,16 +49,14 @@ impl ModelProvider for EnforcementMockProvider {
             1 => {
                 // Second call (after corrective message): return a fenced
                 // TOOL_CALL for write_file.
-                Ok(
-                    "```json\n{\
+                Ok("```json\n{\
                         \"name\": \"write_file\", \
                         \"args\": {\
                             \"path\": \"output.txt\", \
                             \"content\": \"enforcement retry worked\"\
                         }\
                     }\n```"
-                    .to_string(),
-                )
+                    .to_string())
             }
             _ => {
                 // Third+ call: final reply after tool execution.

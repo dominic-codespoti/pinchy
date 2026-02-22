@@ -120,10 +120,7 @@ impl EventHandler for Handler {
                         .unwrap_or_else(|| crate::utils::agent_root(&aid));
                     (aid, ws)
                 }
-                Err(_) => (
-                    "default".to_string(),
-                    crate::utils::agent_root("default"),
-                ),
+                Err(_) => ("default".to_string(), crate::utils::agent_root("default")),
             };
 
             let slash_ctx = slash::Context {
@@ -212,9 +209,7 @@ impl ChannelConnector for DiscordConnector {
             return !uid.is_empty() && uid.chars().all(|c| c.is_ascii_digit());
         }
         // Plain numeric — Discord channel id
-        !channel.contains(':')
-            && !channel.is_empty()
-            && channel.chars().all(|c| c.is_ascii_digit())
+        !channel.contains(':') && !channel.is_empty() && channel.chars().all(|c| c.is_ascii_digit())
     }
 
     async fn send(&self, channel: &str, text: &str) -> anyhow::Result<()> {
@@ -337,7 +332,8 @@ pub(crate) async fn send_channel_message(channel: &str, text: &str) -> anyhow::R
     // Discord imposes a 2 000-character limit per message.  Split long
     // text into chunks so nothing is silently truncated.
     for chunk in chunk_message(text, 2000) {
-        let sent = ch.say(http, &chunk)
+        let sent = ch
+            .say(http, &chunk)
             .await
             .map_err(|e| anyhow!(format!("discord send error: {e:?}")))?;
         if let Ok(ctx) = CURRENT_REPLY_CONTEXT.try_with(|c| c.clone()) {
@@ -397,11 +393,7 @@ pub(crate) async fn send_rich_dm_message(user_id: &str, msg: &RichMessage) -> an
         embed = embed.description(truncate(t, 4096));
     }
     for s in &msg.sections {
-        embed = embed.field(
-            truncate(&s.name, 256),
-            truncate(&s.value, 1024),
-            s.inline,
-        );
+        embed = embed.field(truncate(&s.name, 256), truncate(&s.value, 1024), s.inline);
     }
     if let Some(c) = &msg.color {
         if let Some(hex) = parse_hex_color(c) {
@@ -426,10 +418,7 @@ pub(crate) async fn send_rich_dm_message(user_id: &str, msg: &RichMessage) -> an
     }
 
     if let Some((filename, bytes)) = &msg.attachment {
-        create_msg = create_msg.add_file(CreateAttachment::bytes(
-            bytes.clone(),
-            filename.as_str(),
-        ));
+        create_msg = create_msg.add_file(CreateAttachment::bytes(bytes.clone(), filename.as_str()));
     }
 
     let sent = dm_channel
@@ -465,11 +454,7 @@ pub(crate) async fn send_rich_channel_message(
         embed = embed.description(truncate(t, 4096));
     }
     for s in &msg.sections {
-        embed = embed.field(
-            truncate(&s.name, 256),
-            truncate(&s.value, 1024),
-            s.inline,
-        );
+        embed = embed.field(truncate(&s.name, 256), truncate(&s.value, 1024), s.inline);
     }
     if let Some(c) = &msg.color {
         if let Some(hex) = parse_hex_color(c) {
@@ -495,13 +480,11 @@ pub(crate) async fn send_rich_channel_message(
 
     // Attach file if provided — ownership lets us move bytes without cloning.
     if let Some((filename, bytes)) = &msg.attachment {
-        create_msg = create_msg.add_file(CreateAttachment::bytes(
-            bytes.clone(),
-            filename.as_str(),
-        ));
+        create_msg = create_msg.add_file(CreateAttachment::bytes(bytes.clone(), filename.as_str()));
     }
 
-    let sent = ch.send_message(http, create_msg)
+    let sent = ch
+        .send_message(http, create_msg)
         .await
         .map_err(|e| anyhow!("discord rich send error: {e:?}"))?;
     if let Ok(ctx) = CURRENT_REPLY_CONTEXT.try_with(|c| c.clone()) {
@@ -565,10 +548,7 @@ fn chunk_message(text: &str, max: usize) -> Vec<String> {
             .map(|i| i + 1)
             .unwrap_or_else(|| {
                 // No newline — split at last space.
-                remaining[..max]
-                    .rfind(' ')
-                    .map(|i| i + 1)
-                    .unwrap_or(max)
+                remaining[..max].rfind(' ').map(|i| i + 1).unwrap_or(max)
             });
         // Ensure we're on a char boundary.
         let mut end = boundary;

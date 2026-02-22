@@ -64,25 +64,20 @@ fn do_search_replace(existing: &str, args: &Value) -> anyhow::Result<String> {
     let search = args
         .get("search")
         .and_then(Value::as_str)
-        .ok_or_else(|| {
-            anyhow::anyhow!("edit_file (search_replace): missing `search` argument")
-        })?;
+        .ok_or_else(|| anyhow::anyhow!("edit_file (search_replace): missing `search` argument"))?;
 
-    let replacement = args
-        .get("content")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            anyhow::anyhow!("edit_file (search_replace): missing `content` argument (use empty string to delete)")
-        })?;
+    let replacement = args.get("content").and_then(Value::as_str).ok_or_else(|| {
+        anyhow::anyhow!(
+            "edit_file (search_replace): missing `content` argument (use empty string to delete)"
+        )
+    })?;
 
     if search.is_empty() {
         anyhow::bail!("edit_file (search_replace): `search` must not be empty");
     }
 
     if !existing.contains(search) {
-        anyhow::bail!(
-            "edit_file (search_replace): search text not found in file"
-        );
+        anyhow::bail!("edit_file (search_replace): search text not found in file");
     }
 
     let replace_all = args
@@ -141,11 +136,10 @@ fn do_line_replace(existing: &str, args: &Value) -> anyhow::Result<String> {
     let mut lines: Vec<&str> = existing.split('\n').collect();
     let total_lines = lines.len();
 
-    let start = args
-        .get("start_line")
-        .and_then(|v| v.as_u64())
-        .ok_or_else(|| anyhow::anyhow!("edit_file: missing `start_line`"))?
-        as usize;
+    let start =
+        args.get("start_line")
+            .and_then(|v| v.as_u64())
+            .ok_or_else(|| anyhow::anyhow!("edit_file: missing `start_line`"))? as usize;
 
     let end = args
         .get("end_line")

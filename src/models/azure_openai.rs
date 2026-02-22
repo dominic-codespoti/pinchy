@@ -251,7 +251,8 @@ impl ModelProvider for AzureOpenAIProvider {
         messages: &[ChatMessage],
         functions: &[serde_json::Value],
     ) -> Result<(ProviderResponse, Option<TokenUsage>), anyhow::Error> {
-        self.send_chat_with_functions_impl(messages, functions).await
+        self.send_chat_with_functions_impl(messages, functions)
+            .await
     }
 
     fn send_chat_stream<'a>(
@@ -284,7 +285,11 @@ impl ModelProvider for AzureOpenAIProvider {
             let json: serde_json::Value = resp.json().await?;
             let vec = json["data"][0]["embedding"]
                 .as_array()
-                .map(|arr| arr.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect())
+                .map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_f64().map(|f| f as f32))
+                        .collect()
+                })
                 .unwrap_or_default();
             all.push(vec);
         }
@@ -364,7 +369,11 @@ mod tests {
         });
         let vec: Vec<f32> = fake["data"][0]["embedding"]
             .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_f64().map(|f| f as f32))
+                    .collect()
+            })
             .unwrap_or_default();
         assert_eq!(vec.len(), 3);
         assert!((vec[0] - 0.1).abs() < 1e-6);
@@ -380,7 +389,12 @@ mod tests {
             None, // no embedding_deployment
         );
         // Call the trait method (not the inherent single-text one).
-        let result = <AzureOpenAIProvider as crate::models::ModelProvider>::embed(&p, &["test"]).await.unwrap();
-        assert!(result.is_none(), "should return None when no embedding deployment configured");
+        let result = <AzureOpenAIProvider as crate::models::ModelProvider>::embed(&p, &["test"])
+            .await
+            .unwrap();
+        assert!(
+            result.is_none(),
+            "should return None when no embedding deployment configured"
+        );
     }
 }

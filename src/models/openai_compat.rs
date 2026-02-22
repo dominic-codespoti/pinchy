@@ -273,6 +273,9 @@ mod tests {
             "llama3".into(),
         );
         let provider: &dyn ModelProvider = &p;
-        assert!(provider.as_any().downcast_ref::<OpenAICompatProvider>().is_some());
+        assert!(provider
+            .as_any()
+            .downcast_ref::<OpenAICompatProvider>()
+            .is_some());
     }
 }

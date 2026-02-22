@@ -106,7 +106,9 @@ mod tests {
         let home = tmp.path();
 
         append_global_index(home, "s1", "a1", None).await.unwrap();
-        append_global_index(home, "s2", "a2", Some("second")).await.unwrap();
+        append_global_index(home, "s2", "a2", Some("second"))
+            .await
+            .unwrap();
 
         let contents = tokio::fs::read_to_string(home.join("sessions/index.jsonl"))
             .await

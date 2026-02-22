@@ -316,7 +316,9 @@ impl ModelProvider for OpenAIProvider {
                     .iter()
                     .filter_map(|item| {
                         item["embedding"].as_array().map(|e| {
-                            e.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect()
+                            e.iter()
+                                .filter_map(|v| v.as_f64().map(|f| f as f32))
+                                .collect()
                         })
                     })
                     .collect();
@@ -444,7 +446,9 @@ mod tests {
             .iter()
             .filter_map(|item| {
                 item["embedding"].as_array().map(|e| {
-                    e.iter().filter_map(|v| v.as_f64().map(|f| f as f32)).collect()
+                    e.iter()
+                        .filter_map(|v| v.as_f64().map(|f| f as f32))
+                        .collect()
                 })
             })
             .collect();

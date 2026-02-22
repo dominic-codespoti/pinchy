@@ -84,10 +84,7 @@ pub async fn self_update(_workspace: &Path, args: Value) -> anyhow::Result<Value
     }
 }
 
-async fn spawn_update_script(
-    script: &Path,
-    repo_root: &Path,
-) -> anyhow::Result<Value> {
+async fn spawn_update_script(script: &Path, repo_root: &Path) -> anyhow::Result<Value> {
     tracing::info!("spawning self-update script: {}", script.display());
 
     let mut cmd = tokio::process::Command::new("bash");

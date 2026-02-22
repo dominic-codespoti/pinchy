@@ -169,7 +169,11 @@ pub fn parse_tool_calls(json: &serde_json::Value) -> Option<ProviderResponse> {
                     .and_then(|i| i.as_str())
                     .unwrap_or("")
                     .to_string();
-                Some(FunctionCallItem { id, name, arguments })
+                Some(FunctionCallItem {
+                    id,
+                    name,
+                    arguments,
+                })
             })
             .collect();
 
@@ -434,8 +438,9 @@ fn is_permanent_error(err: &anyhow::Error) -> bool {
 
 /// Global provider manager stashed at startup so tools (e.g. semantic memory)
 /// can embed text without plumbing the manager through every call site.
-pub static GLOBAL_PROVIDERS: std::sync::OnceLock<std::sync::Mutex<std::sync::Arc<ProviderManager>>> =
-    std::sync::OnceLock::new();
+pub static GLOBAL_PROVIDERS: std::sync::OnceLock<
+    std::sync::Mutex<std::sync::Arc<ProviderManager>>,
+> = std::sync::OnceLock::new();
 
 /// Store the provider manager globally.
 pub fn set_global_providers(pm: std::sync::Arc<ProviderManager>) {
@@ -533,8 +538,7 @@ pub fn build_provider_with_config_fields(
                 warn!("Azure provider requested but no endpoint configured — using fallback");
                 String::new()
             });
-        let key = std::env::var("AZURE_OPENAI_API_KEY")
-            .unwrap_or_default();
+        let key = std::env::var("AZURE_OPENAI_API_KEY").unwrap_or_default();
         if ep.is_empty() || key.is_empty() {
             warn!("Azure provider missing endpoint or api_key — using fallback");
             return Box::new(FallbackProvider);
@@ -546,12 +550,25 @@ pub fn build_provider_with_config_fields(
             api_version.map(String::from),
             embedding_deployment.map(String::from),
         ))
-    } else if matches!(provider_id, "openai-compat" | "openai_compat" | "compat" | "openrouter" | "ollama" | "groq" | "together" | "fireworks" | "mistral" | "lmstudio" | "vllm" | "deepseek" | "xai") {
+    } else if matches!(
+        provider_id,
+        "openai-compat"
+            | "openai_compat"
+            | "compat"
+            | "openrouter"
+            | "ollama"
+            | "groq"
+            | "together"
+            | "fireworks"
+            | "mistral"
+            | "lmstudio"
+            | "vllm"
+            | "deepseek"
+            | "xai"
+    ) {
         // Generic OpenAI-compatible: requires endpoint in config.
         // NB: must come before the `contains("openai")` catch-all.
-        let ep = endpoint
-            .map(String::from)
-            .unwrap_or_default();
+        let ep = endpoint.map(String::from).unwrap_or_default();
         if ep.is_empty() {
             warn!("openai-compat provider requires an endpoint — using fallback");
             return Box::new(FallbackProvider);
@@ -590,7 +607,9 @@ pub fn build_provider_manager(provider_id: &str, model_id: &str) -> ProviderMana
         providers.push(Box::new(FallbackProvider));
     }
 
-    let supports_functions = provider_id.contains("openai") || provider_id.contains("copilot") || provider_id.contains("compat");
+    let supports_functions = provider_id.contains("openai")
+        || provider_id.contains("copilot")
+        || provider_id.contains("compat");
     ProviderManager::new_with_functions(providers, 3, supports_functions)
 }
 
@@ -616,7 +635,11 @@ pub fn build_provider_manager_from_config(
             mc.embedding_deployment.as_deref(),
             mc.api_key.as_deref(),
         );
-        if mc.provider.contains("openai") || mc.provider.contains("copilot") || mc.provider.contains("azure") || mc.provider.contains("compat") {
+        if mc.provider.contains("openai")
+            || mc.provider.contains("copilot")
+            || mc.provider.contains("azure")
+            || mc.provider.contains("compat")
+        {
             any_supports_functions = true;
         }
         providers.push(p);
@@ -636,7 +659,11 @@ pub fn build_provider_manager_from_config(
                 mc.embedding_deployment.as_deref(),
                 mc.api_key.as_deref(),
             );
-            if mc.provider.contains("openai") || mc.provider.contains("copilot") || mc.provider.contains("azure") || mc.provider.contains("compat") {
+            if mc.provider.contains("openai")
+                || mc.provider.contains("copilot")
+                || mc.provider.contains("azure")
+                || mc.provider.contains("compat")
+            {
                 any_supports_functions = true;
             }
             providers.push(p);
@@ -735,10 +762,7 @@ mod tests {
     #[test]
     fn resolve_config_key_missing_returns_empty() {
         // No config key, no env var → empty string.
-        assert_eq!(
-            resolve_config_key(None, "nonexistent_provider_xyz"),
-            ""
-        );
+        assert_eq!(resolve_config_key(None, "nonexistent_provider_xyz"), "");
     }
 
     #[test]
@@ -747,7 +771,10 @@ mod tests {
         let p = build_provider_with_config_fields(
             "openai-compat",
             "test-model",
-            None, None, None, None,
+            None,
+            None,
+            None,
+            None,
         );
         // FallbackProvider is the only non-specific provider.
         assert!(p.as_any().downcast_ref::<FallbackProvider>().is_some());
@@ -759,7 +786,9 @@ mod tests {
             "openai-compat",
             "llama3",
             Some("http://localhost:11434/v1/chat/completions"),
-            None, None, None,
+            None,
+            None,
+            None,
         );
         assert!(p.as_any().downcast_ref::<OpenAICompatProvider>().is_some());
     }
@@ -767,16 +796,27 @@ mod tests {
     #[test]
     fn compat_aliases_all_resolve() {
         let aliases = [
-            "openai_compat", "compat", "openrouter", "ollama", "groq",
-            "together", "fireworks", "mistral", "lmstudio", "vllm",
-            "deepseek", "xai",
+            "openai_compat",
+            "compat",
+            "openrouter",
+            "ollama",
+            "groq",
+            "together",
+            "fireworks",
+            "mistral",
+            "lmstudio",
+            "vllm",
+            "deepseek",
+            "xai",
         ];
         for alias in aliases {
             let p = build_provider_with_config_fields(
                 alias,
                 "model",
                 Some("http://localhost:8080/v1/chat/completions"),
-                None, None, None,
+                None,
+                None,
+                None,
             );
             assert!(
                 p.as_any().downcast_ref::<OpenAICompatProvider>().is_some(),

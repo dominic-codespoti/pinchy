@@ -1,9 +1,4 @@
-use axum::{
-    extract::Path,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
 
 use super::super::auth::validate_path_segment;
 
@@ -489,8 +484,7 @@ pub(crate) async fn api_agent_file_get(
             .into_response();
     }
 
-    let path = crate::utils::agent_root(&agent_id)
-        .join(&filename);
+    let path = crate::utils::agent_root(&agent_id).join(&filename);
     match tokio::fs::read_to_string(&path).await {
         Ok(content) => (
             StatusCode::OK,

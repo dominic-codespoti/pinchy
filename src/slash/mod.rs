@@ -14,8 +14,8 @@ use std::sync::{Arc, RwLock};
 use thiserror::Error;
 use tracing::debug;
 
-use crate::session::SessionStore;
 use crate::models::ModelProvider;
+use crate::session::SessionStore;
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -219,7 +219,9 @@ pub fn register_builtin_commands(registry: &Registry) {
                 .map_err(|e| SlashError::Handler(format!("append global index: {e}")))?;
 
                 debug!(session_id = %session_id, "new session started via /new");
-                Ok(SlashResponse::Text(format!("new session started: {session_id}")))
+                Ok(SlashResponse::Text(format!(
+                    "new session started: {session_id}"
+                )))
             })
         }),
     );
@@ -229,7 +231,10 @@ pub fn register_builtin_commands(registry: &Registry) {
         cmd("end", "End the current conversation session", "/end"),
         Arc::new(|ctx, _args| {
             Box::pin(async move {
-                if SessionStore::load_current_async(&ctx.workspace).await.is_none() {
+                if SessionStore::load_current_async(&ctx.workspace)
+                    .await
+                    .is_none()
+                {
                     return Ok(SlashResponse::Text("no active session".to_string()));
                 }
                 SessionStore::clear_current(&ctx.workspace)

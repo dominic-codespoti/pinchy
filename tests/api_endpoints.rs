@@ -142,7 +142,9 @@ agents: []
     tokio::fs::write(&config_path, yaml).await.unwrap();
 
     let _guard = ChdirGuard::new(tmp.path());
-    unsafe { std::env::set_var("PINCHY_HOME", tmp.path()); }
+    unsafe {
+        std::env::set_var("PINCHY_HOME", tmp.path());
+    }
 
     let addr = free_addr().await;
     let gw = mini_claw::gateway::start_gateway_with_config(addr, config_path)
@@ -283,7 +285,9 @@ agents: []
 "#;
     tokio::fs::write(&config_path, yaml).await.unwrap();
 
-    unsafe { std::env::set_var("PINCHY_HOME", tmp.path()); }
+    unsafe {
+        std::env::set_var("PINCHY_HOME", tmp.path());
+    }
 
     // Write some cron jobs for the agent
     let jobs = serde_json::json!([

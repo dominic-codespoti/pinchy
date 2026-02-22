@@ -1,9 +1,4 @@
-use axum::{
-    extract::Path,
-    http::StatusCode,
-    response::IntoResponse,
-    Json,
-};
+use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
 
 use super::super::auth::validate_path_segment;
 
@@ -115,7 +110,9 @@ pub(crate) struct CreateCronJobRequest {
 }
 
 /// `POST /api/cron/jobs` — create a new cron job.
-pub(crate) async fn api_cron_jobs_create(Json(body): Json<CreateCronJobRequest>) -> impl IntoResponse {
+pub(crate) async fn api_cron_jobs_create(
+    Json(body): Json<CreateCronJobRequest>,
+) -> impl IntoResponse {
     let ws = crate::utils::agent_root(&body.agent_id);
     if !ws.exists() {
         return (
@@ -365,7 +362,10 @@ pub(crate) async fn api_cron_jobs_update(
     }
 }
 
-pub(crate) fn cron_job_to_json(agent_id: &str, job: &crate::scheduler::PersistedCronJob) -> serde_json::Value {
+pub(crate) fn cron_job_to_json(
+    agent_id: &str,
+    job: &crate::scheduler::PersistedCronJob,
+) -> serde_json::Value {
     let job_id = format!("{}@{}", job.name, agent_id);
     let kind = match &job.kind {
         crate::scheduler::JobKind::Recurring => "Recurring",

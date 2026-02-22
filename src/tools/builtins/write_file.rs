@@ -20,10 +20,7 @@ pub async fn write_file(workspace: &Path, args: Value) -> anyhow::Result<Value> 
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow::anyhow!("write_file: missing `content` argument"))?;
 
-    let append = args
-        .get("append")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let append = args.get("append").and_then(Value::as_bool).unwrap_or(false);
 
     let path = sandbox_path(workspace, raw)?;
 

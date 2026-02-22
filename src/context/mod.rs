@@ -65,8 +65,8 @@ pub struct ContextBudget {
 impl Default for ContextBudget {
     fn default() -> Self {
         Self {
-            max_tokens: 120_000,      // ~128k context models
-            prune_threshold: 80_000,  // start pruning at ~60 %
+            max_tokens: 120_000,        // ~128k context models
+            prune_threshold: 80_000,    // start pruning at ~60 %
             compact_threshold: 100_000, // compact at ~75 %
         }
     }
@@ -165,12 +165,12 @@ pub async fn compact_if_needed(
 
     // Identify the split point: preserve leading system messages and the
     // last COMPACT_KEEP_TAIL messages.
-    let leading_system = messages
-        .iter()
-        .take_while(|m| m.role == "system")
-        .count();
+    let leading_system = messages.iter().take_while(|m| m.role == "system").count();
 
-    let tail_start = messages.len().saturating_sub(COMPACT_KEEP_TAIL).max(leading_system);
+    let tail_start = messages
+        .len()
+        .saturating_sub(COMPACT_KEEP_TAIL)
+        .max(leading_system);
     if tail_start <= leading_system {
         // Nothing to compact (all system or too short).
         return false;
@@ -281,10 +281,7 @@ pub async fn manage_context(
 /// budget.  Pre-computes per-message token costs so the total work is O(n)
 /// instead of re-tokenizing every remaining message after each removal.
 fn hard_truncate(messages: &mut Vec<ChatMessage>, max_tokens: usize) {
-    let leading_system = messages
-        .iter()
-        .take_while(|m| m.role == "system")
-        .count();
+    let leading_system = messages.iter().take_while(|m| m.role == "system").count();
 
     // Pre-compute per-message token costs.
     let enc = bpe();
@@ -386,10 +383,7 @@ mod tests {
     #[test]
     fn prune_function_calls() {
         let big_call = format!("FUNCTION_CALL: some_tool({})", "a".repeat(500));
-        let mut msgs = vec![
-            msg("assistant", &big_call),
-            msg("user", "recent"),
-        ];
+        let mut msgs = vec![msg("assistant", &big_call), msg("user", "recent")];
 
         prune_tool_results(&mut msgs, 1);
         assert!(msgs[0].content.contains("[args pruned]"));

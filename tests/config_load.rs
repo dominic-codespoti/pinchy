@@ -199,7 +199,9 @@ async fn pinchy_home_fallback_when_project_config_missing() {
     std::env::set_current_dir(empty_dir.path()).unwrap();
 
     // Point PINCHY_HOME to our tempdir
-    unsafe { std::env::set_var("PINCHY_HOME", home_dir.path()); }
+    unsafe {
+        std::env::set_var("PINCHY_HOME", home_dir.path());
+    }
 
     // Request a relative "config.yaml" that doesn't exist on disk
     let missing = std::path::Path::new("config.yaml");
@@ -209,7 +211,9 @@ async fn pinchy_home_fallback_when_project_config_missing() {
     assert!(cfg.agents.is_empty());
 
     // Cleanup
-    unsafe { std::env::remove_var("PINCHY_HOME"); }
+    unsafe {
+        std::env::remove_var("PINCHY_HOME");
+    }
     let _ = std::env::set_current_dir(&prev_dir);
 }
 
@@ -228,7 +232,9 @@ async fn pinchy_home_bak_fallback() {
     let prev_dir = std::env::current_dir().unwrap();
     std::env::set_current_dir(empty_dir.path()).unwrap();
 
-    unsafe { std::env::set_var("PINCHY_HOME", home_dir.path()); }
+    unsafe {
+        std::env::set_var("PINCHY_HOME", home_dir.path());
+    }
 
     let missing = std::path::Path::new("config.yaml");
     let cfg = mini_claw::config::Config::load(missing)
@@ -236,7 +242,9 @@ async fn pinchy_home_bak_fallback() {
         .expect("should fall back to ~/.pinchy/config.yaml.bak");
     assert!(cfg.agents.is_empty());
 
-    unsafe { std::env::remove_var("PINCHY_HOME"); }
+    unsafe {
+        std::env::remove_var("PINCHY_HOME");
+    }
     let _ = std::env::set_current_dir(&prev_dir);
 }
 
@@ -249,7 +257,9 @@ async fn no_pinchy_home_fallback_for_absolute_paths() {
     )
     .unwrap();
 
-    unsafe { std::env::set_var("PINCHY_HOME", home_dir.path()); }
+    unsafe {
+        std::env::set_var("PINCHY_HOME", home_dir.path());
+    }
 
     // Use an absolute path that doesn't exist — should NOT fall back
     let abs_missing = home_dir.path().join("subdir").join("config.yaml");
@@ -259,5 +269,7 @@ async fn no_pinchy_home_fallback_for_absolute_paths() {
         "absolute paths should not trigger pinchy_home fallback"
     );
 
-    unsafe { std::env::remove_var("PINCHY_HOME"); }
+    unsafe {
+        std::env::remove_var("PINCHY_HOME");
+    }
 }

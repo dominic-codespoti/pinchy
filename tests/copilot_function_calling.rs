@@ -193,7 +193,9 @@ async fn copilot_proxy_returns_tool_calls_as_function_call() {
 
     let (resp, _usage) = result.expect("send_chat_with_functions should succeed");
     match resp {
-        ProviderResponse::FunctionCall { name, arguments, .. } => {
+        ProviderResponse::FunctionCall {
+            name, arguments, ..
+        } => {
             assert_eq!(name, "exec_shell");
             let args: serde_json::Value =
                 serde_json::from_str(&arguments).expect("arguments should be valid JSON");

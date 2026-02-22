@@ -70,7 +70,11 @@ pub(crate) async fn api_webhook_ingest(
         "content": format!("[webhook] {content}"),
     });
 
-    if let Err(e) = state.commands_tx.send(serde_json::to_string(&msg).unwrap_or_default()).await {
+    if let Err(e) = state
+        .commands_tx
+        .send(serde_json::to_string(&msg).unwrap_or_default())
+        .await
+    {
         warn!(error = %e, "failed to dispatch webhook to commands channel");
     }
 
@@ -81,5 +85,9 @@ pub(crate) async fn api_webhook_ingest(
         "body": body,
     }));
 
-    (StatusCode::ACCEPTED, Json(serde_json::json!({ "status": "accepted" }))).into_response()
+    (
+        StatusCode::ACCEPTED,
+        Json(serde_json::json!({ "status": "accepted" })),
+    )
+        .into_response()
 }

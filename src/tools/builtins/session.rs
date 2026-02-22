@@ -22,10 +22,7 @@ use crate::utils;
 /// Returns session files with basic metadata (id, file size, last modified).
 pub async fn session_list(_workspace: &Path, args: Value) -> anyhow::Result<Value> {
     let filter_agent = args.get("agent_id").and_then(Value::as_str);
-    let limit = args
-        .get("limit")
-        .and_then(Value::as_u64)
-        .unwrap_or(50) as usize;
+    let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
 
     let agents_dir = utils::agents_dir();
     let mut all_sessions: Vec<Value> = Vec::new();
@@ -71,14 +68,11 @@ pub async fn session_list(_workspace: &Path, args: Value) -> anyhow::Result<Valu
 
             let meta = sentry.metadata().await.ok();
             let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-            let modified = meta
-                .as_ref()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| {
-                    t.duration_since(std::time::UNIX_EPOCH)
-                        .ok()
-                        .map(|d| d.as_secs())
-                });
+            let modified = meta.as_ref().and_then(|m| m.modified().ok()).and_then(|t| {
+                t.duration_since(std::time::UNIX_EPOCH)
+                    .ok()
+                    .map(|d| d.as_secs())
+            });
 
             let is_current = current.as_deref() == Some(session_id.as_str());
 

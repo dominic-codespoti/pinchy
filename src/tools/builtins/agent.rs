@@ -158,9 +158,9 @@ pub async fn create_agent(_workspace: &Path, args: Value) -> anyhow::Result<Valu
         Some(s) => s.to_string(),
         None => match read_default(&default_root, "SOUL.md").await {
             Some(s) => s,
-            None => format!(
-                "# {id}\n\nDescribe this agent's personality, role, and boundaries here.\n"
-            ),
+            None => {
+                format!("# {id}\n\nDescribe this agent's personality, role, and boundaries here.\n")
+            }
         },
     };
 

@@ -74,8 +74,8 @@ fn load_or_create_key(secrets_dir: &Path) -> anyhow::Result<[u8; 32]> {
 /// Encrypt `plaintext` using AES-256-GCM.
 /// Returns `nonce (12 bytes) || ciphertext+tag`, base64-encoded.
 fn encrypt(key: &[u8; 32], plaintext: &[u8]) -> anyhow::Result<String> {
-    let unbound = UnboundKey::new(&AES_256_GCM, key)
-        .map_err(|_| anyhow::anyhow!("invalid AES key"))?;
+    let unbound =
+        UnboundKey::new(&AES_256_GCM, key).map_err(|_| anyhow::anyhow!("invalid AES key"))?;
     let sealing_key = LessSafeKey::new(unbound);
 
     let rng = SystemRandom::new();
@@ -112,8 +112,8 @@ fn decrypt(key: &[u8; 32], encoded: &str) -> anyhow::Result<Vec<u8>> {
     let nonce_arr: [u8; 12] = nonce_bytes.try_into().unwrap();
     let nonce = Nonce::assume_unique_for_key(nonce_arr);
 
-    let unbound = UnboundKey::new(&AES_256_GCM, key)
-        .map_err(|_| anyhow::anyhow!("invalid AES key"))?;
+    let unbound =
+        UnboundKey::new(&AES_256_GCM, key).map_err(|_| anyhow::anyhow!("invalid AES key"))?;
     let opening_key = LessSafeKey::new(unbound);
 
     let mut in_out = ciphertext.to_vec();
@@ -133,7 +133,12 @@ fn decrypt(key: &[u8; 32], encoded: &str) -> anyhow::Result<Vec<u8>> {
 /// The directory is created with mode `0o700` and the file with `0o600`.
 pub fn set_secret_file(dir: Option<&Path>, key: &str, value: &str) -> anyhow::Result<()> {
     // Reject path-traversal attempts in secret keys
-    if key.contains('/') || key.contains('\\') || key.contains('\0') || key.contains("..") || key.is_empty() {
+    if key.contains('/')
+        || key.contains('\\')
+        || key.contains('\0')
+        || key.contains("..")
+        || key.is_empty()
+    {
         anyhow::bail!("invalid secret key: {key:?}");
     }
 
@@ -170,7 +175,12 @@ pub fn set_secret_file(dir: Option<&Path>, key: &str, value: &str) -> anyhow::Re
 /// Read a previously stored secret (returns `None` when the file doesn't exist).
 pub fn get_secret_file(dir: Option<&Path>, key: &str) -> anyhow::Result<Option<String>> {
     // Reject path-traversal attempts in secret keys
-    if key.contains('/') || key.contains('\\') || key.contains('\0') || key.contains("..") || key.is_empty() {
+    if key.contains('/')
+        || key.contains('\\')
+        || key.contains('\0')
+        || key.contains("..")
+        || key.is_empty()
+    {
         anyhow::bail!("invalid secret key: {key:?}");
     }
     let base = match dir {
@@ -190,8 +200,7 @@ pub fn get_secret_file(dir: Option<&Path>, key: &str) -> anyhow::Result<Option<S
     // auto-migrate to encrypted format.
     match decrypt(&enc_key, &encoded) {
         Ok(plaintext) => {
-            let val = String::from_utf8(plaintext)
-                .context("secret is not valid UTF-8")?;
+            let val = String::from_utf8(plaintext).context("secret is not valid UTF-8")?;
             Ok(Some(val))
         }
         Err(_) => {

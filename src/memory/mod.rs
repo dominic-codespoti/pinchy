@@ -176,9 +176,8 @@ impl MemoryStore {
 
         if query.is_empty() {
             // No search query — return all, optionally filtered by tag.
-            let mut stmt = conn.prepare(
-                "SELECT key, value, tags, ts FROM memories ORDER BY ts DESC LIMIT ?1",
-            )?;
+            let mut stmt = conn
+                .prepare("SELECT key, value, tags, ts FROM memories ORDER BY ts DESC LIMIT ?1")?;
             let rows = stmt.query_map(params![limit as i64], |row| {
                 Ok(MemoryEntry {
                     key: row.get(0)?,
@@ -442,9 +441,15 @@ mod tests {
     #[test]
     fn fts5_ranked_search() {
         let (_dir, store) = temp_store();
-        store.save("fruit", "I love apples and oranges", &["food".into()]).unwrap();
-        store.save("pet", "My cat is named Whiskers", &["animals".into()]).unwrap();
-        store.save("snack", "Apple pie is the best dessert", &["food".into()]).unwrap();
+        store
+            .save("fruit", "I love apples and oranges", &["food".into()])
+            .unwrap();
+        store
+            .save("pet", "My cat is named Whiskers", &["animals".into()])
+            .unwrap();
+        store
+            .save("snack", "Apple pie is the best dessert", &["food".into()])
+            .unwrap();
 
         let results = store.search("apple", None, 10).unwrap();
         assert!(results.len() >= 2);
@@ -536,7 +541,9 @@ mod tests {
     fn limit_is_respected() {
         let (_dir, store) = temp_store();
         for i in 0..20 {
-            store.save(&format!("k{i}"), &format!("value {i}"), &[]).unwrap();
+            store
+                .save(&format!("k{i}"), &format!("value {i}"), &[])
+                .unwrap();
         }
         let results = store.search("", None, 5).unwrap();
         assert_eq!(results.len(), 5);
@@ -624,8 +631,12 @@ mod tests {
     #[test]
     fn fts5_with_tag_filter() {
         let (_dir, store) = temp_store();
-        store.save("a", "the sun is bright", &["sky".into()]).unwrap();
-        store.save("b", "the sun rises early", &["time".into()]).unwrap();
+        store
+            .save("a", "the sun is bright", &["sky".into()])
+            .unwrap();
+        store
+            .save("b", "the sun rises early", &["time".into()])
+            .unwrap();
 
         // Without tag filter, both match.
         let all = store.search("sun", None, 10).unwrap();
@@ -675,7 +686,10 @@ mod tests {
     fn cosine_similarity_identical_vectors() {
         let v = vec![1.0f32, 2.0, 3.0];
         let sim = cosine_similarity(&v, &v);
-        assert!((sim - 1.0).abs() < 1e-6, "identical vectors should have similarity ~1.0");
+        assert!(
+            (sim - 1.0).abs() < 1e-6,
+            "identical vectors should have similarity ~1.0"
+        );
     }
 
     #[test]
@@ -683,7 +697,10 @@ mod tests {
         let a = vec![1.0f32, 0.0];
         let b = vec![0.0f32, 1.0];
         let sim = cosine_similarity(&a, &b);
-        assert!(sim.abs() < 1e-6, "orthogonal vectors should have similarity ~0.0");
+        assert!(
+            sim.abs() < 1e-6,
+            "orthogonal vectors should have similarity ~0.0"
+        );
     }
 
     #[test]
@@ -691,7 +708,10 @@ mod tests {
         let a = vec![1.0f32, 2.0, 3.0];
         let b = vec![-1.0f32, -2.0, -3.0];
         let sim = cosine_similarity(&a, &b);
-        assert!((sim + 1.0).abs() < 1e-6, "opposite vectors should have similarity ~-1.0");
+        assert!(
+            (sim + 1.0).abs() < 1e-6,
+            "opposite vectors should have similarity ~-1.0"
+        );
     }
 
     #[test]

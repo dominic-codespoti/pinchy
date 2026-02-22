@@ -26,14 +26,11 @@ pub(crate) async fn auth_middleware(
         .and_then(|h| h.strip_prefix("Bearer "))
         .map(|s| s.to_string());
 
-    let query_token = req
-        .uri()
-        .query()
-        .and_then(|q| {
-            q.split('&')
-                .find_map(|pair| pair.strip_prefix("token="))
-                .map(|s| s.to_string())
-        });
+    let query_token = req.uri().query().and_then(|q| {
+        q.split('&')
+            .find_map(|pair| pair.strip_prefix("token="))
+            .map(|s| s.to_string())
+    });
 
     let provided = header_token.or(query_token);
 

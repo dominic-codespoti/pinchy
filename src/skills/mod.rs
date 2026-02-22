@@ -105,8 +105,11 @@ impl SkillRegistry {
         self.agent_skills.clear();
         self.load_global_skills_with_config(cfg)?;
         self.load_agent_skills_with_config(cfg)?;
-        info!("skill registry reloaded ({} global, {} agent)",
-              self.global_skills.len(), self.agent_skills.len());
+        info!(
+            "skill registry reloaded ({} global, {} agent)",
+            self.global_skills.len(),
+            self.agent_skills.len()
+        );
         Ok(())
     }
 
@@ -128,19 +131,13 @@ impl SkillRegistry {
         let home_base = crate::pinchy_home().join("skills").join("global");
 
         if !home_base.is_dir() {
-            debug!(
-                "no global skills directory at {}",
-                home_base.display(),
-            );
+            debug!("no global skills directory at {}", home_base.display(),);
             return Ok(());
         }
 
         let mut dest = self.global_skills.clone();
 
-        debug!(
-            "loading global skills from {}",
-            home_base.display()
-        );
+        debug!("loading global skills from {}", home_base.display());
         self.load_skills_from(&home_base, "global", &mut dest)?;
 
         self.global_skills = dest;
@@ -184,8 +181,7 @@ impl SkillRegistry {
         self.agent_skills = dest;
 
         // Per-agent override takes precedence over top-level config.
-        let override_path = crate::utils::agent_root(&id)
-            .join("skills.yaml");
+        let override_path = crate::utils::agent_root(&id).join("skills.yaml");
         let effective_cfg: Option<crate::config::SkillsConfig> = if override_path.is_file() {
             let raw = std::fs::read_to_string(&override_path)
                 .with_context(|| format!("reading {}", override_path.display()))?;
@@ -232,7 +228,10 @@ impl SkillRegistry {
                     .with_context(|| format!("reading {}", legacy_yaml.display()))?;
                 (yaml, String::new())
             } else {
-                debug!("skipping {} — no SKILL.md or skill.yaml", skill_dir.display());
+                debug!(
+                    "skipping {} — no SKILL.md or skill.yaml",
+                    skill_dir.display()
+                );
                 continue;
             };
 
@@ -335,8 +334,7 @@ impl SkillRegistry {
     /// not executable code.  Actual tool execution lives in
     /// [`crate::tools::call_skill`].
     pub fn skill_description(&self, name: &str) -> Option<String> {
-        self.resolve(name)
-            .and_then(|s| s.meta.description.clone())
+        self.resolve(name).and_then(|s| s.meta.description.clone())
     }
     // ── Prompt injection ────────────────────────────────────
 
@@ -379,7 +377,10 @@ impl SkillRegistry {
         if parts.is_empty() {
             return String::new();
         }
-        format!("<available_skills>\n{}\n</available_skills>", parts.join("\n"))
+        format!(
+            "<available_skills>\n{}\n</available_skills>",
+            parts.join("\n")
+        )
     }
 }
 
@@ -540,15 +541,21 @@ mod tests {
             manifest: String::new(),
             instructions: "do stuff".into(),
         };
-        reg.global_skills.insert("old_skill_that_should_vanish".into(), mk("old_skill_that_should_vanish"));
-        assert!(reg.global_skills.contains_key("old_skill_that_should_vanish"));
+        reg.global_skills.insert(
+            "old_skill_that_should_vanish".into(),
+            mk("old_skill_that_should_vanish"),
+        );
+        assert!(reg
+            .global_skills
+            .contains_key("old_skill_that_should_vanish"));
 
         // reload() should clear the maps and re-scan from disk.
         // The injected "old_skill_that_should_vanish" doesn't exist on
         // disk, so it must be gone after reload.
         let _ = reg.reload(None);
         assert!(
-            !reg.global_skills.contains_key("old_skill_that_should_vanish"),
+            !reg.global_skills
+                .contains_key("old_skill_that_should_vanish"),
             "manually inserted skill should be gone after reload"
         );
     }

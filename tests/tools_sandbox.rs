@@ -115,7 +115,11 @@ async fn exec_shell_allows_python() {
     let ws = workspace();
     let result = tools::exec_shell(ws.path(), json!({ "command": "python3 -c 'print(1)'" })).await;
     // python3 is allowed — interpreters are no longer blocked
-    assert!(result.is_ok(), "python3 should be allowed: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "python3 should be allowed: {:?}",
+        result.err()
+    );
 }
 
 #[tokio::test]
@@ -150,18 +154,15 @@ async fn exec_shell_allows_python_in_pipe() {
     .await;
     assert!(
         result.is_ok(),
-        "piped python command should be allowed: {:?}", result.err()
+        "piped python command should be allowed: {:?}",
+        result.err()
     );
 }
 
 #[tokio::test]
 async fn exec_shell_rejects_disallowed_after_semicolon() {
     let ws = workspace();
-    let result = tools::exec_shell(
-        ws.path(),
-        json!({ "command": "echo hi; sudo rm -rf /" }),
-    )
-    .await;
+    let result = tools::exec_shell(ws.path(), json!({ "command": "echo hi; sudo rm -rf /" })).await;
     assert!(
         result.is_err(),
         "blocked command after semicolon should be rejected"
@@ -171,11 +172,8 @@ async fn exec_shell_rejects_disallowed_after_semicolon() {
 #[tokio::test]
 async fn exec_shell_rejects_disallowed_after_and() {
     let ws = workspace();
-    let result = tools::exec_shell(
-        ws.path(),
-        json!({ "command": "echo ok && sudo rm -rf /" }),
-    )
-    .await;
+    let result =
+        tools::exec_shell(ws.path(), json!({ "command": "echo ok && sudo rm -rf /" })).await;
     assert!(
         result.is_err(),
         "blocked command after && should be rejected"

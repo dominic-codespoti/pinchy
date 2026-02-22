@@ -37,7 +37,12 @@ impl ModelProvider for FailNProvider {
             Ok(self.reply.clone())
         }
     }
-    fn send_chat_stream<'a>(&'a self, messages: &'a [ChatMessage]) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>> {
+    fn send_chat_stream<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+    ) -> std::pin::Pin<
+        Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>,
+    > {
         Box::pin(async_stream::try_stream! { let r = self.send_chat(messages).await?; yield r; })
     }
     fn as_any(&self) -> &dyn std::any::Any {
@@ -56,7 +61,12 @@ impl ModelProvider for CountingFailProvider {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Err(anyhow::anyhow!("always fails"))
     }
-    fn send_chat_stream<'a>(&'a self, messages: &'a [ChatMessage]) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>> {
+    fn send_chat_stream<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+    ) -> std::pin::Pin<
+        Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>,
+    > {
         Box::pin(async_stream::try_stream! { let r = self.send_chat(messages).await?; yield r; })
     }
     fn as_any(&self) -> &dyn std::any::Any {
@@ -72,7 +82,12 @@ impl ModelProvider for AlwaysFailProvider {
     async fn send_chat(&self, _messages: &[ChatMessage]) -> Result<String, anyhow::Error> {
         Err(anyhow::anyhow!("always fails"))
     }
-    fn send_chat_stream<'a>(&'a self, messages: &'a [ChatMessage]) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>> {
+    fn send_chat_stream<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+    ) -> std::pin::Pin<
+        Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>,
+    > {
         Box::pin(async_stream::try_stream! { let r = self.send_chat(messages).await?; yield r; })
     }
     fn as_any(&self) -> &dyn std::any::Any {

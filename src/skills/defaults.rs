@@ -12,12 +12,10 @@ pub struct EmbeddedSkill {
     pub skill_md: &'static str,
 }
 
-pub static BUILTIN_SKILLS: &[EmbeddedSkill] = &[
-    EmbeddedSkill {
-        name: "browser",
-        skill_md: include_str!("default_skills/browser.md"),
-    },
-];
+pub static BUILTIN_SKILLS: &[EmbeddedSkill] = &[EmbeddedSkill {
+    name: "browser",
+    skill_md: include_str!("default_skills/browser.md"),
+}];
 
 /// Seed any missing default skills into `pinchy_home()/skills/global/`.
 ///
@@ -32,7 +30,10 @@ pub fn seed_defaults() -> anyhow::Result<()> {
         let skill_md_path = skill_dir.join("SKILL.md");
 
         if skill_md_path.exists() {
-            debug!(skill = skill.name, "built-in skill already present — skipping");
+            debug!(
+                skill = skill.name,
+                "built-in skill already present — skipping"
+            );
             continue;
         }
 
