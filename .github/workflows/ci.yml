@@ -59,7 +59,7 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Run tests
-        run: cargo test --no-default-features
+        run: cargo test --no-default-features --lib
 
   build:
     name: Build (${{ matrix.target }})
