@@ -38,7 +38,7 @@ jobs:
         run: cargo fmt -- --check
 
       - name: Clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --no-default-features -- -D warnings
 
   test:
     name: Test
@@ -59,7 +59,7 @@ jobs:
           restore-keys: ${{ runner.os }}-cargo-
 
       - name: Run tests
-        run: cargo test
+        run: cargo test --no-default-features
 
   build:
     name: Build (${{ matrix.target }})
@@ -100,11 +100,11 @@ jobs:
 
       - name: Build release (cross)
         if: matrix.cross
-        run: cross build --release --target ${{ matrix.target }}
+        run: cross build --release --no-default-features --target ${{ matrix.target }}
 
       - name: Build release (native)
         if: ${{ !matrix.cross }}
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --no-default-features --target ${{ matrix.target }}
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -149,7 +149,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo publish
+      - run: cargo publish --no-default-features
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           PLAYWRIGHT_SKIP_INSTALL: "1"

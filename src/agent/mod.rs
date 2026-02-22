@@ -389,7 +389,8 @@ impl Agent {
                                                     crate::comm::send_reply(&ch, &rp).await
                                                 })
                                                 .await;
-                                            if let Err(_) = send_result {
+                                            if send_result.is_err() {
+                                                // If the channel is a cron job or heartbeat, use the default channel.
                                                 if channel.starts_with("cron:") || channel == "heartbeat" {
                                                     let fallback = resolve_default_channel().await;
                                                     if let Some(fb) = fallback {
@@ -1058,7 +1059,6 @@ impl Agent {
                         tool_calls: None,
                         tool_call_id: Some(fc_id),
                     });
-
                     // Re-query provider.
                     let (new_resp, loop_usage) = manager
                         .send_chat_with_functions(&messages, &function_defs)

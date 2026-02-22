@@ -351,7 +351,7 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
 
                 let job = Job::new_async_tz(
                     schedule.as_str(),
-                    resolve_agent_timezone(&config, &agent_id),
+                    resolve_agent_timezone(config, &agent_id),
                     move |_uuid, _lock| {
                         let agent_id = agent_id.clone();
                         let job_name = job_name.clone();
@@ -423,7 +423,7 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
                 let schedule = pj.schedule.clone();
                 let job = Job::new_async_tz(
                     schedule.as_str(),
-                    resolve_agent_timezone(&config, &pj.agent_id),
+                    resolve_agent_timezone(config, &pj.agent_id),
                     move |_uuid, _lock| {
                         let ws = ws.clone();
                         let pj = pj.clone();
@@ -1072,11 +1072,11 @@ async fn cleanup_legacy_heartbeat_log(agent_root: &Path) -> usize {
     if let Ok(mut rd) = tokio::fs::read_dir(&legacy_dir).await {
         while let Ok(Some(entry)) = rd.next_entry().await {
             let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                if tokio::fs::remove_file(&path).await.is_ok() {
-                    debug!(path = %path.display(), "janitor: removed legacy heartbeat session file");
-                    deleted += 1;
-                }
+            if path.extension().and_then(|e| e.to_str()) == Some("jsonl")
+                && tokio::fs::remove_file(&path).await.is_ok()
+            {
+                debug!(path = %path.display(), "janitor: removed legacy heartbeat session file");
+                deleted += 1;
             }
         }
     }

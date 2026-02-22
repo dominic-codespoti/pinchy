@@ -251,6 +251,22 @@ mod impl_sidecar {
                 .context("closing browser session")?;
             resp.json().await.context("parsing close response")
         }
+
+        /// Take a screenshot via the sidecar.
+        pub async fn screenshot(&self, session_id: &str) -> anyhow::Result<Vec<u8>> {
+            let endpoint = format!("{}/sessions/{}/screenshot", self.base_url, session_id);
+            let resp = self
+                .client
+                .get(&endpoint)
+                .send()
+                .await
+                .context("browser screenshot")?;
+            Ok(resp
+                .bytes()
+                .await
+                .context("reading screenshot bytes")?
+                .to_vec())
+        }
     }
 }
 

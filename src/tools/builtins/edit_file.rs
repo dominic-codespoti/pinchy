@@ -34,7 +34,8 @@ pub async fn edit_file(workspace: &Path, args: Value) -> anyhow::Result<Value> {
     let output = match mode {
         "search_replace" => do_search_replace(&existing, &args)?,
         "insert" => do_insert(&existing, &args)?,
-        "replace" | _ => do_line_replace(&existing, &args)?,
+        "replace" => do_line_replace(&existing, &args)?,
+        _ => do_line_replace(&existing, &args)?,
     };
 
     let bytes = output.len();

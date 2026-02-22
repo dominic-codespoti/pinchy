@@ -239,15 +239,13 @@ impl SessionStore {
                 Err(_) => continue,
             };
             if let Ok(age) = now.duration_since(modified) {
-                if age > max_age {
-                    if fs::remove_file(&path).await.is_ok() {
-                        debug!(path = %path.display(), "expired session file removed");
-                        deleted += 1;
+                if age > max_age && fs::remove_file(&path).await.is_ok() {
+                    debug!(path = %path.display(), "expired session file removed");
+                    deleted += 1;
 
-                        // Also remove the corresponding receipts file.
-                        let receipts = sessions_dir.join(format!("{session_id}.receipts.jsonl"));
-                        let _ = fs::remove_file(&receipts).await;
-                    }
+                    // Also remove the corresponding receipts file.
+                    let receipts = sessions_dir.join(format!("{session_id}.receipts.jsonl"));
+                    let _ = fs::remove_file(&receipts).await;
                 }
             }
         }

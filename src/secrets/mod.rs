@@ -59,7 +59,7 @@ fn load_or_create_key(secrets_dir: &Path) -> anyhow::Result<[u8; 32]> {
     rng.fill(&mut key)
         .map_err(|_| anyhow::anyhow!("failed to generate random key"))?;
 
-    std::fs::write(&key_path, &key)
+    std::fs::write(&key_path, key)
         .with_context(|| format!("write encryption key {}", key_path.display()))?;
 
     #[cfg(unix)]

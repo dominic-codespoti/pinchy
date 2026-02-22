@@ -178,7 +178,7 @@ pub fn search_tools_registry(query: &str, limit: usize) -> Vec<ToolMeta> {
             let name_lower = e.meta.name.to_lowercase();
             let desc_lower = e.meta.description.to_lowercase();
             // Split name on underscores/hyphens for token-level matching.
-            let name_tokens: Vec<&str> = name_lower.split(|c: char| c == '_' || c == '-').collect();
+            let name_tokens: Vec<&str> = name_lower.split(['_', '-']).collect();
             let mut score = 0usize;
 
             // Exact name match (highest priority).

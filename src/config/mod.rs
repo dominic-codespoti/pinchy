@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
-use chrono_tz::Tz;
+use chrono_tz::{Tz, UTC};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -172,21 +172,16 @@ pub struct ChannelsConfig {
 }
 
 /// The kind of default channel target.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum ChannelKind {
     /// A Discord text channel (or any numeric channel id).
+    #[default]
     Channel,
     /// A Discord user — messages are delivered via DM.
     User,
     /// A Discord group / thread.
     Group,
-}
-
-impl Default for ChannelKind {
-    fn default() -> Self {
-        Self::Channel
-    }
 }
 
 /// Rich default-channel specification.
@@ -332,7 +327,7 @@ impl Config {
     /// Resolve the effective timezone for an agent.
     ///
     /// Priority: agent-level → global config → system local → UTC.
-    pub fn resolve_timezone(&self, agent_id: &str) -> chrono_tz::Tz {
+    pub fn resolve_timezone(&self, agent_id: &str) -> Tz {
         let agent_tz = self
             .agents
             .iter()
@@ -340,15 +335,15 @@ impl Config {
             .and_then(|a| a.timezone.as_deref());
 
         let raw = agent_tz.or(self.timezone.as_deref()).unwrap_or("UTC");
-        raw.parse::<chrono_tz::Tz>().unwrap_or(chrono_tz::UTC)
+        raw.parse::<Tz>().unwrap_or(UTC)
     }
 
     /// Resolve the global timezone (ignoring per-agent overrides).
-    pub fn resolve_global_timezone(&self) -> chrono_tz::Tz {
+    pub fn resolve_global_timezone(&self) -> Tz {
         self.timezone
             .as_deref()
-            .and_then(|s| s.parse::<chrono_tz::Tz>().ok())
-            .unwrap_or(chrono_tz::UTC)
+            .and_then(|s| s.parse::<Tz>().ok())
+            .unwrap_or(UTC)
     }
 
     /// Read and parse a YAML configuration file.

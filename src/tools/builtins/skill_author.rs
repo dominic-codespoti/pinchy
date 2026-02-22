@@ -215,10 +215,9 @@ fn parse_skill_md(content: &str) -> (String, String) {
         for line in frontmatter.lines() {
             let line = line.trim();
             if line.starts_with("description:") {
-                description = line["description:".len()..]
-                    .trim()
-                    .trim_matches('"')
-                    .to_string();
+                if let Some(rest) = line.strip_prefix("description:") {
+                    description = rest.trim().trim_matches('"').to_string();
+                }
             }
         }
 
