@@ -15,7 +15,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 #[derive(Parser, Debug)]
-#[command(name = "mini_claw", version, about = "Lightweight Rust agent platform")]
+#[command(name = "pinchy", version, about = "Lightweight Rust agent platform")]
 struct Cli {
     /// Path to configuration file
     #[arg(short, long)]
@@ -299,7 +299,7 @@ async fn main() -> anyhow::Result<()> {
     println!(
         r#"
   ╔══════════════════════════════════════╗
-  ║       🦀  mini_claw  v{}       ║
+  ║       🦀  pinchy  v{}          ║
   ║   lightweight agent platform        ║
   ╚══════════════════════════════════════╝
 "#,
@@ -388,14 +388,14 @@ async fn main() -> anyhow::Result<()> {
         } else if std::env::var("PINCHY_GATEWAY").as_deref() != Ok("0") {
             // Gateway was expected but failed to start.
             // With auto-bind this should be rare (10 ports tried).
-            tracing::warn!("gateway failed to start (all ports in use?). Try: PINCHY_GATEWAY=0 mini_claw start");
+            tracing::warn!("gateway failed to start (all ports in use?). Try: PINCHY_GATEWAY=0 pinchy start");
             None
         } else {
             None
         }
     };
 
-    info!("mini_claw ready — all modules initialized");
+    info!("pinchy ready — all modules initialized");
 
     // ── Startup summary ──────────────────────────────────────────────
     {

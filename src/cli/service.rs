@@ -38,7 +38,7 @@ fn current_exe_path() -> Result<PathBuf> {
 
 fn require_root() -> Result<()> {
     if !nix_is_root() {
-        bail!("this command must be run as root (try: sudo mini_claw service install)");
+        bail!("this command must be run as root (try: sudo pinchy service install)");
     }
     Ok(())
 }
@@ -69,7 +69,7 @@ pub fn install(user: Option<&str>) -> Result<()> {
 
     let src = current_exe_path()?;
     let install_dir = PathBuf::from(INSTALL_DIR);
-    let bin_dest = install_dir.join("mini_claw");
+    let bin_dest = install_dir.join("pinchy");
     let pinchy_home = install_dir.join(".pinchy");
 
     let run_user = user.unwrap_or_else(|| {
@@ -129,7 +129,7 @@ pub fn install(user: Option<&str>) -> Result<()> {
             std::fs::copy(&src_config, &dest_config).ok();
             println!("  ✓ Copied config from {}", src_config.display());
         } else {
-            println!("  ⚠ No config.yaml found — run: sudo -u {run_user} mini_claw onboard");
+            println!("  ⚠ No config.yaml found — run: sudo -u {run_user} pinchy onboard");
         }
     }
 

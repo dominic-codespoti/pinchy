@@ -94,12 +94,12 @@ pub async fn device_flow_get_token(client_id: &str) -> anyhow::Result<String> {
 // Token storage (keyring with file fallback)
 // ---------------------------------------------------------------------------
 
-/// Resolve the fallback file path: `$HOME/.config/mini_claw/copilot_token`.
+/// Resolve the fallback file path: `$HOME/.config/pinchy/copilot_token`.
 fn fallback_path() -> anyhow::Result<PathBuf> {
     let home = std::env::var("HOME").map(PathBuf::from).or_else(|_| {
         dirs::home_dir().ok_or_else(|| anyhow::anyhow!("cannot determine home directory"))
     })?;
-    Ok(home.join(".config").join("mini_claw").join("copilot_token"))
+    Ok(home.join(".config").join("pinchy").join("copilot_token"))
 }
 
 /// Store a token in the OS keyring; fall back to a file if keyring fails.
@@ -197,7 +197,7 @@ mod tests {
     #[test]
     fn fallback_path_is_reasonable() {
         let p = fallback_path().unwrap();
-        assert!(p.to_string_lossy().contains("mini_claw"));
+        assert!(p.to_string_lossy().contains("pinchy"));
         assert!(p.to_string_lossy().ends_with("copilot_token"));
     }
 }

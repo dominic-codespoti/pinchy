@@ -54,7 +54,7 @@ pub async fn exchange_github_for_copilot_token(github_token: &str) -> anyhow::Re
     let resp: serde_json::Value = http
         .get("https://api.github.com/copilot_internal/v2/token")
         .header("Authorization", format!("Bearer {github_token}"))
-        .header("User-Agent", "mini_claw")
+        .header("User-Agent", "pinchy")
         .header("Accept", "application/json")
         .send()
         .await?
@@ -102,12 +102,12 @@ pub async fn exchange_github_for_copilot_token(github_token: &str) -> anyhow::Re
 // Disk cache helpers
 // ---------------------------------------------------------------------------
 
-/// Return the cache file path: `$XDG_CONFIG_HOME/mini_claw/copilot-token.json`
-/// (falls back to `$HOME/.config/mini_claw/copilot-token.json`).
+/// Return the cache file path: `$XDG_CONFIG_HOME/pinchy/copilot-token.json`
+/// (falls back to `$HOME/.config/pinchy/copilot-token.json`).
 fn cache_path() -> anyhow::Result<PathBuf> {
     let config_dir =
         dirs::config_dir().ok_or_else(|| anyhow::anyhow!("cannot determine config directory"))?;
-    Ok(config_dir.join("mini_claw").join("copilot-token.json"))
+    Ok(config_dir.join("pinchy").join("copilot-token.json"))
 }
 
 /// Persist a [`CopilotToken`] to the local cache file with `0o600` permissions.
@@ -161,7 +161,7 @@ mod tests {
     #[test]
     fn cache_path_looks_reasonable() {
         let p = cache_path().unwrap();
-        assert!(p.to_string_lossy().contains("mini_claw"));
+        assert!(p.to_string_lossy().contains("pinchy"));
         assert!(p.to_string_lossy().ends_with("copilot-token.json"));
     }
 

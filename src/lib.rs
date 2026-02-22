@@ -1,4 +1,4 @@
-//! mini_claw — lightweight Rust agent platform.
+//! pinchy — lightweight Rust agent platform.
 //!
 //! This library crate re-exports modules so integration tests
 //! (under `tests/`) can access them.

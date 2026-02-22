@@ -167,8 +167,8 @@ async fn run_inline_update(repo_root: &Path) -> anyhow::Result<Value> {
         }));
     }
 
-    let new_bin = repo_root.join("target/release/mini_claw");
-    let opt_bin = std::path::Path::new("/opt/pinchy/mini_claw");
+    let new_bin = repo_root.join("target/release/pinchy");
+    let opt_bin = std::path::Path::new("/opt/pinchy/pinchy");
     if opt_bin.parent().map(|p| p.exists()).unwrap_or(false) && new_bin.exists() {
         let _ = tokio::fs::copy(&new_bin, opt_bin).await;
     }

@@ -341,7 +341,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
         anyhow::bail!("onboarding requires an interactive terminal");
     }
 
-    println!("\n── mini_claw onboarding ──\n");
+    println!("\n── pinchy onboarding ──\n");
 
     // 1. Load or create config.yaml
     let _cfg = if config_path.exists() {
@@ -587,7 +587,32 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
         }
     }
 
-    // 7. Summary
+    // 7. Service install (Linux only)
+    #[cfg(target_os = "linux")]
+    {
+        println!("\n── Systemd Service ──\n");
+        println!("  Install pinchy as a systemd service so it starts automatically");
+        println!("  on boot and restarts on failure.\n");
+        let install_service: bool = dialoguer::Confirm::new()
+            .with_prompt("Install systemd service?")
+            .default(true)
+            .interact()
+            .unwrap_or(false);
+        if install_service {
+            let is_root = unsafe { libc::geteuid() == 0 };
+            if is_root {
+                match service::install(None) {
+                    Ok(()) => println!("  ✅ Service installed and enabled."),
+                    Err(e) => println!("  ⚠️  Service install failed: {e}\n  You can retry later with: sudo pinchy service install"),
+                }
+            } else {
+                println!("  Not running as root — run this after onboarding:");
+                println!("    sudo pinchy service install");
+            }
+        }
+    }
+
+    // 8. Summary
     println!("\n╔══════════════════════════════════════════╗");
     println!("║       onboarding complete! 🦀            ║");
     println!("╚══════════════════════════════════════════╝");
@@ -599,15 +624,14 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
     println!("  Dashboard:  http://127.0.0.1:3000");
     println!();
     println!("  Next steps:");
-    println!("    1. Start pinchy:    mini_claw");
+    println!("    1. Start pinchy:    pinchy");
     println!("    2. Open dashboard:  http://127.0.0.1:3000");
-    println!("    3. Edit agent:      mini_claw edit default soul");
+    println!("    3. Edit agent:      pinchy edit default soul");
     println!("    4. Send a message:  curl -X POST http://127.0.0.1:3000/api/webhook/default \\");
     println!("                          -H 'Content-Type: application/json' \\");
     println!("                          -d '{{\"message\": \"hello\"}}'");
-    println!("    5. View skills:     mini_claw show default");
-    println!("    6. Enable service:  sudo cp pinchy.service /etc/systemd/system/");
-    println!("                        sudo systemctl enable --now pinchy");
+    println!("    5. View skills:     pinchy show default");
+    println!("    6. Enable service:  sudo pinchy service install");
     println!();
 
     Ok(())
@@ -1161,7 +1185,7 @@ pub async fn check_status() -> anyhow::Result<()> {
         }
         Err(_) => {
             println!("❌ Pinchy daemon is not running (no response at http://{addr})");
-            println!("   Start it with: mini_claw start");
+            println!("   Start it with: pinchy start");
             Ok(())
         }
     }
@@ -1262,13 +1286,13 @@ pub async fn self_update(no_pull: bool, restart: bool) -> anyhow::Result<()> {
         anyhow::bail!("cargo build --release failed");
     }
 
-    let binary = repo_root.join("target/release/mini_claw");
+    let binary = repo_root.join("target/release/pinchy");
     println!("✅ Built: {}", binary.display());
 
     if std::path::Path::new("/opt/pinchy").exists() {
         println!("📦 Installing to /opt/pinchy/…");
         let _ = Command::new("cp")
-            .args([binary.to_str().unwrap(), "/opt/pinchy/mini_claw"])
+            .args([binary.to_str().unwrap(), "/opt/pinchy/pinchy"])
             .status();
     }
 

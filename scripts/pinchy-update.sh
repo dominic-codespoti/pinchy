@@ -38,8 +38,8 @@ if ! cargo build --release >> "$LOG" 2>&1; then
 fi
 
 # 4. Swap binary (if deployed to /opt/pinchy)
-NEW_BIN="$REPO/target/release/mini_claw"
-OLD_BIN="$BIN_DIR/mini_claw"
+NEW_BIN="$REPO/target/release/pinchy"
+OLD_BIN="$BIN_DIR/pinchy"
 if [[ -d "$BIN_DIR" ]] && [[ "$BIN_DIR" != "$REPO" ]]; then
     log "Installing binary to $BIN_DIR…"
     cp "$NEW_BIN" "$OLD_BIN.new"

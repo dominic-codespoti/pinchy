@@ -1,4 +1,4 @@
-# mini_claw
+# pinchy
 
 Lightweight Rust agent platform designed to run on a Raspberry Pi. Connects to Discord, calls LLMs, runs tools, and supports heartbeat + cron proactive triggers.
 
@@ -11,7 +11,7 @@ Lightweight Rust agent platform designed to run on a Raspberry Pi. Connects to D
 ```bash
 export OPENAI_API_KEY="sk-..."      # Required – OpenAI API key
 export DISCORD_TOKEN="..."          # Required – Discord bot token
-export RUST_LOG="info"              # Optional – log level (debug, trace, mini_claw=trace)
+export RUST_LOG="info"              # Optional – log level (debug, trace, pinchy=trace)
 ```
 
 ### 2. Build
@@ -72,7 +72,7 @@ agents:
 |---|---|
 | `OPENAI_API_KEY` | OpenAI API key for model calls |
 | `DISCORD_TOKEN` | Discord bot token |
-| `RUST_LOG` | Logging filter (e.g. `info`, `debug`, `mini_claw=trace`) |
+| `RUST_LOG` | Logging filter (e.g. `info`, `debug`, `pinchy=trace`) |
 
 ## Project Structure
 

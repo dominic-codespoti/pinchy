@@ -8,7 +8,7 @@ Type=simple
 User=pinchy
 Group=pinchy
 WorkingDirectory=/opt/pinchy
-ExecStart=/opt/pinchy/mini_claw
+ExecStart=/opt/pinchy/pinchy
 Restart=always
 RestartSec=5
 Environment=PINCHY_HOME=/opt/pinchy/.pinchy

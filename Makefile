@@ -21,11 +21,11 @@ update:
 	git pull --ff-only
 	@$(MAKE) web
 	cargo build --release
-	@echo "✅ target/release/mini_claw"
+	@echo "✅ target/release/pinchy"
 
 # Full deploy: update + install + restart service
 install: update
-	sudo cp target/release/mini_claw /opt/pinchy/mini_claw
+	sudo cp target/release/pinchy /opt/pinchy/pinchy
 	sudo systemctl restart pinchy
 	@echo "✅ Installed and restarted"
 

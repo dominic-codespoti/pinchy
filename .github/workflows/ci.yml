@@ -109,8 +109,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mini_claw-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/mini_claw
+          name: pinchy-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/pinchy
 
   release:
     name: GitHub Release
@@ -127,10 +127,10 @@ jobs:
       - name: Package binaries
         run: |
           mkdir -p dist
-          for dir in artifacts/mini_claw-*; do
-            target=$(basename "$dir" | sed 's/mini_claw-//')
-            chmod +x "$dir/mini_claw"
-            tar czf "dist/mini_claw-${target}.tar.gz" -C "$dir" mini_claw
+          for dir in artifacts/pinchy-*; do
+            target=$(basename "$dir" | sed 's/pinchy-//')
+            chmod +x "$dir/pinchy"
+            tar czf "dist/pinchy-${target}.tar.gz" -C "$dir" pinchy
           done
           ls -la dist/
 
