@@ -14,6 +14,8 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::debug;
 
+pub mod service;
+
 // ── Public types ─────────────────────────────────────────────────────────────
 
 /// Which workspace file to edit.

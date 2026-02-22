@@ -62,6 +62,11 @@ enum Command {
         #[command(subcommand)]
         command: SecretsCmd,
     },
+    /// Install, manage, or remove the systemd service
+    Service {
+        #[command(subcommand)]
+        action: ServiceAction,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -70,6 +75,35 @@ enum SecretsCmd {
     Set {
         /// Secret key name (e.g. DISCORD_TOKEN)
         key: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ServiceAction {
+    /// Install Pinchy as a systemd service (copies binary to /opt/pinchy)
+    Install {
+        /// System user to run the service as (defaults to $SUDO_USER or root)
+        #[arg(long)]
+        user: Option<String>,
+    },
+    /// Remove the systemd service (leaves /opt/pinchy data intact)
+    Uninstall,
+    /// Start the service
+    Start,
+    /// Stop the service
+    Stop,
+    /// Restart the service
+    Restart,
+    /// Show service status
+    Status,
+    /// View service logs
+    Logs {
+        /// Follow log output
+        #[arg(short, long)]
+        follow: bool,
+        /// Number of recent lines to show
+        #[arg(short = 'n', long, default_value = "50")]
+        lines: usize,
     },
 }
 
@@ -245,6 +279,15 @@ async fn main() -> anyhow::Result<()> {
                         println!("Secret '{key}' saved.");
                         Ok(())
                     }
+                },
+                Command::Service { action } => match action {
+                    ServiceAction::Install { user } => cli::service::install(user.as_deref()),
+                    ServiceAction::Uninstall => cli::service::uninstall(),
+                    ServiceAction::Start => cli::service::start(),
+                    ServiceAction::Stop => cli::service::stop(),
+                    ServiceAction::Restart => cli::service::restart(),
+                    ServiceAction::Status => cli::service::status(),
+                    ServiceAction::Logs { follow, lines } => cli::service::logs(follow, lines),
                 },
                 Command::Start => unreachable!(),
             };
