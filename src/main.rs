@@ -405,7 +405,11 @@ async fn main() -> anyhow::Result<()> {
             .ok()
             .filter(|s| !s.is_empty());
 
-        let gw_url = _gateway.as_ref().map(|gw| format!("http://{}", gw.addr));
+        let gw_url = _gateway.as_ref().map(|gw| {
+            let addr_str = gw.addr.to_string();
+            let display_addr = addr_str.replace("0.0.0.0", "127.0.0.1");
+            format!("http://{}", display_addr)
+        });
 
         let gw_status = match &gw_url {
             Some(url) => url.clone(),
