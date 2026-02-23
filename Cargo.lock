@@ -1855,7 +1855,7 @@ dependencies = [
 
 [[package]]
 name = "mini_claw"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "anyhow",
  "async-stream",
