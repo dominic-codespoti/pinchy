@@ -658,14 +658,8 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                 "OpenAI (text-embedding-3-small)",
                 "Skip",
             ],
-            Some("copilot") => vec![
-                "OpenAI (text-embedding-3-small)",
-                "Skip",
-            ],
-            _ => vec![
-                "OpenAI (text-embedding-3-small)",
-                "Skip",
-            ],
+            Some("copilot") => vec!["OpenAI (text-embedding-3-small)", "Skip"],
+            _ => vec!["OpenAI (text-embedding-3-small)", "Skip"],
         };
 
         let embed_sel = dialoguer::Select::new()
@@ -689,10 +683,10 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                 println!("  Will use existing OPENAI_API_KEY for embeddings.");
             }
         } else if chosen.starts_with("Azure") {
-            println!("  Azure embedding will use the embedding_deployment from your Azure model config.");
             println!(
-                "  Make sure your config.yaml model entry includes 'embedding_deployment'."
+                "  Azure embedding will use the embedding_deployment from your Azure model config."
             );
+            println!("  Make sure your config.yaml model entry includes 'embedding_deployment'.");
         } else {
             println!("  Skipped embedding setup. Semantic search won't be available.");
         }
