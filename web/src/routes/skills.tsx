@@ -102,16 +102,6 @@ export function SkillsRoute() {
 
                   {isExpanded && (
                     <div className="mt-2 pt-2 border-t border-white/[0.06] space-y-2">
-                      <div className="grid grid-cols-2 gap-2 text-[11px]">
-                        <div>
-                          <span className="text-slate-600 block">Version</span>
-                          <span className="text-slate-300">{skill.version ?? "—"}</span>
-                        </div>
-                        <div>
-                          <span className="text-slate-600 block">Scope</span>
-                          <span className="text-slate-300">{skill.scope ?? "—"}</span>
-                        </div>
-                      </div>
                       <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
                         <FolderOpen className="h-3 w-3" />
                         <span>ID: <span className="text-slate-400 font-mono">{skill.id}</span></span>
@@ -127,9 +117,8 @@ export function SkillsRoute() {
                   {!isExpanded && (
                     <div className="space-y-0.5 text-[11px] text-slate-600">
                       <p className="flex items-center gap-1.5">
-                        <Package className="h-3 w-3" /> Version: {skill.version ?? "-"}
+                        <Package className="h-3 w-3" /> {skill.id}
                       </p>
-                      <p>Scope: {skill.scope ?? "-"}</p>
                     </div>
                   )}
                 </article>

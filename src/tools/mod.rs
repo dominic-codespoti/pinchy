@@ -55,9 +55,7 @@ pub type SkillHandler = Arc<
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct SkillEntry {
     pub instructions: String,
-    pub scope: String,
-    pub version: String,
-    pub description: Option<String>,
+    pub description: String,
     pub operator_managed: Option<bool>,
 }
 
@@ -314,22 +312,9 @@ pub fn sync_skills(registry: &crate::skills::SkillRegistry) {
     // Remove previous skill entries (keep builtins).
     reg.retain(|e| e.skill.is_none());
 
-    // Merge agent skills first (higher precedence), then global.
-    let mut seen = HashSet::new();
-    let iter = registry
-        .agent_skills
-        .iter()
-        .chain(registry.global_skills.iter());
-
-    for (id, skill) in iter {
-        if !seen.insert(id.clone()) {
-            continue; // agent override already processed
-        }
-
+    for (id, skill) in &registry.skills {
         let skill_data = SkillEntry {
             instructions: skill.instructions.clone(),
-            scope: skill.meta.scope.clone(),
-            version: skill.meta.version.clone(),
             description: skill.meta.description.clone(),
             operator_managed: skill.meta.operator_managed,
         };
@@ -345,7 +330,7 @@ pub fn sync_skills(registry: &crate::skills::SkillRegistry) {
         reg.push(ToolEntry {
             meta: ToolMeta {
                 name: id.clone(),
-                description: skill.meta.description.clone().unwrap_or_default(),
+                description: skill.meta.description.clone(),
                 args_schema: serde_json::json!(null),
             },
             handler: None,
@@ -366,26 +351,24 @@ pub fn sync_skills(registry: &crate::skills::SkillRegistry) {
 /// Used after skill creation/deletion to pick up changes without restart.
 pub fn reload_skills(cfg: Option<&crate::config::Config>) {
     let agent_id = SKILL_AGENT_ID.lock().ok().and_then(|id| id.clone());
-    let _ = crate::skills::defaults::seed_defaults();
+    if let Some(ref id) = agent_id {
+        let _ = crate::skills::defaults::seed_defaults(id);
+    }
     let mut loader = crate::skills::SkillRegistry::new(agent_id);
-    let _ = loader.load_global_skills_with_config(cfg);
-    let _ = loader.load_agent_skills_with_config(cfg);
+    let _ = loader.load_skills_with_config(cfg);
     sync_skills(&loader);
 }
 
-/// Build the `<available_skills>` prompt fragment from all entries
-/// that carry skill instructions.
-///
-/// When `enabled_ids` is `Some`, only include skills whose name is in
-/// the list.  When `None`, include all with non-empty instructions.
+/// Build a metadata-only prompt listing available skills (name + description).
+/// Full instructions are loaded on demand via `activate_skill`.
 pub fn prompt_instructions(enabled_ids: Option<&[String]>) -> String {
     let reg = REGISTRY.lock().expect("tool registry poisoned");
     let mut parts: Vec<String> = Vec::new();
     let mut seen = HashSet::new();
     for entry in reg.iter() {
         let skill = match &entry.skill {
-            Some(s) if !s.instructions.trim().is_empty() => s,
-            _ => continue,
+            Some(s) => s,
+            None => continue,
         };
         if !seen.insert(&entry.meta.name) {
             continue;
@@ -396,18 +379,35 @@ pub fn prompt_instructions(enabled_ids: Option<&[String]>) -> String {
             }
         }
         parts.push(format!(
-            "<skill>\n<name>{}</name>\n<instructions>\n{}\n</instructions>\n</skill>",
+            "  <skill>\n    <name>{}</name>\n    <description>{}</description>\n  </skill>",
             entry.meta.name,
-            skill.instructions.trim()
+            skill.description,
         ));
     }
     if parts.is_empty() {
         return String::new();
     }
     format!(
-        "<available_skills>\n{}\n</available_skills>",
+        "<available_skills>\n{}\n</available_skills>\n\n\
+         To use a skill, call `activate_skill` with its name. \
+         This loads the full instructions into context.",
         parts.join("\n")
     )
+}
+
+/// Return full skill instructions for a specific skill (on-demand activation).
+pub fn get_skill_instructions(name: &str) -> Option<String> {
+    let reg = REGISTRY.lock().expect("tool registry poisoned");
+    reg.iter()
+        .find(|e| e.meta.name == name && e.skill.is_some())
+        .map(|e| {
+            let skill = e.skill.as_ref().unwrap();
+            format!(
+                "<skill_activated>\n<name>{}</name>\n<instructions>\n{}\n</instructions>\n</skill_activated>",
+                e.meta.name,
+                skill.instructions.trim()
+            )
+        })
 }
 
 /// Return skill metadata for API responses (e.g. `GET /api/skills`).
@@ -422,8 +422,6 @@ pub fn list_skill_entries() -> Vec<serde_json::Value> {
             }
             entries.push(serde_json::json!({
                 "id": entry.meta.name,
-                "version": skill.version,
-                "scope": skill.scope,
                 "description": skill.description,
                 "operator_managed": skill.operator_managed,
             }));
@@ -571,6 +569,7 @@ pub async fn call_skill(name: &str, args: Value, workspace: &Path) -> anyhow::Re
         "list_skills" => builtins::skill_author::list_skills(workspace, args).await,
         "delete_skill" => builtins::skill_author::delete_skill(workspace, args).await,
         "edit_skill" => builtins::skill_author::edit_skill(workspace, args).await,
+        "activate_skill" => builtins::skill_author::activate_skill(workspace, args).await,
         "edit_file" => builtins::edit_file::edit_file(workspace, args).await,
         "list_files" => builtins::list_files::list_files(workspace, args).await,
         "list_agents" => builtins::agent::list_agents(workspace, args).await,
@@ -602,6 +601,7 @@ pub fn builtin_skill_names() -> &'static [&'static str] {
         "save_memory",
         "recall_memory",
         "forget_memory",
+        "activate_skill",
         "create_skill",
         "list_skills",
         "delete_skill",
@@ -810,6 +810,12 @@ pub fn init() {
         "self_update",
         Arc::new(|args, ws| {
             Box::pin(async move { builtins::self_update::self_update(&ws, args).await })
+        }),
+    );
+    register_handler(
+        "activate_skill",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::skill_author::activate_skill(&ws, args).await })
         }),
     );
 

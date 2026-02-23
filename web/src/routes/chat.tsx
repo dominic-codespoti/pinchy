@@ -478,12 +478,19 @@ export function ChatRoute() {
             isStreamingRef.current = false;
             const content = streamBufferRef.current.trim();
 
+            // Register seen keys immediately so a subsequent session_message
+            // for the same content is deduplicated even before the reveal
+            // animation finishes.
+            if (content) {
+              const role = "assistant";
+              seenKeysRef.current.add(messageBaseKey(role, content));
+            }
+
             pendingFinalizeRef.current = () => {
               if (content) {
                 const role = "assistant";
                 const ts = Date.now();
                 seenKeysRef.current.add(messageKey(role, content, ts));
-                seenKeysRef.current.add(messageBaseKey(role, content));
                 setLiveMessages((prev) => [...prev, { role, content, timestamp: ts }]);
               }
               streamBufferRef.current = "";
@@ -511,6 +518,44 @@ export function ChatRoute() {
           seenKeysRef.current.add(key);
           seenKeysRef.current.add(baseKey);
           setLiveMessages((prev) => [...prev, { role, content, timestamp: payload.timestamp ?? Date.now() }]);
+          return;
+        }
+        if (type === "turn_receipt") {
+          const toolCalls = Array.isArray(payload.tool_calls)
+            ? payload.tool_calls.map((tc: any) => ({
+                name: tc.tool ?? "unknown",
+                args: tc.args_summary ?? "",
+                success: tc.success ?? true,
+                duration: tc.duration_ms ?? 0,
+                error: tc.error,
+              }))
+            : [];
+          const startedAt = payload.timestamp ?? (payload as any).started_at;
+          setReceipts((prev) => [
+            ...prev,
+            {
+              timestamp:
+                typeof startedAt === "number"
+                  ? startedAt > 1e12
+                    ? startedAt
+                    : startedAt * 1000
+                  : Date.now(),
+              tokens: {
+                prompt: payload.tokens?.prompt_tokens ?? 0,
+                completion: payload.tokens?.completion_tokens ?? 0,
+                total: payload.tokens?.total_tokens ?? 0,
+              },
+              durationMs: payload.duration_ms ?? null,
+              modelCalls: payload.model_calls ?? null,
+              tools: toolCalls.map((tc: any) => ({
+                tool: tc.name,
+                success: tc.success,
+                durationMs: tc.duration ?? null,
+              })),
+              toolCalls,
+            },
+          ]);
+          appendActivity(setActivityItems, "Turn receipt", "receipt");
           return;
         }
         if (type === "slash_response") {

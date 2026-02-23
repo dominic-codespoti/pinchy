@@ -266,6 +266,11 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
         }
     }
 
+    // Seed built-in skills into the new agent's skills folder.
+    if let Err(e) = crate::skills::defaults::seed_defaults(&body.id) {
+        tracing::warn!(agent = %body.id, error = %e, "failed to seed default skills for new agent");
+    }
+
     (
         StatusCode::CREATED,
         Json(serde_json::json!({ "id": body.id, "created": true })),
@@ -465,7 +470,7 @@ pub(crate) async fn api_agent_delete(Path(agent_id): Path<String>) -> impl IntoR
 // ---------------------------------------------------------------------------
 
 /// Allowlisted filenames that can be read/written via the files endpoint.
-const ALLOWED_AGENT_FILES: &[&str] = &["SOUL.md", "TOOLS.md", "HEARTBEAT.md", "BOOTSTRAP.md"];
+const ALLOWED_AGENT_FILES: &[&str] = &["SOUL.md", "TOOLS.md", "HEARTBEAT.md"];
 
 /// `GET /api/agents/:id/files/:filename` — read an agent workspace file.
 pub(crate) async fn api_agent_file_get(

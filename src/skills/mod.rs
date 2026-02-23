@@ -2,12 +2,13 @@
 //!
 //! Skills are declarative tool bundles described by `SKILL.md` manifests
 //! (YAML front-matter between `---` fences, markdown body = instructions).
-//! Two scopes exist: **global** (`pinchy_home()/skills/global/*/SKILL.md`)
-//! and **per-agent** (`agents/<id>/workspace/skills/*/SKILL.md`).
-//! Per-agent skills override global skills with the same id.
-//!
+//! Each agent has a single skills folder: `agents/<id>/skills/*/SKILL.md`.
 //! Built-in default skills are embedded in the binary and seeded into
-//! `pinchy_home()` on first run (see [`defaults`]).
+//! the agent's skills folder on first run (see [`defaults`]).
+//!
+//! Follows the [Agent Skills](https://agentskills.io/specification) open format.
+//! Progressive disclosure: only name + description are injected at boot;
+//! full instructions are loaded on demand via `activate_skill`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -23,48 +24,22 @@ pub mod defaults;
 /// Metadata parsed from a `SKILL.md` front-matter.
 ///
 /// Follows the [Agent Skills](https://agentskills.io/specification) open
-/// format.  The canonical field is `name`; the legacy `id` field is
-/// accepted as a fallback alias.
+/// format exactly: `name`, `description` (required), plus optional
+/// `license`, `compatibility`, and `metadata`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SkillMeta {
-    /// Canonical skill identifier.  Accepts either `name` (spec) or
-    /// legacy `id`.
-    #[serde(alias = "id")]
     pub name: String,
-    #[serde(default = "default_version")]
-    pub version: String,
-    #[serde(default)]
-    pub description: Option<String>,
-    /// `"global"` or `"agent"` — internal pinchy scope.
-    #[serde(default = "default_scope")]
-    pub scope: String,
-    /// Optional license field per Agent Skills spec.
+    pub description: String,
     #[serde(default)]
     pub license: Option<String>,
-    /// Optional compatibility note per Agent Skills spec.
     #[serde(default)]
     pub compatibility: Option<String>,
-    /// Arbitrary key-value metadata per Agent Skills spec.
     #[serde(default)]
     pub metadata: Option<HashMap<String, String>>,
     /// When `true` the skill is operator-managed and requires explicit
     /// inclusion via `SkillsConfig::operator_allowed`.
     #[serde(default)]
     pub operator_managed: Option<bool>,
-}
-
-impl SkillMeta {
-    /// Convenience accessor — returns the skill name/id.
-    pub fn id(&self) -> &str {
-        &self.name
-    }
-}
-
-fn default_version() -> String {
-    "0.1".into()
-}
-fn default_scope() -> String {
-    "agent".into()
 }
 
 /// A loaded skill ready for resolution.
@@ -75,112 +50,58 @@ pub struct Skill {
     pub path: PathBuf,
     /// Raw YAML front-matter (for re-serialisation).
     pub manifest: String,
-    /// Markdown body from `SKILL.md` — injected into agent prompts.
+    /// Markdown body from `SKILL.md` — injected into agent prompts on activation.
     pub instructions: String,
 }
 
 // ── Registry ────────────────────────────────────────────────
 
-/// Discovers, stores and resolves skills with agent-first precedence.
+/// Discovers, stores and resolves skills from `agents/<id>/skills/`.
 #[derive(Debug)]
 pub struct SkillRegistry {
     pub agent_id: Option<String>,
-    pub global_skills: HashMap<String, Skill>,
-    pub agent_skills: HashMap<String, Skill>,
+    pub skills: HashMap<String, Skill>,
 }
 
 impl SkillRegistry {
-    /// Create an empty registry, optionally scoped to an agent.
     pub fn new(agent_id: Option<String>) -> Self {
         Self {
             agent_id,
-            global_skills: HashMap::new(),
-            agent_skills: HashMap::new(),
+            skills: HashMap::new(),
         }
     }
 
-    /// Clear all loaded skills and re-scan from disk.
     pub fn reload(&mut self, cfg: Option<&crate::config::Config>) -> anyhow::Result<()> {
-        self.global_skills.clear();
-        self.agent_skills.clear();
-        self.load_global_skills_with_config(cfg)?;
-        self.load_agent_skills_with_config(cfg)?;
-        info!(
-            "skill registry reloaded ({} global, {} agent)",
-            self.global_skills.len(),
-            self.agent_skills.len()
-        );
+        self.skills.clear();
+        self.load_skills_with_config(cfg)?;
+        info!(count = self.skills.len(), "skill registry reloaded");
         Ok(())
     }
 
     // ── Loading ─────────────────────────────────────────────
 
-    /// Load global skills with no config gating (convenience wrapper).
-    pub fn load_global_skills(&mut self) -> anyhow::Result<()> {
-        self.load_global_skills_with_config(None)
+    pub fn load_skills(&mut self) -> anyhow::Result<()> {
+        self.load_skills_with_config(None)
     }
 
-    /// Load global skills and then gate them according to `cfg.skills`.
-    ///
-    /// Loads from `pinchy_home()/skills/global`.  Built-in defaults are
-    /// seeded there automatically by [`defaults::seed_defaults`].
-    pub fn load_global_skills_with_config(
-        &mut self,
-        cfg: Option<&crate::config::Config>,
-    ) -> anyhow::Result<()> {
-        let home_base = crate::pinchy_home().join("skills").join("global");
-
-        if !home_base.is_dir() {
-            debug!("no global skills directory at {}", home_base.display(),);
-            return Ok(());
-        }
-
-        let mut dest = self.global_skills.clone();
-
-        debug!("loading global skills from {}", home_base.display());
-        self.load_skills_from(&home_base, "global", &mut dest)?;
-
-        self.global_skills = dest;
-
-        // Apply gating from the top-level config.
-        if let Some(skills_cfg) = cfg.and_then(|c| c.skills.as_ref()) {
-            Self::apply_skills_filter(&mut self.global_skills, skills_cfg);
-        }
-        Ok(())
-    }
-
-    /// Load agent skills with no config override (convenience wrapper).
-    pub fn load_agent_skills(&mut self) -> anyhow::Result<()> {
-        self.load_agent_skills_with_config(None)
-    }
-
-    /// Load agent skills and gate them.
-    ///
-    /// If a per-agent override file exists at
-    /// `agents/<id>/skills.yaml` it is loaded as
-    /// [`SkillsConfig`](crate::config::SkillsConfig) and takes precedence
-    /// over the top-level config.
-    pub fn load_agent_skills_with_config(
+    pub fn load_skills_with_config(
         &mut self,
         cfg: Option<&crate::config::Config>,
     ) -> anyhow::Result<()> {
         let id = match &self.agent_id {
             Some(id) => id.clone(),
             None => {
-                debug!("no agent_id set — skipping agent skills");
+                debug!("no agent_id set — skipping skills");
                 return Ok(());
             }
         };
         let base = crate::utils::agent_root(&id).join("skills");
         if !base.is_dir() {
-            debug!("no agent skills directory at {}", base.display());
+            debug!("no skills directory at {}", base.display());
             return Ok(());
         }
-        let mut dest = self.agent_skills.clone();
-        self.load_skills_from(&base, "agent", &mut dest)?;
-        self.agent_skills = dest;
+        self.load_skills_from(&base)?;
 
-        // Per-agent override takes precedence over top-level config.
         let override_path = crate::utils::agent_root(&id).join("skills.yaml");
         let effective_cfg: Option<crate::config::SkillsConfig> = if override_path.is_file() {
             let raw = std::fs::read_to_string(&override_path)
@@ -194,18 +115,13 @@ impl SkillRegistry {
         };
 
         if let Some(ref skills_cfg) = effective_cfg {
-            Self::apply_skills_filter(&mut self.agent_skills, skills_cfg);
+            Self::apply_skills_filter(&mut self.skills, skills_cfg);
         }
         Ok(())
     }
 
-    /// Common helper: iterate `<base>/*/SKILL.md` (falls back to `skill.yaml`).
-    fn load_skills_from(
-        &mut self,
-        base: &Path,
-        scope: &str,
-        dest: &mut HashMap<String, Skill>,
-    ) -> anyhow::Result<()> {
+    /// Scan `<base>/*/SKILL.md`.
+    fn load_skills_from(&mut self, base: &Path) -> anyhow::Result<()> {
         for entry in std::fs::read_dir(base)
             .with_context(|| format!("reading skills dir {}", base.display()))?
         {
@@ -215,43 +131,44 @@ impl SkillRegistry {
                 continue;
             }
 
-            // Prefer SKILL.md; fall back to legacy skill.yaml.
             let skill_md = skill_dir.join("SKILL.md");
-            let legacy_yaml = skill_dir.join("skill.yaml");
-            let (raw, instructions) = if skill_md.is_file() {
-                let content = std::fs::read_to_string(&skill_md)
-                    .with_context(|| format!("reading {}", skill_md.display()))?;
-                parse_skill_md(&content)
-                    .with_context(|| format!("parsing {}", skill_md.display()))?
-            } else if legacy_yaml.is_file() {
-                let yaml = std::fs::read_to_string(&legacy_yaml)
-                    .with_context(|| format!("reading {}", legacy_yaml.display()))?;
-                (yaml, String::new())
-            } else {
-                debug!(
-                    "skipping {} — no SKILL.md or skill.yaml",
-                    skill_dir.display()
-                );
+            if !skill_md.is_file() {
+                debug!("skipping {} — no SKILL.md", skill_dir.display());
                 continue;
-            };
+            }
+
+            let content = std::fs::read_to_string(&skill_md)
+                .with_context(|| format!("reading {}", skill_md.display()))?;
+            let (raw, instructions) = parse_skill_md(&content)
+                .with_context(|| format!("parsing {}", skill_md.display()))?;
 
             let meta: SkillMeta = serde_yaml::from_str(&raw)
                 .with_context(|| format!("parsing front-matter in {}", skill_dir.display()))?;
+
+            // Spec: name must match parent directory name.
+            let dir_name = skill_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("");
+            if meta.name != dir_name {
+                warn!(
+                    name = %meta.name,
+                    dir = %dir_name,
+                    "skill name does not match directory — spec requires name == dir"
+                );
+            }
+
             info!(
-                skill_id = %meta.id(),
-                scope,
+                name = %meta.name,
                 path = %skill_dir.display(),
                 "loaded skill"
             );
-            if dest.contains_key(meta.id()) {
-                warn!(
-                    skill_id = %meta.id(),
-                    "duplicate skill id in {scope} scope — keeping first"
-                );
+            if self.skills.contains_key(&meta.name) {
+                warn!(name = %meta.name, "duplicate skill — keeping first");
                 continue;
             }
-            dest.insert(
-                meta.id().to_string(),
+            self.skills.insert(
+                meta.name.clone(),
                 Skill {
                     meta,
                     path: skill_dir,
@@ -260,28 +177,18 @@ impl SkillRegistry {
                 },
             );
         }
-        // Write back into self (workaround for borrow-split).
-        match scope {
-            "global" => self.global_skills = dest.clone(),
-            "agent" => self.agent_skills = dest.clone(),
-            _ => {}
-        }
         Ok(())
     }
 
     // ── Filtering ────────────────────────────────────────────
 
-    /// Apply [`SkillsConfig`](crate::config::SkillsConfig) gating to a
-    /// skill map, removing entries that don't pass the filter.
     fn apply_skills_filter(skills: &mut HashMap<String, Skill>, cfg: &crate::config::SkillsConfig) {
-        // Master kill-switch.
         if !cfg.enabled {
             info!("skills disabled by config — removing all");
             skills.clear();
             return;
         }
 
-        // Allowlist: when non-empty, only keep listed ids.
         if !cfg.allow.is_empty() {
             skills.retain(|id, _| {
                 let keep = cfg.allow.iter().any(|a| a == id);
@@ -292,7 +199,6 @@ impl SkillRegistry {
             });
         }
 
-        // Denylist: remove explicitly denied.
         if !cfg.deny.is_empty() {
             skills.retain(|id, _| {
                 let denied = cfg.deny.iter().any(|d| d == id);
@@ -303,7 +209,6 @@ impl SkillRegistry {
             });
         }
 
-        // Operator-managed skills need explicit inclusion.
         skills.retain(|id, skill| {
             if skill.meta.operator_managed.unwrap_or(false) {
                 let allowed = cfg.operator_allowed.iter().any(|o| o == id);
@@ -319,67 +224,55 @@ impl SkillRegistry {
             }
         });
     }
-    // ── Resolution ──────────────────────────────────────────────────────
 
-    /// Resolve a skill by name with **agent-first** precedence.
+    // ── Resolution ──────────────────────────────────────────
+
     pub fn resolve(&self, name: &str) -> Option<&Skill> {
-        self.agent_skills
-            .get(name)
-            .or_else(|| self.global_skills.get(name))
+        self.skills.get(name)
     }
 
-    /// Return a skill's description if it exists.
-    ///
-    /// Skills are instructional — they provide context to the LLM,
-    /// not executable code.  Actual tool execution lives in
-    /// [`crate::tools::call_skill`].
     pub fn skill_description(&self, name: &str) -> Option<String> {
-        self.resolve(name).and_then(|s| s.meta.description.clone())
+        self.resolve(name).map(|s| s.meta.description.clone())
     }
-    // ── Prompt injection ────────────────────────────────────
 
-    /// Build a prompt fragment containing the instructions for all
-    /// skills that `enabled_ids` opts into (or all resolved skills
-    /// when `None`).
-    ///
-    /// Each skill with non-empty instructions is rendered as:
-    /// ```text
-    /// # Skill: <id>
-    ///
-    /// <instructions markdown>
-    /// ```
-    pub fn prompt_instructions(&self, enabled_ids: Option<&[String]>) -> String {
+    // ── Prompt injection (progressive disclosure) ───────────
+
+    /// Build a metadata-only prompt fragment listing available skills
+    /// (name + description). Full instructions are loaded on demand
+    /// via `activate_skill`.
+    pub fn prompt_metadata(&self, enabled_ids: Option<&[String]>) -> String {
         let mut parts: Vec<String> = Vec::new();
-        // Merge global + agent (agent-first for overrides).
-        let mut seen = std::collections::HashSet::new();
-        let iter = self
-            .agent_skills
-            .values()
-            .chain(self.global_skills.values());
-        for skill in iter {
-            if !seen.insert(skill.meta.id()) {
-                continue; // already emitted (agent override wins)
-            }
+        for skill in self.skills.values() {
             if let Some(ids) = enabled_ids {
-                if !ids.iter().any(|id| id == skill.meta.id()) {
+                if !ids.iter().any(|id| id == &skill.meta.name) {
                     continue;
                 }
             }
-            if skill.instructions.trim().is_empty() {
-                continue;
-            }
             parts.push(format!(
-                "<skill>\n<name>{}</name>\n<instructions>\n{}\n</instructions>\n</skill>",
-                skill.meta.id(),
-                skill.instructions.trim()
+                "  <skill>\n    <name>{}</name>\n    <description>{}</description>\n  </skill>",
+                skill.meta.name,
+                skill.meta.description,
             ));
         }
         if parts.is_empty() {
             return String::new();
         }
         format!(
-            "<available_skills>\n{}\n</available_skills>",
+            "<available_skills>\n{}\n</available_skills>\n\n\
+             To use a skill, call `activate_skill` with its name. \
+             This loads the full instructions into context.",
             parts.join("\n")
+        )
+    }
+
+    /// Return the full instructions for a specific skill (activation).
+    pub fn get_skill_instructions(&self, name: &str) -> Option<String> {
+        self.resolve(name).map(
+            |s| format!(
+                "<skill_activated>\n<name>{}</name>\n<instructions>\n{}\n</instructions>\n</skill_activated>",
+                s.meta.name,
+                s.instructions.replace("<!-- pinchy-builtin -->", "").trim(),
+            ),
         )
     }
 }
@@ -387,23 +280,11 @@ impl SkillRegistry {
 // ── SKILL.md parser ──────────────────────────────────────────
 
 /// Parse a `SKILL.md` file into `(yaml_front_matter, markdown_body)`.
-///
-/// Expected format:
-/// ```text
-/// ---
-/// id: browser
-/// version: 0.1.0
-/// ...
-/// ---
-/// # Instructions
-/// markdown body…
-/// ```
 pub fn parse_skill_md(content: &str) -> anyhow::Result<(String, String)> {
     let trimmed = content.trim_start();
     if !trimmed.starts_with("---") {
         bail!("SKILL.md must begin with YAML front-matter (---)")
     }
-    // Skip the opening "---" line.
     let after_open = &trimmed[3..];
     let after_open = after_open.strip_prefix('\n').unwrap_or(after_open);
 
@@ -412,7 +293,7 @@ pub fn parse_skill_md(content: &str) -> anyhow::Result<(String, String)> {
         .ok_or_else(|| anyhow::anyhow!("missing closing --- in SKILL.md front-matter"))?;
 
     let yaml = after_open[..close_pos].to_string();
-    let rest = &after_open[close_pos + 4..]; // skip "\n---"
+    let rest = &after_open[close_pos + 4..];
     let body = rest.strip_prefix('\n').unwrap_or(rest).to_string();
 
     Ok((yaml, body))
@@ -429,51 +310,6 @@ mod tests {
     }
 
     #[test]
-    fn agent_skill_overrides_global() {
-        let mut reg = SkillRegistry::new(Some("test".into()));
-        let meta = SkillMeta {
-            name: "foo".into(),
-            version: "0.1".into(),
-            description: Some("global foo".into()),
-            scope: "global".into(),
-            license: None,
-            compatibility: None,
-            metadata: None,
-            operator_managed: None,
-        };
-        reg.global_skills.insert(
-            "foo".into(),
-            Skill {
-                meta: meta.clone(),
-                path: PathBuf::from("/tmp/g/foo"),
-                manifest: String::new(),
-                instructions: String::new(),
-            },
-        );
-        let agent_meta = SkillMeta {
-            name: "foo".into(),
-            version: "0.2".into(),
-            description: Some("agent foo".into()),
-            scope: "agent".into(),
-            license: None,
-            compatibility: None,
-            metadata: None,
-            operator_managed: None,
-        };
-        reg.agent_skills.insert(
-            "foo".into(),
-            Skill {
-                meta: agent_meta,
-                path: PathBuf::from("/tmp/a/foo"),
-                manifest: String::new(),
-                instructions: "agent-level instructions".into(),
-            },
-        );
-        let resolved = reg.resolve("foo").expect("should resolve");
-        assert_eq!(resolved.meta.version, "0.2", "agent version should win");
-    }
-
-    #[test]
     fn skill_description_returns_none_for_missing() {
         let reg = SkillRegistry::new(None);
         assert!(reg.skill_description("nope").is_none());
@@ -481,9 +317,9 @@ mod tests {
 
     #[test]
     fn parse_skill_md_valid() {
-        let content = "---\nid: test\nversion: 0.1\n---\n# Instructions\n\nDo stuff.\n";
+        let content = "---\nname: test\ndescription: A test skill\n---\n# Instructions\n\nDo stuff.\n";
         let (yaml, body) = parse_skill_md(content).unwrap();
-        assert!(yaml.contains("id: test"));
+        assert!(yaml.contains("name: test"));
         assert!(body.contains("Do stuff."));
     }
 
@@ -494,44 +330,12 @@ mod tests {
     }
 
     #[test]
-    fn prompt_instructions_filters_by_enabled() {
+    fn prompt_metadata_filters_by_enabled() {
         let mut reg = SkillRegistry::new(None);
-        let mk = |id: &str, instr: &str| Skill {
+        let mk = |id: &str, desc: &str| Skill {
             meta: SkillMeta {
                 name: id.into(),
-                version: "0.1".into(),
-                description: None,
-                scope: "global".into(),
-                license: None,
-                compatibility: None,
-                metadata: None,
-                operator_managed: None,
-            },
-            path: PathBuf::from("/tmp"),
-            manifest: String::new(),
-            instructions: instr.into(),
-        };
-        reg.global_skills.insert("a".into(), mk("a", "do A"));
-        reg.global_skills.insert("b".into(), mk("b", "do B"));
-
-        let all = reg.prompt_instructions(None);
-        assert!(all.contains("<name>a</name>"));
-        assert!(all.contains("<name>b</name>"));
-
-        let filtered = reg.prompt_instructions(Some(&["a".into()]));
-        assert!(filtered.contains("<name>a</name>"));
-        assert!(!filtered.contains("<name>b</name>"));
-    }
-
-    #[test]
-    fn reload_clears_and_reloads() {
-        let mut reg = SkillRegistry::new(None);
-        let mk = |id: &str| Skill {
-            meta: SkillMeta {
-                name: id.into(),
-                version: "0.1".into(),
-                description: None,
-                scope: "global".into(),
+                description: desc.into(),
                 license: None,
                 compatibility: None,
                 metadata: None,
@@ -541,22 +345,60 @@ mod tests {
             manifest: String::new(),
             instructions: "do stuff".into(),
         };
-        reg.global_skills.insert(
-            "old_skill_that_should_vanish".into(),
-            mk("old_skill_that_should_vanish"),
-        );
-        assert!(reg
-            .global_skills
-            .contains_key("old_skill_that_should_vanish"));
+        reg.skills.insert("a".into(), mk("a", "skill A"));
+        reg.skills.insert("b".into(), mk("b", "skill B"));
 
-        // reload() should clear the maps and re-scan from disk.
-        // The injected "old_skill_that_should_vanish" doesn't exist on
-        // disk, so it must be gone after reload.
+        let all = reg.prompt_metadata(None);
+        assert!(all.contains("<name>a</name>"));
+        assert!(all.contains("<name>b</name>"));
+        assert!(all.contains("activate_skill"));
+
+        let filtered = reg.prompt_metadata(Some(&["a".into()]));
+        assert!(filtered.contains("<name>a</name>"));
+        assert!(!filtered.contains("<name>b</name>"));
+    }
+
+    #[test]
+    fn get_skill_instructions_returns_full() {
+        let mut reg = SkillRegistry::new(None);
+        reg.skills.insert("browser".into(), Skill {
+            meta: SkillMeta {
+                name: "browser".into(),
+                description: "Browse the web".into(),
+                license: None,
+                compatibility: None,
+                metadata: None,
+                operator_managed: None,
+            },
+            path: PathBuf::from("/tmp"),
+            manifest: String::new(),
+            instructions: "Navigate to URLs and click things.".into(),
+        });
+
+        let instr = reg.get_skill_instructions("browser").unwrap();
+        assert!(instr.contains("<skill_activated>"));
+        assert!(instr.contains("Navigate to URLs"));
+        assert!(reg.get_skill_instructions("nonexistent").is_none());
+    }
+
+    #[test]
+    fn reload_clears_and_reloads() {
+        let mut reg = SkillRegistry::new(None);
+        reg.skills.insert("old".into(), Skill {
+            meta: SkillMeta {
+                name: "old".into(),
+                description: "old skill".into(),
+                license: None,
+                compatibility: None,
+                metadata: None,
+                operator_managed: None,
+            },
+            path: PathBuf::from("/tmp"),
+            manifest: String::new(),
+            instructions: "do stuff".into(),
+        });
+        assert!(reg.skills.contains_key("old"));
         let _ = reg.reload(None);
-        assert!(
-            !reg.global_skills
-                .contains_key("old_skill_that_should_vanish"),
-            "manually inserted skill should be gone after reload"
-        );
+        assert!(!reg.skills.contains_key("old"));
     }
 }

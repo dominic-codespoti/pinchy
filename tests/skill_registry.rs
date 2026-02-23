@@ -30,9 +30,9 @@ fn load_global_skills_no_dir_is_ok() {
     }
 
     let mut reg = SkillRegistry::new(None);
-    let res = reg.load_global_skills();
+    let res = reg.load_skills();
     assert!(res.is_ok(), "missing skills dir should not error: {res:?}");
-    assert!(reg.global_skills.is_empty());
+    assert!(reg.skills.is_empty());
 
     unsafe {
         std::env::remove_var("PINCHY_HOME");

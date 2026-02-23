@@ -141,7 +141,7 @@ pub fn register() {
     register_tool(ToolMeta {
         name: "send_message".into(),
         description:
-            "Send a rich message (embed with title, sections, colour, images, attachments) to a channel. Works with Discord, gateway, and other connectors."
+            "Send a rich message (embed with title, sections, colour, images, attachments) to a channel such as Discord, etc. For when the agent needs to proactively push information specifically via a channel rather than a standard reply."
                 .into(),
         args_schema: serde_json::json!({
             "type": "object",

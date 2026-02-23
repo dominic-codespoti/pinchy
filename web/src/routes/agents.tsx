@@ -36,7 +36,7 @@ import {
 import { Button, Checkbox, Dialog, DialogContent, Input, Separator, Skeleton, TextArea } from "@/components/ui";
 import { humanBytes } from "@/lib/utils";
 
-const fileTabs = ["SOUL.md", "TOOLS.md", "HEARTBEAT.md", "BOOTSTRAP.md"] as const;
+const fileTabs = ["SOUL.md", "TOOLS.md", "HEARTBEAT.md"] as const;
 
 type AgentTab = "settings" | "skills" | (typeof fileTabs)[number];
 type AgentDetailTab = AgentTab | "sessions";
@@ -336,6 +336,7 @@ export function AgentDetailRoute() {
   const [heartbeatSecs, setHeartbeatSecs] = useState(300);
   const [maxToolIterations, setMaxToolIterations] = useState(15);
   const [enabledSkills, setEnabledSkills] = useState<string[]>([]);
+  const [allSkillsMode, setAllSkillsMode] = useState(true);
   const [formInitialized, setFormInitialized] = useState(false);
 
   useEffect(() => {
@@ -389,7 +390,9 @@ export function AgentDetailRoute() {
     setModel(data.model ?? "");
     setHeartbeatSecs(data.heartbeat_secs ?? 300);
     setMaxToolIterations(data.max_tool_iterations ?? 15);
-    setEnabledSkills(data.enabled_skills ?? []);
+    const isAllSkills = data.enabled_skills == null || data.enabled_skills === undefined;
+    setAllSkillsMode(isAllSkills);
+    setEnabledSkills(isAllSkills ? [] : data.enabled_skills!);
     setFormInitialized(true);
   }, [data, formInitialized]);
 
@@ -403,7 +406,7 @@ export function AgentDetailRoute() {
 
   const onSaveSkills = () => {
     updateMutation.mutate({
-      enabled_skills: enabledSkills.length ? enabledSkills : null,
+      enabled_skills: allSkillsMode ? null : (enabledSkills.length ? enabledSkills : null),
     });
   };
 
@@ -562,10 +565,25 @@ export function AgentDetailRoute() {
           {initialized && tab === "skills" && (
             <div className="space-y-4">
               <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4">
-                <div className="flex items-center gap-2 mb-3">
-                  <Sparkles className="h-3.5 w-3.5 text-emerald-400/60" />
-                  <span className="text-xs font-medium text-slate-300">Enabled Skills</span>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="h-3.5 w-3.5 text-emerald-400/60" />
+                    <span className="text-xs font-medium text-slate-300">Enabled Skills</span>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <Checkbox
+                      checked={allSkillsMode}
+                      onCheckedChange={(next) => {
+                        setAllSkillsMode(Boolean(next));
+                        if (Boolean(next)) setEnabledSkills([]);
+                      }}
+                    />
+                    <span className="text-xs text-slate-400">All skills enabled</span>
+                  </label>
                 </div>
+                {allSkillsMode ? (
+                  <p className="text-xs text-slate-500">All available skills are enabled for this agent. Uncheck "All skills enabled" to select specific skills.</p>
+                ) : (
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                   {(skillsQuery.data?.skills ?? []).map((skill) => {
                     const checked = enabledSkills.includes(skill.id);
@@ -594,6 +612,7 @@ export function AgentDetailRoute() {
                     );
                   })}
                 </div>
+                )}
                 <button
                   type="button"
                   onClick={onSaveSkills}

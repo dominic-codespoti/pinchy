@@ -105,7 +105,7 @@ A GitHub Actions workflow (`.github/workflows/ci.yml`) runs on every push and PR
 3. `cargo build --release`
 
 
-Agents now use a canonical per-agent workspace at agents/<id>/workspace. Each workspace contains agent-specific files (`SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `sessions/`) and a `BOOTSTRAP.md` template to document onboarding. See CONSOLIDATION.md and agents/default/BOOTSTRAP.md for the consolidation plan and bootstrap template.
+Agents now use a canonical per-agent workspace at agents/<id>/workspace. Each workspace contains agent-specific files (`SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `sessions/`).
 
 ## React Admin UI (In Progress)
 

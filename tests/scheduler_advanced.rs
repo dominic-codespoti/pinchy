@@ -43,6 +43,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str) -> Config {
         session_expiry_days: None,
         cron_session_expiry_days: None,
         cron_events_max_keep: None,
+        chromium_path: None,
         timezone: None,
     }
 }

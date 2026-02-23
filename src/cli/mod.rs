@@ -102,6 +102,9 @@ pub async fn scaffold_agent(id: &str) -> anyhow::Result<()> {
     .await;
     write_file(base.join("HEARTBEAT.md"), heartbeat).await?;
 
+    // Seed built-in skills into the new agent's skills folder.
+    crate::skills::defaults::seed_defaults(id)?;
+
     let abs = std::fs::canonicalize(&base)?;
     println!("created agent workspace: {}", abs.display());
     Ok(())
@@ -1024,18 +1027,20 @@ pub async fn configure_agent(config_path: &Path, id: &str) -> anyhow::Result<()>
         .unwrap_or(false);
 
     if edit_skills {
-        // Discover global skills by scanning skill.yaml manifests.
-        let global_skills_dir = crate::pinchy_home().join("skills").join("global");
+        // Discover skills by scanning the agent's skills folder.
+        let agent_skills_dir = crate::utils::agent_root(id).join("skills");
         let mut available_skills: Vec<String> = Vec::new();
 
-        if global_skills_dir.is_dir() {
-            let mut rd = tokio::fs::read_dir(&global_skills_dir).await?;
+        if agent_skills_dir.is_dir() {
+            let mut rd = tokio::fs::read_dir(&agent_skills_dir).await?;
             while let Some(entry) = rd.next_entry().await? {
-                let manifest = entry.path().join("skill.yaml");
-                if manifest.is_file() {
-                    if let Ok(raw) = tokio::fs::read_to_string(&manifest).await {
-                        if let Ok(meta) = serde_yaml::from_str::<crate::skills::SkillMeta>(&raw) {
-                            available_skills.push(meta.id().to_string());
+                let skill_md = entry.path().join("SKILL.md");
+                if skill_md.is_file() {
+                    if let Ok(raw) = tokio::fs::read_to_string(&skill_md).await {
+                        if let Ok((yaml, _)) = crate::skills::parse_skill_md(&raw) {
+                            if let Ok(meta) = serde_yaml::from_str::<crate::skills::SkillMeta>(&yaml) {
+                                available_skills.push(meta.name.clone());
+                            }
                         }
                     }
                 }
@@ -1044,7 +1049,7 @@ pub async fn configure_agent(config_path: &Path, id: &str) -> anyhow::Result<()>
         available_skills.sort();
 
         if available_skills.is_empty() {
-            println!("  No global skills found.");
+            println!("  No skills found for agent '{id}'.");
         } else {
             // Load existing per-agent skills.yaml override.
             let agent_skills_path = crate::pinchy_home()

@@ -41,6 +41,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str, heartbeat_secs: u64)
         cron_session_expiry_days: None,
         cron_events_max_keep: None,
         timezone: None,
+        chromium_path: None,
     }
 }
 
@@ -203,6 +204,7 @@ async fn cron_merge_persisted_jobs_on_startup() {
         cron_session_expiry_days: None,
         cron_events_max_keep: None,
         timezone: None,
+        chromium_path: None,
     };
 
     let handle = mini_claw::scheduler::start(&cfg)

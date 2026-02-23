@@ -91,8 +91,6 @@ const cronRunSchema = z.object({
 const skillSchema = z.object({
   id: z.string(),
   description: z.string().nullable().optional(),
-  version: z.string().nullable().optional(),
-  scope: z.string().nullable().optional(),
   operator_managed: z.boolean().nullable().optional(),
 });
 

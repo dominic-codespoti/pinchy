@@ -46,7 +46,7 @@ Crates/modules:
 ## Inspiration
 Pull from and take inspiration from the project "https://github.com/openclaw/openclaw" if needed via search tools.
 
-Agents now use a canonical per-agent workspace at agents/<id>/workspace. Each workspace contains agent-specific files (`SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `sessions/`) and a `BOOTSTRAP.md` template to document onboarding. See CONSOLIDATION.md and agents/default/BOOTSTRAP.md for the consolidation plan and bootstrap template.
+Agents now use a canonical per-agent workspace at agents/<id>/workspace. Each workspace contains agent-specific files (`SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `sessions/`).
 
 ---
 
@@ -172,25 +172,27 @@ agents:
 
 **Why:** The agent should be able to create new skills for itself at runtime,
 just like OpenClaw agents do. "Build a skill that checks the weather" →
-agent writes SKILL.md + skill.yaml → hot-reloads the registry.
+agent writes SKILL.md → hot-reloads the registry.
 
 **Design:**
-- New tool: `create_skill { name, description, instructions, scope? }`
-  - `scope` defaults to `"agent"` (per-agent skill)
-  - Creates `agents/<id>/workspace/skills/<name>/SKILL.md` with proper frontmatter
-  - Creates `agents/<id>/workspace/skills/<name>/skill.yaml`
+- New tool: `activate_skill { name }` — progressive disclosure; loads full instructions on demand
+- New tool: `create_skill { name, description, instructions }` — write SKILL.md
+  - Creates `agents/<id>/skills/<name>/SKILL.md` with proper frontmatter
   - Calls `SkillRegistry::reload()` to hot-reload
 - New tool: `list_skills {}` — returns the agent's current skill list
+- New tool: `edit_skill { name, description?, instructions? }` — update a skill
+- New tool: `delete_skill { name }` — remove a skill
 
 **SkillRegistry changes:**
-- Add `pub fn reload(&mut self)` that re-scans both global and agent skill dirs
+- Add `pub fn reload(&mut self)` that re-scans skill dirs
 - Expose a global `reload_skills()` function that acquires the registry lock and reloads
-- These already have the scanning logic in `discover()` — reload just calls it again
+- Progressive disclosure: `prompt_metadata()` emits name+description only at boot;
+  full instructions loaded via `activate_skill` tool
 
 **Files touched:**
-- New: `src/tools/skill_author_tool.rs`
-- Edit: `src/tools/mod.rs` (register + dispatch)
-- Edit: `src/skills/mod.rs` (add `reload()` method)
+- `src/tools/builtins/skill_author.rs` (skill authoring tools)
+- `src/tools/mod.rs` (register + dispatch)
+- `src/skills/mod.rs` (registry, progressive disclosure)
 
 ---
 

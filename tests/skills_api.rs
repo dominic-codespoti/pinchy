@@ -23,7 +23,7 @@ channels: {}
 
 agents:
   - id: test-agent
-    workspace: ./workspaces/test-agent
+    root: ./agents/test-agent
     model: stub
 "#;
     std::fs::write(home.join("config.yaml"), config_yaml).unwrap();
@@ -32,16 +32,17 @@ agents:
     // The gateway uses agent_root = <PINCHY_HOME>/agents/<id>
     std::fs::create_dir_all(home.join("agents/test-agent/workspace")).unwrap();
 
-    // Create a global skill: skills/global/test-skill/skill.yaml
-    let skill_dir = home.join("skills/global/test-skill");
+    // Create a skill in the agent's skills folder: agents/test-agent/skills/test-skill/SKILL.md
+    let skill_dir = home.join("agents/test-agent/skills/test-skill");
     std::fs::create_dir_all(&skill_dir).unwrap();
     std::fs::write(
-        skill_dir.join("skill.yaml"),
-        r#"
-id: test-skill
-version: "0.1"
-scope: global
+        skill_dir.join("SKILL.md"),
+        r#"---
+name: test-skill
 description: "A test skill for integration tests"
+---
+
+Test skill instructions.
 "#,
     )
     .unwrap();
@@ -50,13 +51,13 @@ description: "A test skill for integration tests"
     unsafe {
         std::env::set_var("PINCHY_HOME", home.as_os_str());
     }
-    // Also set CWD to temp dir so repo-local `skills/global/` isn't picked up.
+    // Also set CWD to temp dir so repo-local paths aren't picked up.
     let orig_dir = std::env::current_dir().unwrap();
     std::env::set_current_dir(home).unwrap();
 
     // Load skills and sync them into the unified tool registry.
-    let mut reg = mini_claw::skills::SkillRegistry::new(None);
-    reg.load_global_skills().unwrap();
+    let mut reg = mini_claw::skills::SkillRegistry::new(Some("test-agent".into()));
+    reg.load_skills().unwrap();
     mini_claw::tools::sync_skills(&reg);
 
     // ── Start the gateway ───────────────────────────────────────────────

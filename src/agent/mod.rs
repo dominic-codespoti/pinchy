@@ -223,7 +223,7 @@ impl Agent {
             provider: "openai".to_string(),
             model_id: "openai-default".to_string(),
             current_session,
-            max_tool_iterations: 3,
+            max_tool_iterations: 25,
             enabled_skills: None,
             fallback_models: Vec::new(),
             model_config_ref: None,
@@ -262,7 +262,7 @@ impl Agent {
             provider,
             model_id,
             current_session,
-            max_tool_iterations: agent_cfg.max_tool_iterations.unwrap_or(3),
+            max_tool_iterations: agent_cfg.max_tool_iterations.unwrap_or(25),
             enabled_skills: agent_cfg.enabled_skills.clone(),
             fallback_models: agent_cfg.fallback_models.clone(),
             model_config_ref: agent_cfg.model.clone(),
@@ -1009,8 +1009,10 @@ impl Agent {
                                   "error": err_msg,
                             }));
                             (
-                                serde_json::to_string(&serde_json::json!({"error": &err_msg}))
-                                    .unwrap_or_default(),
+                                serde_json::to_string(
+                                    &serde_json::json!({"error": &err_msg}),
+                                )
+                                .unwrap_or_default(),
                                 true,
                                 Some(err_msg),
                             )

@@ -321,13 +321,18 @@ async fn main() -> anyhow::Result<()> {
         .as_ref()
         .and_then(|r| r.default_agent.clone())
         .or_else(|| cfg.agents.first().map(|a| a.id.clone()));
+
+    // Seed built-in defaults into each agent's skills folder.
+    for agent_cfg in &cfg.agents {
+        if let Err(e) = mini_claw::skills::defaults::seed_defaults(&agent_cfg.id) {
+            tracing::warn!(agent = %agent_cfg.id, error = %e, "failed to seed default skills");
+        }
+    }
+
     let mut skill_registry = mini_claw::skills::SkillRegistry::new(default_agent_id.clone());
-    mini_claw::skills::defaults::seed_defaults()?;
-    skill_registry.load_global_skills_with_config(Some(&cfg))?;
-    skill_registry.load_agent_skills_with_config(Some(&cfg))?;
+    skill_registry.load_skills_with_config(Some(&cfg))?;
     info!(
-        global = skill_registry.global_skills.len(),
-        agent = skill_registry.agent_skills.len(),
+        count = skill_registry.skills.len(),
         "skills loaded"
     );
 

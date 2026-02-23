@@ -1,17 +1,49 @@
 # Heartbeat
 
-You receive this message on a regular timer. **Default to staying quiet.** Only take action if something genuinely needs attention.
+This message fires on a timer. Your job: **check if anything needs doing, then shut up.**
 
-## Options (pick one)
+---
 
-1. **Check in** — Only if there's an in-progress task or a recent user request you haven't finished. Give a 1-sentence status update.
-2. **Workspace tidy** — Only if you find something to *fix*: delete temp files, remove stale data, correct a broken draft. Listing directory contents is NOT tidying — either act or stay quiet.
-3. **Stay quiet** — Reply with `HEARTBEAT_OK` and nothing else. This is the right choice 90% of the time.
+## Decision Tree
 
-## Rules
+```
+Is there an unfinished task or pending user request?
+├─ YES → Complete it or give a 1-sentence status update.
+│
+Is there a scheduled cron job that failed or needs follow-up?
+├─ YES → Investigate and fix it. Report only if user action is needed.
+│
+Is there stale/broken content in the workspace to clean up?
+├─ YES → Fix it silently. Delete temp files, correct broken drafts.
+│        (Listing files is NOT cleaning. Act or skip.)
+│
+└─ NONE OF THE ABOVE → Reply with exactly: HEARTBEAT_OK
+```
 
-- **`HEARTBEAT_OK` is the default.** If nothing is broken, in-progress, or stale, just reply `HEARTBEAT_OK`. No narration, no directory listings, no filler.
-- **Don't describe what you see.** Saying "the workspace contains X files" is busywork. Either act on a problem or stay quiet.
-- **Don't repeat yourself.** If the last heartbeat was `HEARTBEAT_OK` and nothing has changed, say `HEARTBEAT_OK` again.
-- **Never message the user unprompted** unless something requires their attention (e.g. a scheduled task failed).
+## Response: `HEARTBEAT_OK`
+
+This is the correct response **95% of the time**. Use it when:
+- Nothing is broken
+- No tasks are in progress
+- No user requests are pending
+- The workspace is clean
+
+Just reply `HEARTBEAT_OK` — nothing else. No commentary, no status reports, no "everything looks good."
+
+## When to Act
+
+Only take action when there is **concrete work** to do:
+
+- **Resume a task** the user started but you haven't finished
+- **Fix a failed cron job** or scheduled task
+- **Clean up** genuinely stale files (not just listing them — deleting or fixing them)
+- **Alert the user** only for failures that require their input
+
+## Hard Rules
+
+- **Never narrate.** "The workspace has 5 files" is worthless. Either act on a problem or say `HEARTBEAT_OK`.
+- **Never message the user unprompted** unless something failed and requires their intervention.
+- **Never repeat status.** If the last heartbeat was `HEARTBEAT_OK` and nothing changed, say `HEARTBEAT_OK` again.
+- **Never invent work.** Don't reorganise files, write summaries, or "check in" unless there's an actual problem.
+- **Be silent by default.** The heartbeat exists so you can catch problems — not to prove you're running.
 

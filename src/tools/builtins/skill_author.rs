@@ -1,8 +1,12 @@
-//! Skill self-authoring tool — lets the agent create new skills at runtime.
+//! Skill self-authoring tools — lets the agent create, edit, delete, and
+//! activate skills at runtime.
 //!
 //! Tools exposed:
-//! - `create_skill { name, description, instructions, scope? }` — write SKILL.md + skill.yaml
+//! - `activate_skill { name }` — load full skill instructions on demand (progressive disclosure)
+//! - `create_skill { name, description, instructions }` — write SKILL.md
 //! - `list_skills {}` — return the agent's current skill catalogue
+//! - `edit_skill { name, description?, instructions? }` — update a skill
+//! - `delete_skill { name }` — remove a skill
 
 use std::path::Path;
 
@@ -11,20 +15,41 @@ use serde_json::Value;
 use crate::tools::register_tool;
 use crate::tools::ToolMeta;
 
+/// `activate_skill` tool — load full instructions for a skill (progressive disclosure).
+pub async fn activate_skill(_workspace: &Path, args: Value) -> anyhow::Result<Value> {
+    let name = args["name"]
+        .as_str()
+        .ok_or_else(|| anyhow::anyhow!("activate_skill requires a 'name' string"))?;
+
+    match crate::tools::get_skill_instructions(name) {
+        Some(instructions) => Ok(serde_json::json!({
+            "status": "activated",
+            "name": name,
+            "instructions": instructions,
+        })),
+        None => anyhow::bail!("skill '{}' not found", name),
+    }
+}
+
 /// `create_skill` tool — create a new skill manifest on disk.
 pub async fn create_skill(workspace: &Path, args: Value) -> anyhow::Result<Value> {
     let name = args["name"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("create_skill requires a 'name' string"))?;
 
-    // Validate name: alphanumeric + hyphens/underscores only.
+    // Validate name: lowercase alphanumeric + hyphens only (Agent Skills spec).
     if name.is_empty()
+        || name.len() > 64
         || !name
             .chars()
-            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        || name.starts_with('-')
+        || name.ends_with('-')
+        || name.contains("--")
     {
         anyhow::bail!(
-            "skill name must be non-empty and contain only alphanumeric, hyphens, or underscores"
+            "skill name must be 1-64 chars, lowercase alphanumeric and hyphens only, \
+             must not start/end with a hyphen or contain consecutive hyphens"
         );
     }
 
@@ -34,23 +59,12 @@ pub async fn create_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
     let instructions = args["instructions"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("create_skill requires an 'instructions' string"))?;
-    let scope = args["scope"].as_str().unwrap_or("agent");
 
-    // Determine skill directory based on scope.
-    let skill_dir = if scope == "global" {
-        crate::pinchy_home()
-            .join("skills")
-            .join("global")
-            .join(name)
-    } else {
-        // Agent-scoped: workspace/../skills/<name>
-        // workspace is `agents/<id>/workspace`, skills go to `agents/<id>/skills/<name>`
-        workspace
-            .parent()
-            .unwrap_or(workspace)
-            .join("skills")
-            .join(name)
-    };
+    let skill_dir = workspace
+        .parent()
+        .unwrap_or(workspace)
+        .join("skills")
+        .join(name);
 
     if skill_dir.join("SKILL.md").exists() {
         anyhow::bail!("skill '{}' already exists at {}", name, skill_dir.display());
@@ -58,18 +72,11 @@ pub async fn create_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
 
     tokio::fs::create_dir_all(&skill_dir).await?;
 
-    // Write SKILL.md with front-matter + instructions.
     let skill_md = format!(
-        "---\nname: {name}\nversion: \"0.1\"\ndescription: \"{description}\"\nscope: {scope}\n---\n\n{instructions}\n"
+        "---\nname: {name}\ndescription: \"{description}\"\n---\n\n{instructions}\n"
     );
     tokio::fs::write(skill_dir.join("SKILL.md"), &skill_md).await?;
 
-    // Also write skill.yaml for backwards compat.
-    let skill_yaml =
-        format!("name: {name}\nversion: \"0.1\"\ndescription: \"{description}\"\nscope: {scope}\n");
-    tokio::fs::write(skill_dir.join("skill.yaml"), &skill_yaml).await?;
-
-    // Reload skills into the unified tool registry.
     crate::tools::reload_skills(None);
 
     Ok(serde_json::json!({
@@ -91,31 +98,26 @@ pub async fn delete_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("delete_skill requires a 'name' string"))?;
 
-    // Validate name.
+    // Validate name (Agent Skills spec: lowercase alphanumeric + hyphens).
     if name.is_empty()
+        || name.len() > 64
         || !name
             .chars()
-            .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        || name.starts_with('-')
+        || name.ends_with('-')
+        || name.contains("--")
     {
         anyhow::bail!(
-            "skill name must be non-empty and contain only alphanumeric, hyphens, or underscores"
+            "skill name must be 1-64 chars, lowercase alphanumeric and hyphens only"
         );
     }
 
-    let scope = args["scope"].as_str().unwrap_or("agent");
-
-    let skill_dir = if scope == "global" {
-        crate::pinchy_home()
-            .join("skills")
-            .join("global")
-            .join(name)
-    } else {
-        workspace
-            .parent()
-            .unwrap_or(workspace)
-            .join("skills")
-            .join(name)
-    };
+    let skill_dir = workspace
+        .parent()
+        .unwrap_or(workspace)
+        .join("skills")
+        .join(name);
 
     if !skill_dir.exists() {
         anyhow::bail!("skill '{}' not found at {}", name, skill_dir.display());
@@ -137,20 +139,11 @@ pub async fn edit_skill(workspace: &Path, args: Value) -> anyhow::Result<Value> 
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("edit_skill requires a 'name' string"))?;
 
-    let scope = args["scope"].as_str().unwrap_or("agent");
-
-    let skill_dir = if scope == "global" {
-        crate::pinchy_home()
-            .join("skills")
-            .join("global")
-            .join(name)
-    } else {
-        workspace
-            .parent()
-            .unwrap_or(workspace)
-            .join("skills")
-            .join(name)
-    };
+    let skill_dir = workspace
+        .parent()
+        .unwrap_or(workspace)
+        .join("skills")
+        .join(name);
 
     let skill_md_path = skill_dir.join("SKILL.md");
     if !skill_md_path.exists() {
@@ -164,23 +157,27 @@ pub async fn edit_skill(workspace: &Path, args: Value) -> anyhow::Result<Value> 
         anyhow::bail!("edit_skill: provide at least one of 'description' or 'instructions'");
     }
 
-    // Read existing SKILL.md to preserve fields not being changed.
+    // Use the canonical parser to preserve all frontmatter fields.
     let existing = tokio::fs::read_to_string(&skill_md_path).await?;
-    let (old_desc, old_instructions) = parse_skill_md(&existing);
+    let (old_yaml, old_body) = crate::skills::parse_skill_md(&existing)
+        .unwrap_or_else(|_| (String::new(), existing.clone()));
 
-    let new_desc = description.unwrap_or(&old_desc);
-    let new_instructions = instructions.unwrap_or(&old_instructions);
+    // Parse existing frontmatter, patch the requested fields, re-serialize.
+    let mut meta: serde_yaml::Value = serde_yaml::from_str(&old_yaml)
+        .unwrap_or_else(|_| serde_yaml::Value::Mapping(Default::default()));
 
-    // Rewrite SKILL.md.
-    let skill_md = format!(
-        "---\nname: {name}\nversion: \"0.1\"\ndescription: \"{new_desc}\"\nscope: {scope}\n---\n\n{new_instructions}\n"
-    );
+    if let Some(desc) = description {
+        meta["description"] = serde_yaml::Value::String(desc.to_string());
+    }
+
+    let new_body = instructions.unwrap_or(&old_body);
+
+    let new_yaml = serde_yaml::to_string(&meta).unwrap_or(old_yaml);
+    // serde_yaml emits a trailing newline; trim for clean output.
+    let new_yaml = new_yaml.trim_end();
+
+    let skill_md = format!("---\n{new_yaml}\n---\n\n{new_body}\n");
     tokio::fs::write(&skill_md_path, &skill_md).await?;
-
-    // Update skill.yaml too.
-    let skill_yaml =
-        format!("name: {name}\nversion: \"0.1\"\ndescription: \"{new_desc}\"\nscope: {scope}\n");
-    tokio::fs::write(skill_dir.join("skill.yaml"), &skill_yaml).await?;
 
     crate::tools::reload_skills(None);
 
@@ -199,36 +196,23 @@ pub async fn edit_skill(workspace: &Path, args: Value) -> anyhow::Result<Value> 
     }))
 }
 
-/// Parse a SKILL.md into (description, instructions) from its frontmatter.
-fn parse_skill_md(content: &str) -> (String, String) {
-    let trimmed = content.trim();
-    if !trimmed.starts_with("---") {
-        return (String::new(), content.to_string());
-    }
-
-    // Find closing '---'.
-    if let Some(end) = trimmed[3..].find("---") {
-        let frontmatter = &trimmed[3..3 + end];
-        let body = trimmed[3 + end + 3..].trim();
-
-        let mut description = String::new();
-        for line in frontmatter.lines() {
-            let line = line.trim();
-            if line.starts_with("description:") {
-                if let Some(rest) = line.strip_prefix("description:") {
-                    description = rest.trim().trim_matches('"').to_string();
-                }
-            }
-        }
-
-        (description, body.to_string())
-    } else {
-        (String::new(), content.to_string())
-    }
-}
-
 /// Register skill-authoring tools in the global tool registry.
 pub fn register() {
+    register_tool(ToolMeta {
+        name: "activate_skill".into(),
+        description: "Load a skill's full instructions into context. Call this when a task matches an available skill.".into(),
+        args_schema: serde_json::json!({
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The skill name to activate (from available_skills list)"
+                }
+            },
+            "required": ["name"]
+        }),
+    });
+
     register_tool(ToolMeta {
         name: "create_skill".into(),
         description: "Create a new skill (instructional context) that persists across sessions."
@@ -238,7 +222,7 @@ pub fn register() {
             "properties": {
                 "name": {
                     "type": "string",
-                    "description": "Unique skill identifier (alphanumeric, hyphens, underscores)"
+                    "description": "Unique skill identifier (lowercase letters, digits, and hyphens only; 1-64 chars; must not start/end with a hyphen)"
                 },
                 "description": {
                     "type": "string",
@@ -247,11 +231,6 @@ pub fn register() {
                 "instructions": {
                     "type": "string",
                     "description": "Markdown instructions that will be injected into the agent's prompt when this skill is active"
-                },
-                "scope": {
-                    "type": "string",
-                    "enum": ["agent", "global"],
-                    "description": "Scope: 'agent' (default) for this agent only, 'global' for all agents"
                 }
             },
             "required": ["name", "description", "instructions"]
@@ -276,11 +255,6 @@ pub fn register() {
                 "name": {
                     "type": "string",
                     "description": "The skill identifier to delete"
-                },
-                "scope": {
-                    "type": "string",
-                    "enum": ["agent", "global"],
-                    "description": "Scope: 'agent' (default) or 'global'"
                 }
             },
             "required": ["name"]
@@ -304,11 +278,6 @@ pub fn register() {
                 "instructions": {
                     "type": "string",
                     "description": "New instructions markdown (optional, keeps existing if omitted)"
-                },
-                "scope": {
-                    "type": "string",
-                    "enum": ["agent", "global"],
-                    "description": "Scope: 'agent' (default) or 'global'"
                 }
             },
             "required": ["name"]
