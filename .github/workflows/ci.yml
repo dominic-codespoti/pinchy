@@ -61,6 +61,47 @@ jobs:
       - name: Run tests
         run: cargo test --no-default-features --lib
 
+  auto-tag:
+    name: Auto-increment version tag
+    runs-on: ubuntu-latest
+    needs: [check, test]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(release)')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Bump patch version and tag
+        run: |
+          # Read current version from Cargo.toml
+          CURRENT=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+          echo "Current version: $CURRENT"
+
+          # Split into major.minor.patch
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
+          echo "New version: $NEW_VERSION"
+
+          # Check if tag already exists (skip if so)
+          if git rev-parse "v${NEW_VERSION}" >/dev/null 2>&1; then
+            echo "Tag v${NEW_VERSION} already exists, skipping."
+            exit 0
+          fi
+
+          # Update Cargo.toml
+          sed -i "0,/^version = \"${CURRENT}\"/s//version = \"${NEW_VERSION}\"/" Cargo.toml
+          echo "Updated Cargo.toml to ${NEW_VERSION}"
+
+          # Commit and tag
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Cargo.toml
+          git commit -m "chore(release): bump version to v${NEW_VERSION}"
+          git tag "v${NEW_VERSION}"
+          git push origin main --tags
+
   build:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
