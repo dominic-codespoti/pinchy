@@ -17,22 +17,34 @@ pub fn detect_browser_path() -> Option<String> {
         }
     }
     // Try $PATH lookup as fallback
-    if let Ok(output) = std::process::Command::new("which").arg("chromium-browser").output() {
+    if let Ok(output) = std::process::Command::new("which")
+        .arg("chromium-browser")
+        .output()
+    {
         if output.status.success() {
             let p = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !p.is_empty() { return Some(p); }
+            if !p.is_empty() {
+                return Some(p);
+            }
         }
     }
     if let Ok(output) = std::process::Command::new("which").arg("chromium").output() {
         if output.status.success() {
             let p = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !p.is_empty() { return Some(p); }
+            if !p.is_empty() {
+                return Some(p);
+            }
         }
     }
-    if let Ok(output) = std::process::Command::new("which").arg("google-chrome").output() {
+    if let Ok(output) = std::process::Command::new("which")
+        .arg("google-chrome")
+        .output()
+    {
         if output.status.success() {
             let p = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !p.is_empty() { return Some(p); }
+            if !p.is_empty() {
+                return Some(p);
+            }
         }
     }
     None

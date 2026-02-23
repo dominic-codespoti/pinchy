@@ -4,6 +4,8 @@ use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub mod browser_detect;
+
 /// Generate a random 16-char hex nonce.
 pub fn generate_nonce() -> String {
     let s = RandomState::new();
