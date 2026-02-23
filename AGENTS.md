@@ -3,7 +3,8 @@
 Goal: build a tiny Rust daemon that can run on a Pi, talks via channels such as Discord, calls LLMs, runs tools, and supports heartbeat + cron proactive triggers.
 
 ## Rules
-- Ship the smallest thing that works. Cut scope, don’t add features “just in case”.
+- Ship the smallest thing that works. Cut scope, don't add features "just in case".
+- **Always run `cargo fmt` and `cargo clippy` before committing or pushing to main.** Fix all warnings before pushing. No exceptions.
 
 ## MVP (in this order)
 1) Load `config.yaml` (agents, discord token, model providers)
