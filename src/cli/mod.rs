@@ -171,21 +171,32 @@ pub fn interactive_onboard_tui(
 
     // Seed defaults from existing config agent entry when re-onboarding.
     let existing_agent = cfg.agents.iter().find(|a| a.id == id);
-    let default_provider = "openai".to_string();
-    let default_model = initial_model.unwrap_or_else(|| {
-        existing_agent
-            .and_then(|a| a.model.clone())
-            .unwrap_or_else(|| {
+    let default_provider = existing_agent
+        .and_then(|a| {
+            a.model.as_ref().and_then(|mid| {
                 cfg.models
-                    .first()
-                    .map(|m| m.id.clone())
-                    .unwrap_or_else(|| "openai-default".to_string())
+                    .iter()
+                    .find(|m| m.id == *mid)
+                    .map(|m| m.provider.clone())
             })
+        })
+        .unwrap_or_else(|| "openai".to_string());
+    let default_model_name = initial_model.unwrap_or_else(|| {
+        existing_agent
+            .and_then(|a| {
+                a.model.as_ref().and_then(|mid| {
+                    cfg.models
+                        .iter()
+                        .find(|m| m.id == *mid)
+                        .and_then(|m| m.model.clone())
+                })
+            })
+            .unwrap_or_else(|| "gpt-4o".to_string())
     });
 
     let mut data = OnboardData {
         provider: default_provider,
-        model_id: default_model,
+        model_id: default_model_name,
         browser_path: None,
     };
 
@@ -222,17 +233,17 @@ pub fn interactive_onboard_tui(
 
             // ── Step 2: Enter model id ────────────────────────────────
             1 => {
-                println!("\n── Step 2/3: Enter Model ID ──");
+                println!("\n── Step 2/3: Model Name ──");
                 // Default model: try first config model matching selected
                 // provider, otherwise keep current default.
                 let provider_default = cfg
                     .models
                     .iter()
                     .find(|m| m.provider == data.provider)
-                    .map(|m| m.id.clone())
+                    .and_then(|m| m.model.clone())
                     .unwrap_or_else(|| data.model_id.clone());
                 let input: String = dialoguer::Input::new()
-                    .with_prompt("Model id")
+                    .with_prompt("Model name (e.g. gpt-4o)")
                     .default(provider_default)
                     .interact_text()
                     .unwrap_or_else(|_| data.model_id.clone());
@@ -305,14 +316,33 @@ pub fn interactive_onboard_tui(
                     // Save browser path at top-level config
                     cfg.chromium_path = data.browser_path.clone();
 
+                    // Ensure a model config entry exists for the chosen provider.
+                    let model_config_id = if let Some(existing) =
+                        cfg.models.iter().find(|m| m.provider == data.provider)
+                    {
+                        existing.id.clone()
+                    } else {
+                        let new_id = format!("{}-default", data.provider);
+                        cfg.models.push(config::ModelConfig {
+                            id: new_id.clone(),
+                            provider: data.provider.clone(),
+                            model: Some(data.model_id.clone()),
+                            api_key: None,
+                            endpoint: None,
+                            api_version: None,
+                            embedding_deployment: None,
+                        });
+                        new_id
+                    };
+
                     let workspace_str = format!("agents/{id}");
                     if let Some(entry) = cfg.agents.iter_mut().find(|a| a.id == id) {
-                        entry.model = Some(data.model_id.clone());
+                        entry.model = Some(model_config_id.clone());
                     } else {
                         cfg.agents.push(config::AgentConfig {
                             id: id.to_string(),
                             root: workspace_str,
-                            model: Some(data.model_id.clone()),
+                            model: Some(model_config_id.clone()),
                             heartbeat_secs: None,
                             cron_jobs: vec![],
                             max_tool_iterations: None,
@@ -452,6 +482,14 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
         .interact()
         .unwrap_or(3);
 
+    // Track which provider was configured so embedding options can adapt.
+    let configured_provider: Option<&str> = match cred_sel {
+        0 => Some("openai"),
+        1 => Some("azure-openai"),
+        2 => Some("copilot"),
+        _ => None,
+    };
+
     match cred_sel {
         0 => {
             // OpenAI
@@ -460,6 +498,34 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                 .interact_text()
                 .unwrap_or_default();
             if !key.is_empty() {
+                let cfg_contents = std::fs::read_to_string(config_path).unwrap_or_default();
+                if let Ok(mut cfg) = serde_yaml::from_str::<config::Config>(&cfg_contents) {
+                    if !cfg.models.iter().any(|m| m.provider == "openai") {
+                        cfg.models.push(config::ModelConfig {
+                            id: "openai-default".into(),
+                            provider: "openai".into(),
+                            model: Some("gpt-4o".into()),
+                            api_key: Some(format!("${}", "OPENAI_API_KEY")),
+                            endpoint: None,
+                            api_version: None,
+                            embedding_deployment: None,
+                        });
+                    }
+                    // Update agent model reference if it doesn't match any model
+                    let model_ids: std::collections::HashSet<&str> =
+                        cfg.models.iter().map(|m| m.id.as_str()).collect();
+                    for agent in &mut cfg.agents {
+                        if let Some(ref m) = agent.model {
+                            if !model_ids.contains(m.as_str()) {
+                                agent.model = Some("openai-default".into());
+                            }
+                        }
+                    }
+                    let yaml_out = serde_yaml::to_string(&cfg).unwrap_or_default();
+                    sync_backup_file(config_path).ok();
+                    std::fs::write(config_path, &yaml_out).ok();
+                    println!("  OpenAI model entry written to config.yaml");
+                }
                 println!("  Set OPENAI_API_KEY in your environment:");
                 println!("  export OPENAI_API_KEY=\"{key}\"");
             }
@@ -531,6 +597,40 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                             }
                         }
                     }
+                    // Ensure a copilot model config entry exists
+                    let cfg_contents = std::fs::read_to_string(config_path).unwrap_or_default();
+                    if let Ok(mut cfg) = serde_yaml::from_str::<config::Config>(&cfg_contents) {
+                        if !cfg.models.iter().any(|m| m.provider == "copilot") {
+                            let model_name: String = dialoguer::Input::new()
+                                .with_prompt("Copilot model name")
+                                .default("gpt-4o".into())
+                                .interact_text()
+                                .unwrap_or_else(|_| "gpt-4o".into());
+                            cfg.models.push(config::ModelConfig {
+                                id: "copilot-default".into(),
+                                provider: "copilot".into(),
+                                model: Some(model_name),
+                                api_key: None,
+                                endpoint: None,
+                                api_version: None,
+                                embedding_deployment: None,
+                            });
+                        }
+                        // Update agent model reference if it doesn't match any model
+                        let model_ids: std::collections::HashSet<&str> =
+                            cfg.models.iter().map(|m| m.id.as_str()).collect();
+                        for agent in &mut cfg.agents {
+                            if let Some(ref m) = agent.model {
+                                if !model_ids.contains(m.as_str()) {
+                                    agent.model = Some("copilot-default".into());
+                                }
+                            }
+                        }
+                        let yaml_out = serde_yaml::to_string(&cfg).unwrap_or_default();
+                        sync_backup_file(config_path).ok();
+                        std::fs::write(config_path, &yaml_out).ok();
+                        println!("  Copilot model entry written to config.yaml");
+                    }
                 }
                 Err(e) => {
                     eprintln!("Warning: device flow failed: {e}");
@@ -551,42 +651,50 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
         .unwrap_or(false);
 
     if do_embed {
-        let embed_choices = [
-            "OpenAI (text-embedding-3-small)",
-            "Azure OpenAI (uses deployment from step 3)",
-            "Skip",
-        ];
+        // Build embedding choices based on which provider was configured above.
+        let embed_choices: Vec<&str> = match configured_provider {
+            Some("azure-openai") => vec![
+                "Azure OpenAI (uses embedding deployment from above)",
+                "OpenAI (text-embedding-3-small)",
+                "Skip",
+            ],
+            Some("copilot") => vec![
+                "OpenAI (text-embedding-3-small)",
+                "Skip",
+            ],
+            _ => vec![
+                "OpenAI (text-embedding-3-small)",
+                "Skip",
+            ],
+        };
+
         let embed_sel = dialoguer::Select::new()
             .with_prompt("Embedding provider")
             .items(&embed_choices)
             .default(0)
             .interact()
-            .unwrap_or(2);
+            .unwrap_or(embed_choices.len() - 1);
 
-        match embed_sel {
-            0 => {
-                // Add an openai model entry with embedding support.
-                let key: String = dialoguer::Input::new()
-                    .with_prompt("OpenAI API key (or press Enter if already set above)")
-                    .default(String::new())
-                    .interact_text()
-                    .unwrap_or_default();
-                if !key.is_empty() {
-                    println!("  Embedding will use text-embedding-3-small via OpenAI.");
-                    println!("  The recall_memory tool now supports mode: \"semantic\".");
-                } else {
-                    println!("  Will use existing OPENAI_API_KEY for embeddings.");
-                }
+        let chosen = embed_choices[embed_sel];
+        if chosen.starts_with("OpenAI") {
+            let key: String = dialoguer::Input::new()
+                .with_prompt("OpenAI API key (or press Enter if already set above)")
+                .default(String::new())
+                .interact_text()
+                .unwrap_or_default();
+            if !key.is_empty() {
+                println!("  Embedding will use text-embedding-3-small via OpenAI.");
+                println!("  The recall_memory tool now supports mode: \"semantic\".");
+            } else {
+                println!("  Will use existing OPENAI_API_KEY for embeddings.");
             }
-            1 => {
-                println!("  Azure embedding will use the embedding_deployment from your Azure model config.");
-                println!(
-                    "  Make sure your config.yaml model entry includes 'embedding_deployment'."
-                );
-            }
-            _ => {
-                println!("  Skipped embedding setup. Semantic search won't be available.");
-            }
+        } else if chosen.starts_with("Azure") {
+            println!("  Azure embedding will use the embedding_deployment from your Azure model config.");
+            println!(
+                "  Make sure your config.yaml model entry includes 'embedding_deployment'."
+            );
+        } else {
+            println!("  Skipped embedding setup. Semantic search won't be available.");
         }
     }
 
