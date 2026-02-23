@@ -37,7 +37,7 @@ echo "┌───────────────────────�
 echo "│  Pinchy Dev Mode                            │"
 echo "│                                             │"
 echo "│  Frontend (HMR):  http://localhost:5173/react/  │"
-echo "│  Backend  (API):  http://localhost:3000      │"
+echo "│  Backend  (API):  http://localhost:3131      │"
 echo "│                                             │"
 echo "│  Press Ctrl+C to stop both                  │"
 echo "└─────────────────────────────────────────────┘"

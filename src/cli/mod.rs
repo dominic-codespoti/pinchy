@@ -773,13 +773,13 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
     if create_agent {
         println!("  Agent:      created and configured");
     }
-    println!("  Dashboard:  http://127.0.0.1:3000");
+    println!("  Dashboard:  http://127.0.0.1:3131");
     println!();
     println!("  Next steps:");
     println!("    1. Start pinchy:    pinchy");
-    println!("    2. Open dashboard:  http://127.0.0.1:3000");
+    println!("    2. Open dashboard:  http://127.0.0.1:3131");
     println!("    3. Edit agent:      pinchy edit default soul");
-    println!("    4. Send a message:  curl -X POST http://127.0.0.1:3000/api/webhook/default \\");
+    println!("    4. Send a message:  curl -X POST http://127.0.0.1:3131/api/webhook/default \\");
     println!("                          -H 'Content-Type: application/json' \\");
     println!("                          -d '{{\"message\": \"hello\"}}'");
     println!("    5. View skills:     pinchy show default");
@@ -1294,7 +1294,7 @@ pub async fn apply_manifest(
 /// Check whether the Pinchy daemon is running by hitting the gateway /api/status endpoint.
 pub async fn check_status() -> anyhow::Result<()> {
     let addr =
-        std::env::var("PINCHY_GATEWAY_ADDR").unwrap_or_else(|_| "127.0.0.1:3000".to_string());
+        std::env::var("PINCHY_GATEWAY_ADDR").unwrap_or_else(|_| "127.0.0.1:3131".to_string());
     let url = format!("http://{addr}/api/status");
 
     // Build request, optionally with auth token

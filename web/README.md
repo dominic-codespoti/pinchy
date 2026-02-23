@@ -31,4 +31,4 @@ Build output is written to `static/react/`.
 
 Access via:
 
-- `http://127.0.0.1:3000/react/index.html`
+- `http://127.0.0.1:3131/react/index.html`
