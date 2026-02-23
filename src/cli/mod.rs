@@ -1,7 +1,7 @@
 use crate::utils::browser_detect;
-//! CLI/TUI subcommand handlers extracted from `main.rs`.
-//!
-//! Keeps `main.rs` slim: clap parsing stays there, heavy logic lives here.
+// CLI/TUI subcommand handlers extracted from `main.rs`.
+//
+// Keeps `main.rs` slim: clap parsing stays there, heavy logic lives here.
 
 use crate::agent;
 use crate::auth;
