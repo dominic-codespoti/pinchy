@@ -300,7 +300,7 @@ pub async fn start_gateway_with_config(
 
 /// Convenience: start the gateway unless `PINCHY_GATEWAY=0`.
 ///
-/// Listens on `PINCHY_GATEWAY_ADDR` (default `127.0.0.1:3131`).
+/// Listens on `PINCHY_GATEWAY_ADDR` (default `0.0.0.0:3131`).
 /// Returns `None` if the gateway is explicitly disabled.
 pub async fn spawn_gateway_if_enabled() -> Option<Gateway> {
     if std::env::var("PINCHY_GATEWAY").as_deref() == Ok("0") {
@@ -309,7 +309,7 @@ pub async fn spawn_gateway_if_enabled() -> Option<Gateway> {
     }
 
     let addr: SocketAddr = match std::env::var("PINCHY_GATEWAY_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:3131".to_string())
+        .unwrap_or_else(|_| "0.0.0.0:3131".to_string())
         .parse()
     {
         Ok(a) => a,
