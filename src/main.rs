@@ -388,7 +388,9 @@ async fn main() -> anyhow::Result<()> {
         } else if std::env::var("PINCHY_GATEWAY").as_deref() != Ok("0") {
             // Gateway was expected but failed to start.
             // With auto-bind this should be rare (10 ports tried).
-            tracing::warn!("gateway failed to start (all ports in use?). Try: PINCHY_GATEWAY=0 pinchy start");
+            tracing::warn!(
+                "gateway failed to start (all ports in use?). Try: PINCHY_GATEWAY=0 pinchy start"
+            );
             None
         } else {
             None
