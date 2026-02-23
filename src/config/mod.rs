@@ -110,6 +110,8 @@ pub struct Config {
         skip_serializing_if = "Option::is_none"
     )]
     pub cron_events_max_keep: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chromium_path: Option<String>,
 }
 
 fn default_session_expiry_days() -> Option<u64> {

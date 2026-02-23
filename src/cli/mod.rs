@@ -302,15 +302,12 @@ pub fn interactive_onboard_tui(
                     let mut cfg: config::Config =
                         serde_yaml::from_str(&cfg_contents).context("parse config YAML")?;
 
+                    // Save browser path at top-level config
+                    cfg.chromium_path = data.browser_path.clone();
+
                     let workspace_str = format!("agents/{id}");
                     if let Some(entry) = cfg.agents.iter_mut().find(|a| a.id == id) {
                         entry.model = Some(data.model_id.clone());
-                        entry.extra_exec_commands = vec![];
-                        if let Some(bp) = &data.browser_path {
-                            entry
-                                .extra_exec_commands
-                                .push(format!("chromium_path={}", bp));
-                        }
                     } else {
                         cfg.agents.push(config::AgentConfig {
                             id: id.to_string(),
@@ -322,11 +319,7 @@ pub fn interactive_onboard_tui(
                             enabled_skills: None,
                             fallback_models: Vec::new(),
                             webhook_secret: None,
-                            extra_exec_commands: if let Some(bp) = &data.browser_path {
-                                vec![format!("chromium_path={}", bp)]
-                            } else {
-                                vec![]
-                            },
+                            extra_exec_commands: Vec::new(),
                             history_messages: None,
                             timezone: None,
                         });

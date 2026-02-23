@@ -66,23 +66,17 @@ mod impl_playwright {
             // 1. Env override
             let mut chromium_path = std::env::var("PINCHY_CHROMIUM_PATH").ok();
 
-            // 2. Agent config (if available)
+            // 2. Config file (chromium_path field)
             if chromium_path.is_none() {
-                // Try to load agent config for current agent if available
-                // (This is a placeholder; wire up agent_id if available)
-                if let Ok(cfg) = config::Config::load_default().await {
-                    if let Some(agent) = cfg.agents.first() {
-                        for cmd in &agent.extra_exec_commands {
-                            if let Some(rest) = cmd.strip_prefix("chromium_path=") {
-                                chromium_path = Some(rest.to_string());
-                                break;
-                            }
-                        }
+                let cfg_path = crate::pinchy_home().join("config.yaml");
+                if let Ok(cfg) = config::Config::load(&cfg_path).await {
+                    if let Some(p) = cfg.chromium_path {
+                        chromium_path = Some(p);
                     }
                 }
             }
 
-            // 3. Auto-detect
+            // 3. Auto-detect system browser
             if chromium_path.is_none() {
                 chromium_path = browser_detect::detect_browser_path();
             }
