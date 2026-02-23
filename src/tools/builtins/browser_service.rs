@@ -18,6 +18,9 @@ mod impl_playwright {
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
+    use crate::utils::browser_detect;
+    use crate::config;
+
     use playwright_rust::api::LaunchOptions;
     use playwright_rust::protocol::Playwright;
     // TODO: if the crate re-exports `Page` / `Browser` at a different path,
@@ -50,12 +53,45 @@ mod impl_playwright {
         ///
         /// When `headless` is `true` (the default) the browser runs
         /// without a visible window.
+        ///
+        /// Looks for browser path in:
+        ///   1. $PINCHY_CHROMIUM_PATH
+        ///   2. agent config extra_exec_commands (chromium_path=...)
+        ///   3. auto-detect via utils::browser_detect
         pub async fn new(headless: bool) -> anyhow::Result<Self> {
             let playwright = Playwright::launch()
                 .await
                 .map_err(|e| anyhow::anyhow!("failed to launch Playwright server: {e}"))?;
 
-            let launch_opts = LaunchOptions::new().headless(headless);
+            // 1. Env override
+            let mut chromium_path = std::env::var("PINCHY_CHROMIUM_PATH").ok();
+
+            // 2. Agent config (if available)
+            if chromium_path.is_none() {
+                // Try to load agent config for current agent if available
+                // (This is a placeholder; wire up agent_id if available)
+                if let Ok(cfg) = config::Config::load_default().await {
+                    if let Some(agent) = cfg.agents.first() {
+                        for cmd in &agent.extra_exec_commands {
+                            if let Some(rest) = cmd.strip_prefix("chromium_path=") {
+                                chromium_path = Some(rest.to_string());
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // 3. Auto-detect
+            if chromium_path.is_none() {
+                chromium_path = browser_detect::detect_browser_path();
+            }
+
+            let mut launch_opts = LaunchOptions::new().headless(headless);
+            if let Some(path) = chromium_path {
+                launch_opts = launch_opts.executable_path(path);
+            }
+
             let browser = playwright
                 .chromium()
                 .launch_with_options(launch_opts)

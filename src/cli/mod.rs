@@ -1,3 +1,4 @@
+use crate::utils::browser_detect;
 //! CLI/TUI subcommand handlers extracted from `main.rs`.
 //!
 //! Keeps `main.rs` slim: clap parsing stays there, heavy logic lives here.
@@ -112,6 +113,7 @@ pub async fn scaffold_agent(id: &str) -> anyhow::Result<()> {
 struct OnboardData {
     provider: String,
     model_id: String,
+    browser_path: Option<String>,
 }
 
 /// Create a backup of `path` (sync), following the same `.bak.<unix_ts>`
@@ -184,6 +186,7 @@ pub fn interactive_onboard_tui(
     let mut data = OnboardData {
         provider: default_provider,
         model_id: default_model,
+        browser_path: None,
     };
 
     let mut step: usize = 0;
@@ -237,12 +240,51 @@ pub fn interactive_onboard_tui(
                 println!("  Model: {}", data.model_id);
             }
 
-            // ── Step 3: Confirm & Save ────────────────────────────────
+            // ── Step 3: Detect browser ────────────────────────────────
             2 => {
-                println!("\n── Step 3/3: Confirm & Save ──");
+                println!("\n── Step 3/4: Detect System Browser ──");
+                println!("  Playwright’s browser download is always skipped.\n  pinchy will use your system Chromium/Chrome if found.");
+                println!("  You can override the browser path anytime with the PINCHY_CHROMIUM_PATH environment variable.\n");
+                let detected = browser_detect::detect_browser_path();
+                if let Some(path) = detected {
+                    println!("  Found system browser: {path}");
+                    let use_it = dialoguer::Confirm::new()
+                        .with_prompt("Use this browser for Playwright automation?")
+                        .default(true)
+                        .interact()
+                        .unwrap_or(true);
+                    if use_it {
+                        data.browser_path = Some(path);
+                    } else {
+                        let custom: String = dialoguer::Input::new()
+                            .with_prompt("Enter browser executable path (or leave blank to skip)")
+                            .default(String::new())
+                            .interact_text()
+                            .unwrap_or_default();
+                        if !custom.trim().is_empty() {
+                            data.browser_path = Some(custom.trim().to_string());
+                        }
+                    }
+                } else {
+                    println!("  No Chromium/Chrome browser found in common locations.");
+                    println!("  To enable browser automation, install Chromium (e.g. sudo apt install -y chromium-browser), or set PINCHY_CHROMIUM_PATH.");
+                    let custom: String = dialoguer::Input::new()
+                        .with_prompt("Enter browser executable path (or leave blank to skip)")
+                        .default(String::new())
+                        .interact_text()
+                        .unwrap_or_default();
+                    if !custom.trim().is_empty() {
+                        data.browser_path = Some(custom.trim().to_string());
+                    }
+                }
+            }
+            // ── Step 4: Confirm & Save ────────────────────────────────
+            3 => {
+                println!("\n── Step 4/4: Confirm & Save ──");
                 println!("  Agent:    {id}");
                 println!("  Provider: {}", data.provider);
                 println!("  Model:    {}", data.model_id);
+                println!("  Browser:  {}", data.browser_path.as_deref().unwrap_or("(none)"));
 
                 let confirm = dialoguer::Confirm::new()
                     .with_prompt("Save and complete onboarding?")
@@ -260,6 +302,10 @@ pub fn interactive_onboard_tui(
                     let workspace_str = format!("agents/{id}");
                     if let Some(entry) = cfg.agents.iter_mut().find(|a| a.id == id) {
                         entry.model = Some(data.model_id.clone());
+                        entry.extra_exec_commands = vec![];
+                        if let Some(bp) = &data.browser_path {
+                            entry.extra_exec_commands.push(format!("chromium_path={}", bp));
+                        }
                     } else {
                         cfg.agents.push(config::AgentConfig {
                             id: id.to_string(),
@@ -271,7 +317,7 @@ pub fn interactive_onboard_tui(
                             enabled_skills: None,
                             fallback_models: Vec::new(),
                             webhook_secret: None,
-                            extra_exec_commands: Vec::new(),
+                            extra_exec_commands: if let Some(bp) = &data.browser_path { vec![format!("chromium_path={}", bp)] } else { vec![] },
                             history_messages: None,
                             timezone: None,
                         });
@@ -283,13 +329,13 @@ pub fn interactive_onboard_tui(
                         .with_context(|| format!("write {}", config_path.display()))?;
 
                     println!(
-                        "\nagent '{id}' onboarded — provider: {}, model: {}",
-                        data.provider, data.model_id
+                        "\nagent '{id}' onboarded — provider: {}, model: {}, browser: {}",
+                        data.provider, data.model_id, data.browser_path.as_deref().unwrap_or("(none)")
                     );
                     return Ok(());
                 } else {
-                    // User declined – go back to model step.
-                    step = 1;
+                    // User declined – go back to browser step.
+                    step = 2;
                     continue;
                 }
             }

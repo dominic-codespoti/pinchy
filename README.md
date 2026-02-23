@@ -119,3 +119,18 @@ npm run build
 ```
 
 Production build artifacts are emitted to `static/react/` and can be opened at `/react/index.html` while the legacy UI remains at `/`.
+
+## Browser Automation (Playwright)
+
+- **No browser download required:** Playwright’s bundled Chromium download is always skipped for all platforms.
+- **Automatic system browser detection:** On first run and onboarding, pinchy auto-detects system Chromium/Chrome in common locations (e.g. `/usr/bin/chromium-browser`).
+- **Manual override:** Set the environment variable `PINCHY_CHROMIUM_PATH` to specify a custom browser executable path.
+- **Onboarding integration:** The onboarding wizard will prompt you to confirm or enter a browser path if none is found.
+- **Agent config:** The detected or chosen browser path is saved per agent in config and used automatically.
+
+If no browser is found, browser automation features will be disabled until you install Chromium or set the path.
+
+Example:
+```bash
+export PINCHY_CHROMIUM_PATH=/usr/bin/chromium
+```
