@@ -18,8 +18,8 @@ mod impl_playwright {
     use std::sync::Arc;
     use tokio::sync::Mutex;
 
-    use crate::utils::browser_detect;
     use crate::config;
+    use crate::utils::browser_detect;
 
     use playwright_rust::api::LaunchOptions;
     use playwright_rust::protocol::Playwright;

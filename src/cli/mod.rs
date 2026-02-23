@@ -284,7 +284,10 @@ pub fn interactive_onboard_tui(
                 println!("  Agent:    {id}");
                 println!("  Provider: {}", data.provider);
                 println!("  Model:    {}", data.model_id);
-                println!("  Browser:  {}", data.browser_path.as_deref().unwrap_or("(none)"));
+                println!(
+                    "  Browser:  {}",
+                    data.browser_path.as_deref().unwrap_or("(none)")
+                );
 
                 let confirm = dialoguer::Confirm::new()
                     .with_prompt("Save and complete onboarding?")
@@ -304,7 +307,9 @@ pub fn interactive_onboard_tui(
                         entry.model = Some(data.model_id.clone());
                         entry.extra_exec_commands = vec![];
                         if let Some(bp) = &data.browser_path {
-                            entry.extra_exec_commands.push(format!("chromium_path={}", bp));
+                            entry
+                                .extra_exec_commands
+                                .push(format!("chromium_path={}", bp));
                         }
                     } else {
                         cfg.agents.push(config::AgentConfig {
@@ -317,7 +322,11 @@ pub fn interactive_onboard_tui(
                             enabled_skills: None,
                             fallback_models: Vec::new(),
                             webhook_secret: None,
-                            extra_exec_commands: if let Some(bp) = &data.browser_path { vec![format!("chromium_path={}", bp)] } else { vec![] },
+                            extra_exec_commands: if let Some(bp) = &data.browser_path {
+                                vec![format!("chromium_path={}", bp)]
+                            } else {
+                                vec![]
+                            },
                             history_messages: None,
                             timezone: None,
                         });
@@ -330,7 +339,9 @@ pub fn interactive_onboard_tui(
 
                     println!(
                         "\nagent '{id}' onboarded — provider: {}, model: {}, browser: {}",
-                        data.provider, data.model_id, data.browser_path.as_deref().unwrap_or("(none)")
+                        data.provider,
+                        data.model_id,
+                        data.browser_path.as_deref().unwrap_or("(none)")
                     );
                     return Ok(());
                 } else {
