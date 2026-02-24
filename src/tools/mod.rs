@@ -385,8 +385,13 @@ const AUTO_PLUCK_RULES: &[(&[&str], &[&str])] = &[
     ),
     (
         &[
-            "mcp", "mcporter", "model context protocol", "server",
-            "external tool", "remote tool", "api tool",
+            "mcp",
+            "mcporter",
+            "model context protocol",
+            "server",
+            "external tool",
+            "remote tool",
+            "api tool",
         ],
         &["mcp"],
     ),
@@ -740,7 +745,8 @@ pub async fn call_skill(name: &str, args: Value, workspace: &Path) -> anyhow::Re
                 // was just missing from the match above (shouldn't happen, but safe).
                 let has_handler = {
                     let reg = REGISTRY.lock().expect("tool registry poisoned");
-                    reg.iter().any(|e| e.meta.name == other && e.handler.is_some())
+                    reg.iter()
+                        .any(|e| e.meta.name == other && e.handler.is_some())
                 };
                 if has_handler {
                     let skill_args = serde_json::json!({ "name": other });
@@ -982,9 +988,7 @@ pub fn init() {
     );
     register_handler(
         "mcp",
-        Arc::new(|args, ws| {
-            Box::pin(async move { builtins::mcp::mcp_tool(&ws, args).await })
-        }),
+        Arc::new(|args, ws| Box::pin(async move { builtins::mcp::mcp_tool(&ws, args).await })),
     );
 
     // Mark less-common tools as deferred (auto-injected when relevant

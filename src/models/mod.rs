@@ -552,9 +552,8 @@ fn is_permanent_error(err: &anyhow::Error) -> bool {
 
 /// Global provider manager stashed at startup so tools (e.g. semantic memory)
 /// can embed text without plumbing the manager through every call site.
-static GLOBAL_PROVIDERS: std::sync::OnceLock<
-    std::sync::Mutex<std::sync::Arc<ProviderManager>>,
-> = std::sync::OnceLock::new();
+static GLOBAL_PROVIDERS: std::sync::OnceLock<std::sync::Mutex<std::sync::Arc<ProviderManager>>> =
+    std::sync::OnceLock::new();
 
 /// Store (or update) the provider manager globally.
 pub fn set_global_providers(pm: std::sync::Arc<ProviderManager>) {

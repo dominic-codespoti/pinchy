@@ -152,6 +152,9 @@ async fn tool_loop_stops_on_plain_reply() {
         session_id: None,
     };
 
-    let reply = agent.run_turn_with_provider(msg, &manager, None).await.unwrap();
+    let reply = agent
+        .run_turn_with_provider(msg, &manager, None)
+        .await
+        .unwrap();
     assert_eq!(reply, "Just a simple answer.");
 }

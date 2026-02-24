@@ -37,7 +37,9 @@ pub(crate) async fn api_skills_delete(Path(name): Path<String>) -> impl IntoResp
         }
     };
 
-    let skill_dir = crate::utils::agent_root(&agent_id).join("skills").join(&name);
+    let skill_dir = crate::utils::agent_root(&agent_id)
+        .join("skills")
+        .join(&name);
     if !skill_dir.exists() {
         return (
             StatusCode::NOT_FOUND,

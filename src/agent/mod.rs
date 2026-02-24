@@ -83,10 +83,31 @@ fn is_conversational(msg: &str) -> bool {
     // Very short messages are almost always conversational.
     if word_count <= 3 {
         let starters = [
-            "hi", "hello", "hey", "thanks", "thank you", "thx", "bye",
-            "ok", "okay", "sure", "yes", "no", "yep", "nope", "cool",
-            "great", "good", "nice", "awesome", "perfect", "got it",
-            "what", "who", "how are you", "how's it going",
+            "hi",
+            "hello",
+            "hey",
+            "thanks",
+            "thank you",
+            "thx",
+            "bye",
+            "ok",
+            "okay",
+            "sure",
+            "yes",
+            "no",
+            "yep",
+            "nope",
+            "cool",
+            "great",
+            "good",
+            "nice",
+            "awesome",
+            "perfect",
+            "got it",
+            "what",
+            "who",
+            "how are you",
+            "how's it going",
         ];
         if starters.iter().any(|s| lower.starts_with(s)) {
             return true;
@@ -670,7 +691,9 @@ impl Agent {
             },
         ));
 
-        let result = self.run_turn_with_provider(msg, &manager, turn_cfg.as_ref()).await;
+        let result = self
+            .run_turn_with_provider(msg, &manager, turn_cfg.as_ref())
+            .await;
 
         // Restore original session pointer if we were using an override.
         if let Some(prev) = saved_session {
@@ -981,10 +1004,8 @@ impl Agent {
                                 "error": err_msg,
                             }));
                             (
-                                serde_json::to_string(
-                                    &serde_json::json!({"error": &err_msg}),
-                                )
-                                .unwrap_or_default(),
+                                serde_json::to_string(&serde_json::json!({"error": &err_msg}))
+                                    .unwrap_or_default(),
                                 true,
                                 Some(err_msg),
                             )
@@ -1117,10 +1138,8 @@ impl Agent {
                                 "error": err_msg,
                             }));
                             (
-                                serde_json::to_string(
-                                    &serde_json::json!({"error": &err_msg}),
-                                )
-                                .unwrap_or_default(),
+                                serde_json::to_string(&serde_json::json!({"error": &err_msg}))
+                                    .unwrap_or_default(),
                                 true,
                                 Some(err_msg),
                             )

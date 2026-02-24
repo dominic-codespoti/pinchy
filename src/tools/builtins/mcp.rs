@@ -13,14 +13,12 @@
 
 use http::{HeaderName, HeaderValue};
 use rmcp::{
-    RoleClient,
-    ServiceExt,
     model::CallToolRequestParams,
     service::RunningService,
     transport::{
-        StreamableHttpClientTransport,
-        streamable_http_client::StreamableHttpClientTransportConfig,
+        streamable_http_client::StreamableHttpClientTransportConfig, StreamableHttpClientTransport,
     },
+    RoleClient, ServiceExt,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -103,7 +101,10 @@ fn load_servers(workspace: &Path) -> anyhow::Result<HashMap<String, McpServerCon
     }
 
     if servers.is_empty() {
-        anyhow::bail!("MCP config at {} contains no server definitions", config_path.display());
+        anyhow::bail!(
+            "MCP config at {} contains no server definitions",
+            config_path.display()
+        );
     }
 
     Ok(servers)
@@ -140,7 +141,8 @@ fn save_config(path: &Path, config: &McpConfig) -> anyhow::Result<()> {
 // ── rmcp SDK client helpers ─────────────────────────────────
 
 async fn connect_mcp(cfg: &McpServerConfig) -> anyhow::Result<RunningService<RoleClient, ()>> {
-    let url = cfg.effective_url()
+    let url = cfg
+        .effective_url()
         .ok_or_else(|| anyhow::anyhow!("MCP server has no URL configured"))?;
 
     let raw_headers = cfg.headers.clone().unwrap_or_default();
@@ -156,8 +158,8 @@ async fn connect_mcp(cfg: &McpServerConfig) -> anyhow::Result<RunningService<Rol
                 .map_err(|e| anyhow::anyhow!("Invalid header value for '{k}': {e}"))?;
             custom.insert(name, value);
         }
-        let config = StreamableHttpClientTransportConfig::with_uri(url.to_string())
-            .custom_headers(custom);
+        let config =
+            StreamableHttpClientTransportConfig::with_uri(url.to_string()).custom_headers(custom);
         StreamableHttpClientTransport::from_config(config)
     };
 
@@ -183,31 +185,36 @@ async fn action_list_servers(workspace: &Path) -> anyhow::Result<Value> {
 
 async fn action_list_tools(workspace: &Path, server_name: &str) -> anyhow::Result<Value> {
     let servers = load_servers(workspace)?;
-    let cfg = servers.get(server_name)
-        .ok_or_else(|| {
-            let available: Vec<&str> = servers.keys().map(|s| s.as_str()).collect();
-            anyhow::anyhow!(
-                "MCP server '{}' not found. Available servers: [{}]",
-                server_name,
-                available.join(", ")
-            )
-        })?;
+    let cfg = servers.get(server_name).ok_or_else(|| {
+        let available: Vec<&str> = servers.keys().map(|s| s.as_str()).collect();
+        anyhow::anyhow!(
+            "MCP server '{}' not found. Available servers: [{}]",
+            server_name,
+            available.join(", ")
+        )
+    })?;
 
-    let client = connect_mcp(cfg).await
+    let client = connect_mcp(cfg)
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to connect to MCP server '{}': {e}", server_name))?;
 
-    let tools_resp = client.list_all_tools().await
+    let tools_resp = client
+        .list_all_tools()
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to list tools from '{}': {e}", server_name))?;
 
     let _ = client.cancel().await;
 
-    let tools: Vec<Value> = tools_resp.iter().map(|t| {
-        json!({
-            "name": t.name,
-            "description": t.description,
-            "inputSchema": t.input_schema,
+    let tools: Vec<Value> = tools_resp
+        .iter()
+        .map(|t| {
+            json!({
+                "name": t.name,
+                "description": t.description,
+                "inputSchema": t.input_schema,
+            })
         })
-    }).collect();
+        .collect();
 
     Ok(json!({
         "server": server_name,
@@ -222,17 +229,17 @@ async fn action_call_tool(
     arguments: Value,
 ) -> anyhow::Result<Value> {
     let servers = load_servers(workspace)?;
-    let cfg = servers.get(server_name)
-        .ok_or_else(|| {
-            let available: Vec<&str> = servers.keys().map(|s| s.as_str()).collect();
-            anyhow::anyhow!(
-                "MCP server '{}' not found. Available servers: [{}]",
-                server_name,
-                available.join(", ")
-            )
-        })?;
+    let cfg = servers.get(server_name).ok_or_else(|| {
+        let available: Vec<&str> = servers.keys().map(|s| s.as_str()).collect();
+        anyhow::anyhow!(
+            "MCP server '{}' not found. Available servers: [{}]",
+            server_name,
+            available.join(", ")
+        )
+    })?;
 
-    let client = connect_mcp(cfg).await
+    let client = connect_mcp(cfg)
+        .await
         .map_err(|e| anyhow::anyhow!("Failed to connect to MCP server '{}': {e}", server_name))?;
 
     let args_map = match arguments {
@@ -240,23 +247,35 @@ async fn action_call_tool(
         _ => None,
     };
 
-    let result = client.call_tool(CallToolRequestParams {
-        name: tool_name.to_string().into(),
-        arguments: args_map,
-        meta: None,
-        task: None,
-    }).await
-        .map_err(|e| anyhow::anyhow!("Failed to call tool '{}' on '{}': {e}", tool_name, server_name))?;
+    let result = client
+        .call_tool(CallToolRequestParams {
+            name: tool_name.to_string().into(),
+            arguments: args_map,
+            meta: None,
+            task: None,
+        })
+        .await
+        .map_err(|e| {
+            anyhow::anyhow!(
+                "Failed to call tool '{}' on '{}': {e}",
+                tool_name,
+                server_name
+            )
+        })?;
 
     let _ = client.cancel().await;
 
-    let content: Vec<Value> = result.content.iter().map(|c| {
-        if let Some(text) = c.as_text() {
-            json!({ "type": "text", "text": text.text })
-        } else {
-            serde_json::to_value(c).unwrap_or(Value::Null)
-        }
-    }).collect();
+    let content: Vec<Value> = result
+        .content
+        .iter()
+        .map(|c| {
+            if let Some(text) = c.as_text() {
+                json!({ "type": "text", "text": text.text })
+            } else {
+                serde_json::to_value(c).unwrap_or(Value::Null)
+            }
+        })
+        .collect();
 
     Ok(json!({
         "server": server_name,
