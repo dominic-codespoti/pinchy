@@ -290,10 +290,13 @@ impl ModelProvider for OpenAIProvider {
     }
 
     async fn embed(&self, texts: &[&str]) -> Result<Option<Vec<Vec<f32>>>, anyhow::Error> {
-        // OpenAI embeddings endpoint supports batch input.
-        let url = "https://api.openai.com/v1/embeddings";
+        let url = if let Some(base) = self.endpoint.strip_suffix("/chat/completions") {
+            format!("{base}/embeddings")
+        } else {
+            "https://api.openai.com/v1/embeddings".to_string()
+        };
         let body = json!({
-            "model": "text-embedding-3-small",
+            "model": self.model,
             "input": texts,
         });
         let resp = self

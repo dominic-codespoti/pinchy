@@ -26,6 +26,8 @@ pub(crate) async fn api_config_put(
     State(state): State<AppState>,
     Json(body): Json<serde_json::Value>,
 ) -> impl IntoResponse {
+    let _guard = crate::config::config_lock().await;
+
     // No legacy normalization — require canonical config shape
 
     // Try to deserialize into Config to validate.

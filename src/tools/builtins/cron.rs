@@ -45,23 +45,31 @@ pub async fn list_cron_jobs(_workspace: &Path, args: Value) -> anyhow::Result<Va
         let ws = entry.path();
         let jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
         for job in &jobs {
-            let job_id = format!("{}@{}", job.name, agent_id);
             let kind = match &job.kind {
                 crate::scheduler::JobKind::Recurring => "Recurring",
                 crate::scheduler::JobKind::OneShot => "OneShot",
             };
-            all_jobs.push(json!({
-                "id": job_id,
+            let mut entry = json!({
                 "agent_id": agent_id,
                 "name": job.name,
                 "schedule": job.schedule,
                 "message": job.message,
                 "kind": kind,
-                "depends_on": job.depends_on,
-                "max_retries": job.max_retries,
-                "retry_count": job.retry_count,
-                "last_status": job.last_status,
-            }));
+            });
+            let m = entry.as_object_mut().unwrap();
+            if job.depends_on.is_some() {
+                m.insert("depends_on".into(), json!(job.depends_on));
+            }
+            if job.max_retries.is_some() {
+                m.insert("max_retries".into(), json!(job.max_retries));
+            }
+            if job.retry_count > 0 {
+                m.insert("retry_count".into(), json!(job.retry_count));
+            }
+            if job.last_status.is_some() {
+                m.insert("last_status".into(), json!(job.last_status));
+            }
+            all_jobs.push(entry);
         }
     }
 
@@ -116,14 +124,9 @@ pub async fn create_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
     match crate::scheduler::scheduler_handle_ref() {
         Some(handle) => {
             handle.register_job(&ws, entry).await?;
-            let job_id = format!("{name}@{agent_id}");
             Ok(json!({
                 "status": "created",
-                "job_id": job_id,
                 "name": name,
-                "agent_id": agent_id,
-                "schedule": schedule,
-                "message": message,
             }))
         }
         None => {
@@ -134,15 +137,9 @@ pub async fn create_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
             let path = ws.join("cron_jobs.json");
             let json_str = serde_json::to_string_pretty(&jobs)?;
             tokio::fs::write(&path, json_str).await?;
-            let job_id = format!("{name}@{agent_id}");
             Ok(json!({
-                "status": "persisted",
-                "note": "scheduler not running — job saved to disk, will activate on next start",
-                "job_id": job_id,
+                "status": "persisted_offline",
                 "name": name,
-                "agent_id": agent_id,
-                "schedule": schedule,
-                "message": message,
             }))
         }
     }
@@ -232,7 +229,6 @@ pub async fn update_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
         "status": "updated",
         "job_id": job_id,
         "changed_fields": changed,
-        "note": "Schedule changes take effect on next scheduler restart. Message changes take effect immediately.",
     }))
 }
 
@@ -385,18 +381,23 @@ pub async fn cron_job_history(_workspace: &Path, args: Value) -> anyhow::Result<
                 _ => None,
             };
 
-            all_runs.push(json!({
-                "id": run.id,
+            let mut entry = json!({
                 "job_id": run.job_id,
-                "agent_id": agent_id,
                 "scheduled_at": run.scheduled_at,
-                "executed_at": run.executed_at,
-                "completed_at": run.completed_at,
                 "status": status_str,
-                "error": error_msg.or(run.error.as_deref()),
-                "duration_ms": run.duration_ms,
-                "output_preview": run.output_preview,
-            }));
+            });
+            let m = entry.as_object_mut().unwrap();
+            if let Some(e) = error_msg.or(run.error.as_deref()) {
+                m.insert("error".into(), json!(e));
+            }
+            if let Some(d) = run.duration_ms {
+                m.insert("duration_ms".into(), json!(d));
+            }
+            if let Some(p) = &run.output_preview {
+                m.insert("output_preview".into(), json!(p));
+            }
+
+            all_runs.push(entry);
         }
     }
 
@@ -409,10 +410,7 @@ pub async fn cron_job_history(_workspace: &Path, args: Value) -> anyhow::Result<
 
     all_runs.truncate(limit);
 
-    Ok(json!({
-        "runs": all_runs,
-        "total": all_runs.len(),
-    }))
+    Ok(json!({ "runs": all_runs }))
 }
 
 /// Register cron management tools.

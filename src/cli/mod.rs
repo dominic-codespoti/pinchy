@@ -1038,7 +1038,9 @@ pub async fn configure_agent(config_path: &Path, id: &str) -> anyhow::Result<()>
                 if skill_md.is_file() {
                     if let Ok(raw) = tokio::fs::read_to_string(&skill_md).await {
                         if let Ok((yaml, _)) = crate::skills::parse_skill_md(&raw) {
-                            if let Ok(meta) = serde_yaml::from_str::<crate::skills::SkillMeta>(&yaml) {
+                            if let Ok(meta) =
+                                serde_yaml::from_str::<crate::skills::SkillMeta>(&yaml)
+                            {
                                 available_skills.push(meta.name.clone());
                             }
                         }

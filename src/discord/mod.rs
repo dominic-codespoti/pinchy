@@ -36,6 +36,12 @@ fn slash_registry() -> &'static slash::Registry {
 // messages without holding the full `Client` instance.
 static HTTP_CLIENT: OnceLock<Http> = OnceLock::new();
 
+/// Returns `true` if the Discord connector was successfully initialised
+/// (i.e. a valid token was resolved and the HTTP client is ready).
+pub fn is_enabled() -> bool {
+    HTTP_CLIENT.get().is_some()
+}
+
 // ---------------------------------------------------------------------------
 // Reply tracking — maps Discord message IDs to agent/session context so
 // that when a user replies to an agent's message, the reply is routed to

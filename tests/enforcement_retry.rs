@@ -113,7 +113,7 @@ async fn enforcement_retry_coaxes_provider_and_processes_tool_call() {
     };
 
     let reply = agent
-        .run_turn_with_provider(msg, &manager)
+        .run_turn_with_provider(msg, &manager, None)
         .await
         .expect("run_turn_with_provider should succeed");
 

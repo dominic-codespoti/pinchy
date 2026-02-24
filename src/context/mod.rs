@@ -89,6 +89,37 @@ pub fn prune_tool_results(messages: &mut [ChatMessage], keep_recent: usize) {
     let mut pruned_count = 0usize;
 
     for msg in messages[..cutoff].iter_mut() {
+        // Prune role:"tool" messages (function-calling path) — replace
+        // large payloads with a compact placeholder.
+        if msg.role == "tool" && msg.content.len() > 300 {
+            msg.content = format!("[tool result pruned — {} chars]", msg.content.len());
+            pruned_count += 1;
+            continue;
+        }
+
+        // Prune [Tool Result for ...] in role:"user" messages (fenced path).
+        if msg.role == "user" {
+            if let Some(pos) = msg.content.find("[Tool Result for ") {
+                let after = pos + "[Tool Result for ".len();
+                let payload_start = msg.content[after..].find("]: ").map(|i| after + i + 3);
+                if let Some(start) = payload_start {
+                    let payload_len = msg.content.len() - start;
+                    if payload_len > 300 {
+                        let tool_name_end = msg.content[after..]
+                            .find(']')
+                            .map(|i| after + i)
+                            .unwrap_or(after);
+                        let tool_name = &msg.content[after..tool_name_end];
+                        msg.content = format!(
+                            "[Tool Result for {tool_name}]: [pruned — {payload_len} chars]"
+                        );
+                        pruned_count += 1;
+                        continue;
+                    }
+                }
+            }
+        }
+
         if msg.role != "assistant" {
             continue;
         }

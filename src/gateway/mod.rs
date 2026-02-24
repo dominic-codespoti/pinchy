@@ -236,6 +236,7 @@ pub async fn start_gateway_with_config(
         )
         // Skills
         .route("/skills", get(handlers::skills::api_skills_list))
+        .route("/skills/:name", delete(handlers::skills::api_skills_delete))
         // AI
         .route(
             "/ai/enhance-prompt",
@@ -246,15 +247,18 @@ pub async fn start_gateway_with_config(
             "/slash/commands",
             get(handlers::slash_cmds::api_slash_commands),
         )
-        // Webhooks (outside auth middleware — uses per-agent ?secret= param)
-        .route(
-            "/webhook/:agent_id",
-            post(handlers::webhook::api_webhook_ingest),
-        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,
         ));
+
+    // Webhooks: outside auth middleware — uses per-agent ?secret= param.
+    // Nested under /api so the URL is /api/webhook/:agent_id but NOT behind
+    // the global API-token layer.
+    let webhook_router = Router::new().route(
+        "/webhook/:agent_id",
+        post(handlers::webhook::api_webhook_ingest),
+    );
 
     let (static_root, index_file, ui_label) = resolve_ui_paths();
     info!(
@@ -269,13 +273,19 @@ pub async fn start_gateway_with_config(
 
     let app = Router::new()
         .nest("/api", api_router)
+        // Webhook endpoint outside auth — uses its own per-agent ?secret= param
+        .nest("/api", webhook_router)
         // Serve SPA entry on "/" explicitly to avoid directory-root 404 behavior.
         .route_service("/", ServeFile::new(index_file))
         // Support Vite builds with `base: "/react/"` for hashed assets.
         .nest_service("/react", react_mount_service)
-        // WebSocket
+        // WebSocket — behind the same auth middleware as /api
         .route("/ws", get(ws::ws_handler))
         .route("/ws/logs", get(ws::ws_logs_handler))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::auth_middleware,
+        ))
         .with_state(state)
         .fallback_service(static_service);
 

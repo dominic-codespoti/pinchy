@@ -23,9 +23,13 @@ pub async fn activate_skill(_workspace: &Path, args: Value) -> anyhow::Result<Va
 
     match crate::tools::get_skill_instructions(name) {
         Some(instructions) => Ok(serde_json::json!({
-            "status": "activated",
+            "status": "instructions_loaded",
             "name": name,
             "instructions": instructions,
+            "IMPORTANT": "These are INSTRUCTIONS, not results. You have NOT performed any action yet. \
+                          NOW use the appropriate tools (exec_shell, write_file, browser, etc.) to \
+                          carry out the steps described in the instructions above. Do NOT call \
+                          activate_skill again for this skill.",
         })),
         None => anyhow::bail!("skill '{}' not found", name),
     }
@@ -72,9 +76,8 @@ pub async fn create_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
 
     tokio::fs::create_dir_all(&skill_dir).await?;
 
-    let skill_md = format!(
-        "---\nname: {name}\ndescription: \"{description}\"\n---\n\n{instructions}\n"
-    );
+    let skill_md =
+        format!("---\nname: {name}\ndescription: \"{description}\"\n---\n\n{instructions}\n");
     tokio::fs::write(skill_dir.join("SKILL.md"), &skill_md).await?;
 
     crate::tools::reload_skills(None);
@@ -82,7 +85,6 @@ pub async fn create_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
     Ok(serde_json::json!({
         "status": "created",
         "name": name,
-        "path": skill_dir.display().to_string(),
     }))
 }
 
@@ -108,9 +110,7 @@ pub async fn delete_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
         || name.ends_with('-')
         || name.contains("--")
     {
-        anyhow::bail!(
-            "skill name must be 1-64 chars, lowercase alphanumeric and hyphens only"
-        );
+        anyhow::bail!("skill name must be 1-64 chars, lowercase alphanumeric and hyphens only");
     }
 
     let skill_dir = workspace
@@ -129,7 +129,6 @@ pub async fn delete_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
     Ok(serde_json::json!({
         "status": "deleted",
         "name": name,
-        "path": skill_dir.display().to_string(),
     }))
 }
 

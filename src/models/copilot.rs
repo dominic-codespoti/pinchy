@@ -179,7 +179,7 @@ impl CopilotProvider {
         bearer: &str,
         messages: &[ChatMessage],
         functions: &[serde_json::Value],
-    ) -> anyhow::Result<ProviderResponse> {
+    ) -> anyhow::Result<(ProviderResponse, Option<super::TokenUsage>)> {
         let http = reqwest::Client::builder()
             .timeout(Duration::from_secs(30))
             .build()?;
@@ -251,15 +251,17 @@ impl CopilotProvider {
 
             match post_with_retry(&http, &url, &headers, &body).await {
                 Ok(json_val) => {
+                    let usage = super::parse_token_usage(&json_val);
+
                     // Check for tool_calls first (native function-calling).
                     if let Some(fc) = extract_tool_call(&json_val) {
                         debug!("CopilotProvider: got tool_call via {url}");
-                        return Ok(fc);
+                        return Ok((fc, usage));
                     }
 
                     if let Some(text) = extract_assistant_text(&json_val) {
                         debug!("CopilotProvider: got reply via {url} (with tools)");
-                        return Ok(ProviderResponse::Final(text));
+                        return Ok((ProviderResponse::Final(text), usage));
                     }
 
                     warn!(url = %url, body = %json_val, "copilot proxy returned 200 but no assistant text found");
@@ -329,7 +331,7 @@ impl CopilotProvider {
                         .try_proxy_http_with_tools(ep, &ct.token, messages, functions)
                         .await
                     {
-                        Ok(resp) => return Ok((resp, None)),
+                        Ok((resp, usage)) => return Ok((resp, usage)),
                         Err(e) => {
                             warn!("CopilotProvider: proxy (fn-call) failed ({e:#}), falling back");
                         }
@@ -693,11 +695,11 @@ impl ModelProvider for CopilotProvider {
                         .assistant_message_content()
                         .unwrap_or("[copilot stub] no content in response")
                         .to_string()),
-                    Ok(None) => Ok("[copilot stub] no response event".to_string()),
-                    Err(e) => Ok(format!("[copilot stub] send failed: {e}")),
+                    Ok(None) => anyhow::bail!("[copilot] no response event from SDK session"),
+                    Err(e) => anyhow::bail!("[copilot] SDK send failed: {e}"),
                 }
             }
-            Err(e) => Ok(format!("[copilot stub] session creation failed: {e}")),
+            Err(e) => anyhow::bail!("[copilot] SDK session creation failed: {e}"),
         }
     }
 

@@ -48,10 +48,16 @@ fn truncate_result(s: &str) -> String {
     if s.len() <= MAX_CHARS {
         return s.to_string();
     }
-    let truncated = &s[..s.floor_char_boundary(MAX_CHARS)];
+    // Try to truncate at a paragraph boundary
+    let search_zone = &s[..s.floor_char_boundary(MAX_CHARS)];
+    let cut = search_zone
+        .rfind("\n\n")
+        .unwrap_or_else(|| s.floor_char_boundary(MAX_CHARS));
+    let truncated = &s[..cut];
     format!(
-        "{truncated}\n\n[… truncated — {} chars total, showing first {MAX_CHARS}. Use a CSS selector to narrow results.]",
-        s.len()
+        "{truncated}\n\n[… truncated — {} chars total, showing first {}. Use a CSS selector to narrow.]",
+        s.len(),
+        cut,
     )
 }
 
@@ -70,10 +76,7 @@ pub async fn browser_tool(args: Value) -> anyhow::Result<Value> {
     // "reset" action tears down the persistent session
     if action == "reset" {
         reset_session().await;
-        return Ok(serde_json::json!({
-            "ok": true,
-            "message": "Browser session reset"
-        }));
+        return Ok(serde_json::json!({ "reset": true }));
     }
 
     // Ensure we have a persistent browser session
@@ -151,8 +154,6 @@ async fn action_navigate(args: &Value) -> anyhow::Result<Value> {
     let text = content.as_str().unwrap_or("");
 
     Ok(serde_json::json!({
-        "ok": true,
-        "url": url,
         "content": truncate_result(text),
     }))
 }
@@ -229,9 +230,7 @@ async fn action_click(args: &Value) -> anyhow::Result<Value> {
     let text_out = content.as_str().unwrap_or("");
 
     Ok(serde_json::json!({
-        "ok": true,
         "clicked": click_info.get("clicked"),
-        "url": new_url,
         "content": truncate_result(text_out),
     }))
 }
@@ -287,8 +286,6 @@ async fn action_links(args: &Value) -> anyhow::Result<Value> {
     };
 
     Ok(serde_json::json!({
-        "ok": true,
-        "url": pb.current_url,
         "links": links,
     }))
 }
@@ -305,8 +302,6 @@ async fn action_text(args: &Value) -> anyhow::Result<Value> {
     let text = content.as_str().unwrap_or("");
 
     Ok(serde_json::json!({
-        "ok": true,
-        "url": pb.current_url,
         "content": truncate_result(text),
     }))
 }
@@ -323,8 +318,6 @@ async fn action_eval(args: &Value) -> anyhow::Result<Value> {
     let result = pb.svc.eval(&pb.session_id, expression).await?;
 
     Ok(serde_json::json!({
-        "ok": true,
-        "url": pb.current_url,
         "result": result,
     }))
 }
@@ -337,10 +330,7 @@ async fn action_screenshot(_args: &Value) -> anyhow::Result<Value> {
     let bytes = pb.svc.screenshot(&pb.session_id).await?;
 
     Ok(serde_json::json!({
-        "ok": true,
-        "url": pb.current_url,
         "size_bytes": bytes.len(),
-        "message": "Screenshot captured (binary data omitted from response)"
     }))
 }
 
@@ -363,7 +353,6 @@ async fn action_back(_args: &Value) -> anyhow::Result<Value> {
     let text = content.as_str().unwrap_or("");
 
     Ok(serde_json::json!({
-        "ok": true,
         "url": new_url,
         "content": truncate_result(text),
     }))
@@ -377,23 +366,174 @@ async fn extract_content(
 ) -> anyhow::Result<Value> {
     let js_expr = match (extract, selector) {
         ("html", Some(sel)) => format!(
-            "(() => {{ const el = document.querySelector({sel}); return el ? el.outerHTML : '[no element matching selector]'; }})()",
+            "(() => {{ const el = document.querySelector({sel});
+                return el ? el.outerHTML : '[no element matching selector]'; }})()",
             sel = serde_json::to_string(sel).unwrap_or_default(),
         ),
         ("html", None) => "document.documentElement.outerHTML".to_string(),
         (_, Some(sel)) => format!(
-            "(() => {{ const el = document.querySelector({sel}); return el ? el.innerText : '[no element matching selector]'; }})()",
+            r#"(() => {{
+                const el = document.querySelector({sel});
+                if (!el) return '[no element matching selector]';
+                {CLEAN_AND_CONVERT_JS}
+                return cleanAndConvert(el);
+            }})()"#,
             sel = serde_json::to_string(sel).unwrap_or_default(),
+            CLEAN_AND_CONVERT_JS = CLEAN_AND_CONVERT_JS,
         ),
-        _ => r#"(() => {
-            document.querySelectorAll('script, style, noscript, svg, iframe').forEach(e => e.remove());
-            return document.body.innerText;
-        })()"#
-            .to_string(),
+        _ => format!(
+            r#"(() => {{
+                {CLEAN_AND_CONVERT_JS}
+                {FIND_MAIN_CONTENT_JS}
+                const root = findMainContent();
+                return cleanAndConvert(root);
+            }})()"#,
+            CLEAN_AND_CONVERT_JS = CLEAN_AND_CONVERT_JS,
+            FIND_MAIN_CONTENT_JS = FIND_MAIN_CONTENT_JS,
+        ),
     };
 
     pb.svc.eval(&pb.session_id, &js_expr).await
 }
+
+/// JS function: remove noise elements, then convert DOM to clean markdown-like text.
+const CLEAN_AND_CONVERT_JS: &str = r#"
+function cleanAndConvert(root) {
+    if (!root) return document.title || '[empty page]';
+    const clone = root.cloneNode(true);
+    const noiseSel = 'script,style,noscript,svg,iframe,nav,footer,header,.cookie,.cookies,.consent,.banner,.popup,.modal,.overlay,.ad,.ads,.advert,.advertisement,.sidebar,.side-bar,.widget,.social,.share,.sharing,.comments,.comment-form,[role="navigation"],[role="banner"],[role="complementary"],[role="contentinfo"],[aria-hidden="true"],.sr-only,.visually-hidden,.skip-link,.breadcrumb,.pagination,.related,.recommended,.newsletter,.subscribe,.signup,.sign-up,form';
+    clone.querySelectorAll(noiseSel).forEach(e => e.remove());
+
+    // Convert DOM to markdown-like text
+    function walk(node) {
+        if (node.nodeType === 3) {
+            return node.textContent.replace(/[ \t]+/g, ' ');
+        }
+        if (node.nodeType !== 1) return '';
+        const tag = node.tagName.toLowerCase();
+        // Skip hidden elements
+        const style = node.style;
+        if (style && (style.display === 'none' || style.visibility === 'hidden')) return '';
+
+        let inner = Array.from(node.childNodes).map(walk).join('');
+        inner = inner.replace(/\n{3,}/g, '\n\n');
+
+        switch (tag) {
+            case 'h1': return '\n\n# ' + inner.trim() + '\n\n';
+            case 'h2': return '\n\n## ' + inner.trim() + '\n\n';
+            case 'h3': return '\n\n### ' + inner.trim() + '\n\n';
+            case 'h4': case 'h5': case 'h6':
+                return '\n\n#### ' + inner.trim() + '\n\n';
+            case 'p': case 'div': case 'section': case 'article': case 'main':
+                return '\n\n' + inner.trim() + '\n\n';
+            case 'br': return '\n';
+            case 'li': return '\n- ' + inner.trim();
+            case 'ul': case 'ol': return '\n' + inner + '\n';
+            case 'blockquote': return '\n\n> ' + inner.trim().replace(/\n/g, '\n> ') + '\n\n';
+            case 'pre': case 'code':
+                if (tag === 'pre' || (node.parentElement && node.parentElement.tagName === 'PRE'))
+                    return '\n```\n' + node.textContent.trim() + '\n```\n';
+                return '`' + inner.trim() + '`';
+            case 'a': {
+                const href = node.getAttribute('href');
+                const text = inner.trim();
+                if (!text) return '';
+                if (href && !href.startsWith('#') && !href.startsWith('javascript:'))
+                    return '[' + text + '](' + href + ')';
+                return text;
+            }
+            case 'img': {
+                const alt = node.getAttribute('alt');
+                return alt ? '[image: ' + alt.trim() + ']' : '';
+            }
+            case 'strong': case 'b': return '**' + inner.trim() + '**';
+            case 'em': case 'i': return '*' + inner.trim() + '*';
+            case 'table': return '\n\n' + tableToText(node) + '\n\n';
+            case 'thead': case 'tbody': case 'tfoot': case 'tr':
+            case 'td': case 'th': return inner; // handled by tableToText
+            default: return inner;
+        }
+    }
+
+    function tableToText(table) {
+        const rows = Array.from(table.querySelectorAll('tr'));
+        if (!rows.length) return '';
+        const matrix = rows.map(r =>
+            Array.from(r.querySelectorAll('td,th')).map(c => c.textContent.trim().replace(/\s+/g,' '))
+        );
+        // Header separator
+        let out = '';
+        matrix.forEach((row, i) => {
+            out += '| ' + row.join(' | ') + ' |\n';
+            if (i === 0) out += '| ' + row.map(() => '---').join(' | ') + ' |\n';
+        });
+        return out.trim();
+    }
+
+    let result = walk(clone);
+    // Collapse whitespace
+    result = result.replace(/[ \t]+$/gm, '');
+    result = result.replace(/\n{3,}/g, '\n\n');
+    result = result.trim();
+    return result || document.title || '[empty page]';
+}
+"#;
+
+/// JS function: find the main content element using Readability-inspired heuristics.
+const FIND_MAIN_CONTENT_JS: &str = r#"
+function findMainContent() {
+    // 1. Try semantic elements first
+    const candidates = ['article', 'main', '[role="main"]', '.post-content',
+        '.article-content', '.entry-content', '.content', '#content',
+        '.post', '.article-body', '.story-body'];
+    for (const sel of candidates) {
+        const el = document.querySelector(sel);
+        if (el && el.textContent.trim().length > 200) return el;
+    }
+
+    // 2. Score all substantial block elements
+    const blocks = document.querySelectorAll('div, section, article, main, td');
+    let best = null;
+    let bestScore = 0;
+
+    const negRe = /comment|meta|footer|footnote|sidebar|widget|ad-|social|share|promo|related|nav|menu|breadcrumb|cookie|consent|banner|popup|modal/i;
+    const posRe = /article|body|content|entry|main|page|post|text|blog|story|prose/i;
+
+    for (const block of blocks) {
+        const text = block.textContent || '';
+        const textLen = text.trim().length;
+        if (textLen < 100) continue;
+
+        let score = 0;
+        // Text length is the primary signal
+        score += Math.min(textLen / 100, 30);
+
+        // Paragraph density
+        const paras = block.querySelectorAll('p');
+        score += Math.min(paras.length * 3, 30);
+
+        // Class/id signals
+        const classId = (block.className + ' ' + block.id).toLowerCase();
+        if (posRe.test(classId)) score += 15;
+        if (negRe.test(classId)) score -= 25;
+
+        // Link density penalty — boilerplate has high link density
+        const linkText = Array.from(block.querySelectorAll('a')).reduce((s, a) => s + (a.textContent||'').length, 0);
+        const linkDensity = textLen > 0 ? linkText / textLen : 0;
+        if (linkDensity > 0.4) score -= 20;
+
+        // Nesting bonus: prefer elements that aren't huge containers
+        if (block.querySelectorAll('div, section').length > 15) score -= 5;
+
+        if (score > bestScore) {
+            bestScore = score;
+            best = block;
+        }
+    }
+
+    return best || document.body || document.documentElement;
+}
+"#;
 
 /// Register the `browser` tool metadata in the global registry.
 pub fn register() {

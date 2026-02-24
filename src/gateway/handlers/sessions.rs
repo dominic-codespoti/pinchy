@@ -4,6 +4,9 @@ use super::super::auth::validate_path_segment;
 
 /// `GET /api/agents/:id/sessions` — list session files for an agent.
 pub(crate) async fn api_sessions_list(Path(agent_id): Path<String>) -> impl IntoResponse {
+    if let Err(e) = validate_path_segment(&agent_id) {
+        return e.into_response();
+    }
     let sessions_dir = crate::utils::agent_workspace(&agent_id).join("sessions");
 
     if !sessions_dir.exists() {

@@ -81,7 +81,7 @@ async fn tool_loop_invokes_read_file_and_persists() {
     };
 
     let reply = agent
-        .run_turn_with_provider(msg, &manager)
+        .run_turn_with_provider(msg, &manager, None)
         .await
         .expect("run_turn_with_provider should succeed");
 
@@ -152,6 +152,6 @@ async fn tool_loop_stops_on_plain_reply() {
         session_id: None,
     };
 
-    let reply = agent.run_turn_with_provider(msg, &manager).await.unwrap();
+    let reply = agent.run_turn_with_provider(msg, &manager, None).await.unwrap();
     assert_eq!(reply, "Just a simple answer.");
 }

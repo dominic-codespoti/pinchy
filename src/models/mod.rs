@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_core::Stream;
-use tracing::warn;
+use tracing::{debug, warn};
 
 // ---------------------------------------------------------------------------
 // ChatMessage – shared message representation
@@ -346,10 +346,121 @@ impl ProviderManager {
         messages: &[ChatMessage],
         functions: &[serde_json::Value],
     ) -> Result<(ProviderResponse, Option<TokenUsage>), anyhow::Error> {
-        if self.supports_functions && !functions.is_empty() {
-            if let Some(primary) = self.providers.first() {
-                return primary.send_chat_with_functions(messages, functions).await;
+        // ── Payload dump (debug level) ───────────────────────────────
+        // Logs the full message array and function defs so we can
+        // diagnose what the model actually sees.
+        if tracing::enabled!(tracing::Level::DEBUG) {
+            let msg_summary: Vec<serde_json::Value> = messages
+                .iter()
+                .enumerate()
+                .map(|(i, m)| {
+                    let content_preview = if m.content.len() > 300 {
+                        format!(
+                            "{}… [{} chars]",
+                            &m.content[..m.content.floor_char_boundary(300)],
+                            m.content.len()
+                        )
+                    } else {
+                        m.content.clone()
+                    };
+                    let mut entry = serde_json::json!({
+                        "i": i,
+                        "role": m.role,
+                        "len": m.content.len(),
+                    });
+                    if m.content.len() <= 500 || m.role == "system" {
+                        entry["content"] = serde_json::json!(content_preview);
+                    } else {
+                        entry["preview"] = serde_json::json!(content_preview);
+                    }
+                    if m.tool_calls.is_some() {
+                        entry["has_tool_calls"] = serde_json::json!(true);
+                    }
+                    if m.tool_call_id.is_some() {
+                        entry["tool_call_id"] = serde_json::json!(m.tool_call_id);
+                    }
+                    entry
+                })
+                .collect();
+            let fn_names: Vec<&str> = functions
+                .iter()
+                .filter_map(|f| f.get("name").and_then(|n| n.as_str()))
+                .collect();
+            let total_tokens = crate::context::estimate_total(messages);
+            debug!(
+                message_count = messages.len(),
+                function_count = functions.len(),
+                estimated_tokens = total_tokens,
+                functions = ?fn_names,
+                "payload dump"
+            );
+            for chunk in msg_summary.chunks(5) {
+                debug!(messages = %serde_json::to_string(chunk).unwrap_or_default(), "payload messages");
             }
+        }
+
+        // ── Full payload file dump (when PINCHY_DUMP_PAYLOAD is set) ─
+        // Writes the complete payload to /tmp/pinchy_payload_<ts>.json
+        // for offline inspection.
+        if std::env::var("PINCHY_DUMP_PAYLOAD").is_ok() {
+            let ts = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis();
+            let api_messages = serialize_messages(messages);
+            let dump = serde_json::json!({
+                "timestamp": ts,
+                "message_count": messages.len(),
+                "estimated_tokens": crate::context::estimate_total(messages),
+                "function_count": functions.len(),
+                "functions": functions,
+                "messages": api_messages,
+            });
+            let path = format!("/tmp/pinchy_payload_{ts}.json");
+            if let Ok(json_str) = serde_json::to_string_pretty(&dump) {
+                let _ = std::fs::write(&path, json_str);
+                debug!(path = %path, "payload dumped to file");
+            }
+        }
+
+        if self.supports_functions && !functions.is_empty() {
+            let attempts = self.max_retries.max(1);
+            let mut last_err = anyhow::anyhow!("no providers configured");
+
+            for (idx, provider) in self.providers.iter().enumerate() {
+                for attempt in 0..attempts {
+                    match provider.send_chat_with_functions(messages, functions).await {
+                        Ok(result) => return Ok(result),
+                        Err(e) => {
+                            let is_permanent = is_permanent_error(&e);
+                            warn!(
+                                provider_idx = idx,
+                                attempt = attempt + 1,
+                                max_attempts = attempts,
+                                permanent = is_permanent,
+                                error = %e,
+                                "function-calling provider call failed"
+                            );
+                            last_err = e;
+
+                            if is_permanent {
+                                break;
+                            }
+
+                            if attempt + 1 < attempts {
+                                let delay = Duration::from_millis(100 * 2u64.pow(attempt as u32));
+                                tokio::time::sleep(delay).await;
+                            }
+                        }
+                    }
+                }
+                warn!(
+                    provider_idx = idx,
+                    "function-calling retries exhausted, trying next provider"
+                );
+            }
+
+            return Err(last_err.context("all providers exhausted (function-calling)"));
         }
         // Fallback: plain send_chat
         let reply = self.send_chat(messages).await?;
@@ -417,14 +528,17 @@ impl ProviderManager {
 fn is_permanent_error(err: &anyhow::Error) -> bool {
     let msg = err.to_string();
     // Match patterns like "returned 401", "returned 403", "returned 404", "returned 400"
-    for code in &["400", "401", "403", "404", "422"] {
+    for code in &["400", "401", "403", "404", "409", "413", "422"] {
         if msg.contains(&format!("returned {code}"))
             || msg.contains(&format!("status: {code}"))
-            || msg.contains(&format!("{code} "))
+            || msg.contains(&format!("HTTP {code}"))
+            || (msg.contains(&format!("{code} "))
                 && (msg.contains("Unauthorized")
                     || msg.contains("Forbidden")
                     || msg.contains("Not Found")
-                    || msg.contains("Bad Request"))
+                    || msg.contains("Bad Request")
+                    || msg.contains("Conflict")
+                    || msg.contains("Payload Too Large")))
         {
             return true;
         }
@@ -438,13 +552,29 @@ fn is_permanent_error(err: &anyhow::Error) -> bool {
 
 /// Global provider manager stashed at startup so tools (e.g. semantic memory)
 /// can embed text without plumbing the manager through every call site.
-pub static GLOBAL_PROVIDERS: std::sync::OnceLock<
+static GLOBAL_PROVIDERS: std::sync::OnceLock<
     std::sync::Mutex<std::sync::Arc<ProviderManager>>,
 > = std::sync::OnceLock::new();
 
-/// Store the provider manager globally.
+/// Store (or update) the provider manager globally.
 pub fn set_global_providers(pm: std::sync::Arc<ProviderManager>) {
-    let _ = GLOBAL_PROVIDERS.set(std::sync::Mutex::new(pm));
+    match GLOBAL_PROVIDERS.get() {
+        Some(mutex) => {
+            // Already initialized — update the inner Arc.
+            *mutex.lock().expect("global providers poisoned") = pm;
+        }
+        None => {
+            // First call — initialize the OnceLock.
+            let _ = GLOBAL_PROVIDERS.set(std::sync::Mutex::new(pm));
+        }
+    }
+}
+
+/// Get a clone of the current global provider manager (if set).
+pub fn get_global_providers() -> Option<std::sync::Arc<ProviderManager>> {
+    GLOBAL_PROVIDERS
+        .get()
+        .map(|m| m.lock().expect("global providers poisoned").clone())
 }
 
 #[async_trait]

@@ -65,9 +65,9 @@ struct ToolEntry {
     handler: Option<SkillHandler>,
     /// Set for entries loaded from SKILL.md manifests (instruction-based context).
     skill: Option<SkillEntry>,
-    /// When true, this tool is NOT injected into the prompt/function-defs
-    /// upfront.  The agent must discover it via `search_tools` first.
-    /// Deferred tools are still fully callable once discovered.
+    /// When `true` the tool is not injected into the prompt upfront —
+    /// it is auto-injected when the user's message contains relevant
+    /// keywords (see `auto_pluck_deferred`).
     deferred: bool,
 }
 
@@ -90,8 +90,8 @@ pub fn register_tool(meta: ToolMeta) {
     });
 }
 
-/// Register a tool as deferred (discoverable via `search_tools` but not
-/// injected into the prompt upfront).
+/// Register a tool as deferred (auto-injected when relevant keywords
+/// appear in the user's message, but not in the prompt upfront).
 pub fn register_tool_deferred(meta: ToolMeta) {
     let mut reg = REGISTRY.lock().expect("tool registry poisoned");
     if reg.iter().any(|e| e.meta.name == meta.name) {
@@ -146,6 +146,7 @@ pub fn list_tools_core() -> Vec<ToolMeta> {
 /// - Splits underscores/hyphens so "cron_job" matches query "job"
 /// - Simple suffix stemming ("agents" → "agent", "scheduling" → "schedul")
 /// - Small synonym table ("schedule"→"cron", "remember"→"memory", etc.)
+/// - Domain tag matching for cross-cutting concerns
 pub fn search_tools_registry(query: &str, limit: usize) -> Vec<ToolMeta> {
     let reg = REGISTRY.lock().expect("tool registry poisoned");
     let lower_query = query.to_lowercase();
@@ -177,6 +178,11 @@ pub fn search_tools_registry(query: &str, limit: usize) -> Vec<ToolMeta> {
             let desc_lower = e.meta.description.to_lowercase();
             // Split name on underscores/hyphens for token-level matching.
             let name_tokens: Vec<&str> = name_lower.split(['_', '-']).collect();
+            // Split description into word tokens for precision matching.
+            let desc_tokens: Vec<&str> = desc_lower
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|s| !s.is_empty())
+                .collect();
             let mut score = 0usize;
 
             // Exact name match (highest priority).
@@ -195,7 +201,10 @@ pub fn search_tools_registry(query: &str, limit: usize) -> Vec<ToolMeta> {
                 } else if name_lower.contains(term.as_str()) {
                     score += 20;
                 }
-                if desc_lower.contains(term.as_str()) {
+                // Description token-level match (word boundary, higher precision).
+                if desc_tokens.contains(&term.as_str()) {
+                    score += 15;
+                } else if desc_lower.contains(term.as_str()) {
                     score += 10;
                 }
             }
@@ -262,12 +271,19 @@ fn synonyms(term: &str) -> Vec<String> {
             vec!["session".into(), "chat".into()]
         }
         "skill" | "capability" | "plugin" => {
-            vec!["skill".into(), "create_skill".into()]
+            vec![
+                "skill".into(),
+                "create_skill".into(),
+                "edit_skill".into(),
+                "delete_skill".into(),
+                "list_skills".into(),
+                "activate_skill".into(),
+            ]
         }
         "run" | "execute" | "shell" | "command" | "cmd" | "bash" => {
             vec!["exec".into(), "shell".into(), "exec_shell".into()]
         }
-        "file" | "read" | "write" | "edit" | "list" | "ls" | "dir" => {
+        "file" | "read" | "write" | "list" | "ls" | "dir" => {
             vec![
                 "file".into(),
                 "read_file".into(),
@@ -276,11 +292,136 @@ fn synonyms(term: &str) -> Vec<String> {
                 "list_file".into(),
             ]
         }
-        "browse" | "web" | "url" | "http" | "page" => {
+        "browse" | "web" | "url" | "http" | "page" | "website" | "scrape" | "crawl" => {
             vec!["browser".into()]
+        }
+        "mcp" | "mcporter" | "protocol" | "remote" | "external" => {
+            vec!["mcp".into()]
+        }
+        "send" | "message" | "notify" | "notification" | "discord" | "channel" => {
+            vec!["send_message".into(), "message".into()]
+        }
+        "edit" | "modify" | "update" | "change" => {
+            vec![
+                "edit_skill".into(),
+                "edit_file".into(),
+                "update_cron_job".into(),
+            ]
         }
         _ => vec![],
     }
+}
+
+// ── Proactive deferred-tool injection ─────────────────────────
+//
+// We scan the user's message for domain keywords and auto-inject
+// matching deferred tools into the function definitions.  Zero extra
+// latency, no wasted turn.
+
+/// Keyword groups that map to deferred tool names.
+/// If ANY keyword in a group appears in the user message, ALL associated
+/// tools are plucked in.
+const AUTO_PLUCK_RULES: &[(&[&str], &[&str])] = &[
+    (
+        &["skill", "skills", "capability", "plugin"],
+        &["create_skill", "edit_skill", "delete_skill", "list_skills"],
+    ),
+    (
+        &[
+            "cron",
+            "schedule",
+            "scheduled",
+            "timer",
+            "periodic",
+            "recurring",
+            "heartbeat",
+        ],
+        &[
+            "list_cron_jobs",
+            "create_cron_job",
+            "update_cron_job",
+            "delete_cron_job",
+            "run_cron_job",
+            "cron_job_history",
+        ],
+    ),
+    (
+        &["agent", "agents", "bot", "bots"],
+        &["list_agents", "get_agent", "create_agent"],
+    ),
+    (
+        &[
+            "session",
+            "sessions",
+            "conversation",
+            "conversations",
+            "chat history",
+        ],
+        &[
+            "session_list",
+            "session_status",
+            "session_send",
+            "session_spawn",
+        ],
+    ),
+    (&["update", "upgrade", "version"], &["self_update"]),
+    (
+        &[
+            "browse", "browser", "web", "website", "url", "scrape", "crawl", "webpage",
+        ],
+        &["browser"],
+    ),
+    (
+        &[
+            "message",
+            "discord",
+            "notify",
+            "notification",
+            "send",
+            "channel",
+            "embed",
+        ],
+        &["send_message"],
+    ),
+    (
+        &[
+            "mcp", "mcporter", "model context protocol", "server",
+            "external tool", "remote tool", "api tool",
+        ],
+        &["mcp"],
+    ),
+];
+
+/// Scan `user_message` for domain keywords and return deferred tools that
+/// should be auto-injected into function definitions.
+pub fn auto_pluck_deferred(user_message: &str) -> Vec<ToolMeta> {
+    let lower = user_message.to_lowercase();
+    let mut plucked_names: HashSet<String> = HashSet::new();
+
+    for (keywords, tool_names) in AUTO_PLUCK_RULES {
+        let matched = keywords.iter().any(|kw| {
+            // Word-boundary-ish: check the keyword appears as a standalone
+            // token, not just as a substring of a longer word.
+            lower
+                .split(|c: char| !c.is_alphanumeric())
+                .any(|tok| tok == *kw)
+        });
+        if matched {
+            for name in *tool_names {
+                plucked_names.insert((*name).to_string());
+            }
+        }
+    }
+
+    if plucked_names.is_empty() {
+        return Vec::new();
+    }
+
+    let reg = REGISTRY.lock().expect("tool registry poisoned");
+    reg.iter()
+        .filter(|e| e.deferred && plucked_names.contains(&e.meta.name))
+        .map(|e| e.meta.clone())
+        .collect()
 }
 
 // ── Unified skill management ─────────────────────────────────
@@ -298,6 +439,10 @@ pub fn set_skill_agent_id(id: Option<String>) {
     if let Ok(mut guard) = SKILL_AGENT_ID.lock() {
         *guard = id;
     }
+}
+
+pub fn get_skill_agent_id() -> Option<String> {
+    SKILL_AGENT_ID.lock().ok().and_then(|id| id.clone())
 }
 
 /// Sync all skills from a loaded [`SkillRegistry`] into the unified
@@ -380,8 +525,7 @@ pub fn prompt_instructions(enabled_ids: Option<&[String]>) -> String {
         }
         parts.push(format!(
             "  <skill>\n    <name>{}</name>\n    <description>{}</description>\n  </skill>",
-            entry.meta.name,
-            skill.description,
+            entry.meta.name, skill.description,
         ));
     }
     if parts.is_empty() {
@@ -585,8 +729,32 @@ pub async fn call_skill(name: &str, args: Value, workspace: &Path) -> anyhow::Re
         "session_status" => builtins::session::session_status(workspace, args).await,
         "session_send" => builtins::session::session_send(workspace, args).await,
         "session_spawn" => builtins::session::session_spawn(workspace, args).await,
-        "search_tools" => builtins::search_tools::search_tools(workspace, args).await,
-        other => anyhow::bail!("unknown tool: {other}"),
+        "mcp" => builtins::mcp::mcp_tool(workspace, args).await,
+        other => {
+            // If the name matches a registered skill that is instruction-only
+            // (no handler), tell the agent clearly that this is not a callable
+            // tool — it needs to use activate_skill then follow the instructions
+            // with real tools like exec_shell, browser, etc.
+            if get_skill_instructions(other).is_some() {
+                // Check if it has a handler — if so, this is a real tool that
+                // was just missing from the match above (shouldn't happen, but safe).
+                let has_handler = {
+                    let reg = REGISTRY.lock().expect("tool registry poisoned");
+                    reg.iter().any(|e| e.meta.name == other && e.handler.is_some())
+                };
+                if has_handler {
+                    let skill_args = serde_json::json!({ "name": other });
+                    return builtins::skill_author::activate_skill(workspace, skill_args).await;
+                }
+                // Instruction-only skill: return a clear message
+                return Ok(serde_json::json!({
+                    "error": format!("'{}' is a SKILL (instructions), not a callable tool.", other),
+                    "instructions": "Call activate_skill({ \"name\": \"" .to_string() + other + "\" }) to load the instructions, then use exec_shell, browser, or other real tools to carry out the actions described.",
+                    "hint": "Skills provide guidance on HOW to do something. You still need to execute the steps yourself using your actual tools.",
+                }));
+            }
+            anyhow::bail!("unknown tool: {other}")
+        }
     }
 }
 
@@ -620,9 +788,9 @@ pub fn builtin_skill_names() -> &'static [&'static str] {
         "session_status",
         "session_send",
         "session_spawn",
-        "search_tools",
         "send_message",
         "self_update",
+        "mcp",
     ]
 }
 
@@ -641,9 +809,9 @@ pub fn init() {
     builtins::agent::register();
     builtins::cron::register();
     builtins::session::register();
-    builtins::search_tools::register();
     builtins::send_message::register();
     builtins::self_update::register();
+    builtins::mcp::register();
 
     // Attach handlers to the built-in tools.
     register_handler(
@@ -692,30 +860,6 @@ pub fn init() {
         "forget_memory",
         Arc::new(|args, ws| {
             Box::pin(async move { builtins::memory::forget_memory(&ws, args).await })
-        }),
-    );
-    register_handler(
-        "create_skill",
-        Arc::new(|args, ws| {
-            Box::pin(async move { builtins::skill_author::create_skill(&ws, args).await })
-        }),
-    );
-    register_handler(
-        "list_skills",
-        Arc::new(|args, ws| {
-            Box::pin(async move { builtins::skill_author::list_skills(&ws, args).await })
-        }),
-    );
-    register_handler(
-        "delete_skill",
-        Arc::new(|args, ws| {
-            Box::pin(async move { builtins::skill_author::delete_skill(&ws, args).await })
-        }),
-    );
-    register_handler(
-        "edit_skill",
-        Arc::new(|args, ws| {
-            Box::pin(async move { builtins::skill_author::edit_skill(&ws, args).await })
         }),
     );
     register_handler(
@@ -795,12 +939,6 @@ pub fn init() {
         }),
     );
     register_handler(
-        "search_tools",
-        Arc::new(|args, ws| {
-            Box::pin(async move { builtins::search_tools::search_tools(&ws, args).await })
-        }),
-    );
-    register_handler(
         "send_message",
         Arc::new(|args, ws| {
             Box::pin(async move { builtins::send_message::send_message(&ws, args).await })
@@ -818,9 +956,39 @@ pub fn init() {
             Box::pin(async move { builtins::skill_author::activate_skill(&ws, args).await })
         }),
     );
+    register_handler(
+        "create_skill",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::skill_author::create_skill(&ws, args).await })
+        }),
+    );
+    register_handler(
+        "list_skills",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::skill_author::list_skills(&ws, args).await })
+        }),
+    );
+    register_handler(
+        "delete_skill",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::skill_author::delete_skill(&ws, args).await })
+        }),
+    );
+    register_handler(
+        "edit_skill",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::skill_author::edit_skill(&ws, args).await })
+        }),
+    );
+    register_handler(
+        "mcp",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::mcp::mcp_tool(&ws, args).await })
+        }),
+    );
 
-    // Mark less-common tools as deferred (discoverable via search_tools,
-    // but not injected into the prompt upfront — saves tokens).
+    // Mark less-common tools as deferred (auto-injected when relevant
+    // keywords appear in the user's message via auto_pluck_deferred).
     {
         let deferred = [
             "list_agents",
@@ -841,6 +1009,9 @@ pub fn init() {
             "delete_skill",
             "edit_skill",
             "self_update",
+            "send_message",
+            "browser",
+            "mcp",
         ];
         let mut reg = REGISTRY.lock().expect("tool registry poisoned");
         for entry in reg.iter_mut() {

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Package,
   Shield,
@@ -9,14 +9,25 @@ import {
   FolderOpen,
   RefreshCw,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 
-import { getSkills, queryKeys } from "@/api/client";
+import { getSkills, deleteSkill, queryKeys } from "@/api/client";
 import { Badge, Button, Separator, Skeleton } from "@/components/ui";
 
 export function SkillsRoute() {
+  const queryClient = useQueryClient();
   const skillsQuery = useQuery({ queryKey: queryKeys.skills, queryFn: getSkills });
   const [expandedSkill, setExpandedSkill] = useState<string | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: (name: string) => deleteSkill(name),
+    onSuccess: () => {
+      setConfirmDelete(null);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.skills });
+    },
+  });
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg)]">
@@ -69,6 +80,7 @@ export function SkillsRoute() {
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
             {(skillsQuery.data?.skills ?? []).map((skill) => {
               const isExpanded = expandedSkill === skill.id;
+              const isConfirming = confirmDelete === skill.id;
               return (
                 <article
                   key={skill.id}
@@ -111,6 +123,44 @@ export function SkillsRoute() {
                           Managed by operator — changes may be overwritten on restart.
                         </p>
                       )}
+                      <div className="pt-1">
+                        {isConfirming ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-[11px] text-rose-400">Delete this skill?</span>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="!h-6 !px-2 !text-[11px] text-rose-400 hover:bg-rose-400/10"
+                              onClick={() => deleteMutation.mutate(skill.id)}
+                              disabled={deleteMutation.isPending}
+                            >
+                              {deleteMutation.isPending ? "Deleting…" : "Confirm"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="!h-6 !px-2 !text-[11px] text-slate-500"
+                              onClick={() => setConfirmDelete(null)}
+                              disabled={deleteMutation.isPending}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="!h-6 !px-2 gap-1 !text-[11px] text-slate-500 hover:text-rose-400 hover:bg-rose-400/10"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setConfirmDelete(skill.id);
+                            }}
+                          >
+                            <Trash2 className="h-3 w-3" />
+                            Delete
+                          </Button>
+                        )}
+                      </div>
                     </div>
                   )}
 

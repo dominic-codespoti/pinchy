@@ -662,10 +662,7 @@ pub fn register_builtin_commands(registry: &Registry) {
                     older.join("\n")
                 );
 
-                let pm = crate::models::GLOBAL_PROVIDERS
-                    .get()
-                    .and_then(|m| m.lock().ok())
-                    .map(|pm| pm.clone())
+                let pm = crate::models::get_global_providers()
                     .ok_or_else(|| {
                         SlashError::Handler("no model provider available".to_string())
                     })?;

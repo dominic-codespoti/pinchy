@@ -77,11 +77,10 @@ pub async fn get_agent(_workspace: &Path, args: Value) -> anyhow::Result<Value> 
         anyhow::bail!("agent not found: {id}");
     }
 
-    let soul = tokio::fs::read_to_string(base.join("SOUL.md")).await.ok();
-    let tools = tokio::fs::read_to_string(base.join("TOOLS.md")).await.ok();
-    let heartbeat = tokio::fs::read_to_string(base.join("HEARTBEAT.md"))
-        .await
-        .ok();
+    let include_content = args
+        .get("include_content")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
 
     // Count session files.
     let sessions_dir = base.join("workspace").join("sessions");
@@ -89,11 +88,23 @@ pub async fn get_agent(_workspace: &Path, args: Value) -> anyhow::Result<Value> 
 
     let mut result = json!({
         "id": id,
-        "soul": soul,
-        "tools": tools,
-        "heartbeat": heartbeat,
+        "has_soul": base.join("SOUL.md").exists(),
+        "has_tools": base.join("TOOLS.md").exists(),
+        "has_heartbeat": base.join("HEARTBEAT.md").exists(),
         "session_count": session_count,
     });
+
+    if include_content {
+        let soul = tokio::fs::read_to_string(base.join("SOUL.md")).await.ok();
+        let tools = tokio::fs::read_to_string(base.join("TOOLS.md")).await.ok();
+        let heartbeat = tokio::fs::read_to_string(base.join("HEARTBEAT.md"))
+            .await
+            .ok();
+        let m = result.as_object_mut().unwrap();
+        m.insert("soul".into(), json!(soul));
+        m.insert("tools".into(), json!(tools));
+        m.insert("heartbeat".into(), json!(heartbeat));
+    }
 
     let config_path = crate::pinchy_home().join("config.yaml");
     if let Ok(cfg) = crate::config::Config::load(&config_path).await {
@@ -275,13 +286,17 @@ pub fn register() {
 
     register_tool(ToolMeta {
         name: "get_agent".into(),
-        description: "Get detailed information about a specific agent including SOUL.md content, tools, and configuration.".into(),
+        description: "Get metadata and configuration for a specific agent. Use include_content=true to also retrieve SOUL/TOOLS/HEARTBEAT file contents.".into(),
         args_schema: json!({
             "type": "object",
             "properties": {
                 "id": {
                     "type": "string",
                     "description": "The agent ID to look up"
+                },
+                "include_content": {
+                    "type": "boolean",
+                    "description": "If true, include full SOUL.md, TOOLS.md, and HEARTBEAT.md content (default: false)"
                 }
             },
             "required": ["id"]

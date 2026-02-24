@@ -134,10 +134,6 @@ fn list_tools_core_excludes_deferred() {
         "core should have read_file"
     );
     assert!(
-        core_names.contains(&"search_tools"),
-        "core should have search_tools"
-    );
-    assert!(
         !core_names.contains(&"list_agents"),
         "deferred tool should not be in core"
     );

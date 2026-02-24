@@ -331,10 +331,7 @@ async fn main() -> anyhow::Result<()> {
 
     let mut skill_registry = mini_claw::skills::SkillRegistry::new(default_agent_id.clone());
     skill_registry.load_skills_with_config(Some(&cfg))?;
-    info!(
-        count = skill_registry.skills.len(),
-        "skills loaded"
-    );
+    info!(count = skill_registry.skills.len(), "skills loaded");
 
     // Push loaded skills into the unified tool registry and store the
     // agent ID for future reload operations.
@@ -435,7 +432,7 @@ async fn main() -> anyhow::Result<()> {
 
         let skill_count = mini_claw::tools::skill_count();
 
-        let discord_status = if cfg.channels.discord.is_some() {
+        let discord_status = if discord::is_enabled() {
             "connecting"
         } else {
             "disabled"

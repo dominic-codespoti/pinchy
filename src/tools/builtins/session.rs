@@ -97,7 +97,6 @@ pub async fn session_list(_workspace: &Path, args: Value) -> anyhow::Result<Valu
 
     Ok(json!({
         "sessions": all_sessions,
-        "total": all_sessions.len(),
     }))
 }
 
@@ -152,19 +151,10 @@ pub async fn session_status(workspace: &Path, args: Value) -> anyhow::Result<Val
         })
     });
 
-    // Count by role.
-    let user_msgs = history.iter().filter(|e| e.role == "user").count();
-    let assistant_msgs = history.iter().filter(|e| e.role == "assistant").count();
-    let system_msgs = history.iter().filter(|e| e.role == "system").count();
-
     Ok(json!({
         "agent_id": agent_id,
         "session_id": session_id,
-        "status": "active",
         "message_count": message_count,
-        "user_messages": user_msgs,
-        "assistant_messages": assistant_msgs,
-        "system_messages": system_msgs,
         "last_message": last_message,
     }))
 }
@@ -217,16 +207,13 @@ pub async fn session_send(_workspace: &Path, args: Value) -> anyhow::Result<Valu
 
     let tx = crate::comm::sender();
     match tx.send(msg) {
-        Ok(receivers) => Ok(json!({
+        Ok(_) => Ok(json!({
             "sent": true,
             "agent_id": agent_id,
-            "receivers": receivers,
-            "channel": channel,
         })),
         Err(e) => Ok(json!({
             "sent": false,
             "error": format!("no active receivers: {e}"),
-            "note": "The target agent may not be running. The message was not delivered.",
         })),
     }
 }
@@ -296,8 +283,6 @@ pub async fn session_spawn(_workspace: &Path, args: Value) -> anyhow::Result<Val
     };
 
     Ok(json!({
-        "spawned": true,
-        "agent_id": agent_id,
         "session_id": session_id,
         "message_sent": message_sent,
     }))

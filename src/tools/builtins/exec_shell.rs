@@ -14,6 +14,13 @@ use tokio::process::Child;
 
 use crate::tools::{register_tool, truncate_utf8_owned, ToolMeta};
 
+/// Return the PATH from the parent process environment, falling back to a
+/// minimal default if unset.  This ensures the agent can use the same
+/// tools (cargo, node, pnpm, etc.) as the user who launched pinchy.
+fn inherited_path() -> String {
+    std::env::var("PATH").unwrap_or_else(|_| "/usr/local/bin:/usr/bin:/bin".to_string())
+}
+
 // ── Background process registry ──────────────────────────────
 
 /// A tracked background process.
@@ -146,9 +153,9 @@ fn validate_command_safety(command: &str) -> Result<(), String> {
 /// **Sandboxing:**
 /// - Commands in [`EXEC_BLOCKLIST`] (shells, sudo, curl, etc.) are rejected.
 /// - Foreground commands killed after 60 seconds; background after 120 s.
-/// - `stdout` and `stderr` are truncated to 256 KB each.
+/// - `stdout` and `stderr` are truncated to 32 KB each.
 pub async fn exec_shell(workspace: &Path, args: Value) -> anyhow::Result<Value> {
-    const MAX_OUTPUT: usize = 256 * 1024; // 256 KB
+    const MAX_OUTPUT: usize = 32 * 1024; // 32 KB
 
     // ── Management actions (no command needed) ────────────────────
     if let Some(action) = args.get("action").and_then(Value::as_str) {
@@ -188,7 +195,7 @@ pub async fn exec_shell(workspace: &Path, args: Value) -> anyhow::Result<Value> 
             .arg(command)
             .current_dir(workspace)
             .env_clear()
-            .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+            .env("PATH", inherited_path())
             .env("HOME", workspace.to_string_lossy().to_string())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -250,10 +257,7 @@ pub async fn exec_shell(workspace: &Path, args: Value) -> anyhow::Result<Value> 
         });
 
         return Ok(json!({
-            "background": true,
             "process_id": pid,
-            "command": cmd_str,
-            "note": "Process spawned in background. Use action='status' or action='output' with this process_id to check on it.",
         }));
     }
 
@@ -265,7 +269,7 @@ pub async fn exec_shell(workspace: &Path, args: Value) -> anyhow::Result<Value> 
         .arg(command)
         .current_dir(workspace)
         .env_clear()
-        .env("PATH", "/usr/local/bin:/usr/bin:/bin")
+        .env("PATH", inherited_path())
         .env("HOME", workspace.to_string_lossy().to_string())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -294,12 +298,14 @@ pub async fn exec_shell(workspace: &Path, args: Value) -> anyhow::Result<Value> 
     let stdout = truncate_utf8_owned(full_stdout, MAX_OUTPUT);
     let stderr = truncate_utf8_owned(full_stderr, MAX_OUTPUT);
 
-    let mut result = json!({
-        "exit_code": code,
-        "stdout": stdout,
-        "stderr": stderr,
-    });
+    let mut result = json!({ "stdout": stdout });
 
+    if code != 0 {
+        result["exit_code"] = json!(code);
+    }
+    if !stderr.is_empty() {
+        result["stderr"] = json!(stderr);
+    }
     if truncated_stdout {
         result["truncated_stdout"] = json!(true);
     }

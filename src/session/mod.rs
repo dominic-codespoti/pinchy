@@ -125,7 +125,8 @@ impl SessionStore {
             .context("create sessions dir")?;
 
         let path = sessions_dir.join(format!("{id}.jsonl"));
-        let line = serde_json::to_string(exchange).context("serialize Exchange")?;
+        let mut line = serde_json::to_string(exchange).context("serialize Exchange")?;
+        line.push('\n');
 
         let mut file = fs::OpenOptions::new()
             .create(true)
@@ -135,8 +136,6 @@ impl SessionStore {
             .with_context(|| format!("open session file {}", path.display()))?;
 
         file.write_all(line.as_bytes()).await?;
-        file.write_all(b"\n").await?;
-
         debug!(path = %path.display(), role = %exchange.role, "exchange appended");
         Ok(())
     }

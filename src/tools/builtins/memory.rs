@@ -106,18 +106,8 @@ pub async fn recall_memory(workspace: &Path, args: Value) -> anyhow::Result<Valu
 
 /// Check whether an embedding provider is currently available.
 fn has_embedding_provider() -> bool {
-    use crate::models::GLOBAL_PROVIDERS;
-    match GLOBAL_PROVIDERS.get() {
-        Some(mutex) => {
-            if let Ok(guard) = mutex.lock() {
-                // Check provider count — if at least one provider exists,
-                // there's a chance it supports embeddings. The actual
-                // embed call will fail gracefully if not.
-                guard.provider_count() > 0
-            } else {
-                false
-            }
-        }
+    match crate::models::get_global_providers() {
+        Some(pm) => pm.provider_count() > 0,
         None => false,
     }
 }
@@ -129,21 +119,12 @@ async fn recall_semantic(
     tag: Option<&str>,
     limit: usize,
 ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
-    use crate::models::GLOBAL_PROVIDERS;
-
     if query.is_empty() {
         anyhow::bail!("semantic recall requires a non-empty query");
     }
 
-    // Clone the Arc out of the mutex so we can drop the guard before await.
-    let pm = {
-        let guard = GLOBAL_PROVIDERS
-            .get()
-            .ok_or_else(|| anyhow::anyhow!("no providers initialised — cannot embed"))?
-            .lock()
-            .map_err(|_| anyhow::anyhow!("provider lock poisoned"))?;
-        std::sync::Arc::clone(&guard)
-    };
+    let pm = crate::models::get_global_providers()
+        .ok_or_else(|| anyhow::anyhow!("no providers initialised — cannot embed"))?;
 
     // Embed the query.
     let query_vecs = pm

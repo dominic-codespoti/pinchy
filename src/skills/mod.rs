@@ -146,10 +146,7 @@ impl SkillRegistry {
                 .with_context(|| format!("parsing front-matter in {}", skill_dir.display()))?;
 
             // Spec: name must match parent directory name.
-            let dir_name = skill_dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let dir_name = skill_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if meta.name != dir_name {
                 warn!(
                     name = %meta.name,
@@ -250,8 +247,7 @@ impl SkillRegistry {
             }
             parts.push(format!(
                 "  <skill>\n    <name>{}</name>\n    <description>{}</description>\n  </skill>",
-                skill.meta.name,
-                skill.meta.description,
+                skill.meta.name, skill.meta.description,
             ));
         }
         if parts.is_empty() {
@@ -317,7 +313,8 @@ mod tests {
 
     #[test]
     fn parse_skill_md_valid() {
-        let content = "---\nname: test\ndescription: A test skill\n---\n# Instructions\n\nDo stuff.\n";
+        let content =
+            "---\nname: test\ndescription: A test skill\n---\n# Instructions\n\nDo stuff.\n";
         let (yaml, body) = parse_skill_md(content).unwrap();
         assert!(yaml.contains("name: test"));
         assert!(body.contains("Do stuff."));
@@ -361,19 +358,22 @@ mod tests {
     #[test]
     fn get_skill_instructions_returns_full() {
         let mut reg = SkillRegistry::new(None);
-        reg.skills.insert("browser".into(), Skill {
-            meta: SkillMeta {
-                name: "browser".into(),
-                description: "Browse the web".into(),
-                license: None,
-                compatibility: None,
-                metadata: None,
-                operator_managed: None,
+        reg.skills.insert(
+            "browser".into(),
+            Skill {
+                meta: SkillMeta {
+                    name: "browser".into(),
+                    description: "Browse the web".into(),
+                    license: None,
+                    compatibility: None,
+                    metadata: None,
+                    operator_managed: None,
+                },
+                path: PathBuf::from("/tmp"),
+                manifest: String::new(),
+                instructions: "Navigate to URLs and click things.".into(),
             },
-            path: PathBuf::from("/tmp"),
-            manifest: String::new(),
-            instructions: "Navigate to URLs and click things.".into(),
-        });
+        );
 
         let instr = reg.get_skill_instructions("browser").unwrap();
         assert!(instr.contains("<skill_activated>"));
@@ -384,19 +384,22 @@ mod tests {
     #[test]
     fn reload_clears_and_reloads() {
         let mut reg = SkillRegistry::new(None);
-        reg.skills.insert("old".into(), Skill {
-            meta: SkillMeta {
-                name: "old".into(),
-                description: "old skill".into(),
-                license: None,
-                compatibility: None,
-                metadata: None,
-                operator_managed: None,
+        reg.skills.insert(
+            "old".into(),
+            Skill {
+                meta: SkillMeta {
+                    name: "old".into(),
+                    description: "old skill".into(),
+                    license: None,
+                    compatibility: None,
+                    metadata: None,
+                    operator_managed: None,
+                },
+                path: PathBuf::from("/tmp"),
+                manifest: String::new(),
+                instructions: "do stuff".into(),
             },
-            path: PathBuf::from("/tmp"),
-            manifest: String::new(),
-            instructions: "do stuff".into(),
-        });
+        );
         assert!(reg.skills.contains_key("old"));
         let _ = reg.reload(None);
         assert!(!reg.skills.contains_key("old"));

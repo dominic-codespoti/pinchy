@@ -377,7 +377,8 @@ fn embedding_to_blob(vec: &[f32]) -> Vec<u8> {
 
 /// Deserialize a byte blob back to an f32 vector.
 fn blob_to_embedding(blob: &[u8], dim: usize) -> Vec<f32> {
-    (0..dim)
+    let safe_dim = dim.min(blob.len() / 4);
+    (0..safe_dim)
         .map(|i| {
             let start = i * 4;
             let bytes: [u8; 4] = blob[start..start + 4].try_into().unwrap_or([0; 4]);

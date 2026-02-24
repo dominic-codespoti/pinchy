@@ -39,9 +39,15 @@ async fn handle_ws_logs(mut socket: WebSocket) {
 
     loop {
         tokio::select! {
-            Ok(line) = rx.recv() => {
-                if socket.send(Message::Text(line)).await.is_err() {
-                    break;
+            result = rx.recv() => {
+                match result {
+                    Ok(line) => {
+                        if socket.send(Message::Text(line)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => break,
                 }
             }
             msg = socket.recv() => {
@@ -149,9 +155,15 @@ async fn handle_ws(mut socket: WebSocket, state: AppState) {
     loop {
         tokio::select! {
             // Broadcast event → send to client
-            Ok(event) = events_rx.recv() => {
-                if socket.send(Message::Text(event)).await.is_err() {
-                    break; // client disconnected
+            result = events_rx.recv() => {
+                match result {
+                    Ok(event) => {
+                        if socket.send(Message::Text(event)).await.is_err() {
+                            break; // client disconnected
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(_) => break, // channel closed
                 }
             }
             // Client message → forward to commands channel

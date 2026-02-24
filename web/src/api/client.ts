@@ -376,6 +376,13 @@ export async function getSkills() {
   return z.object({ skills: z.array(skillSchema) }).parse(response);
 }
 
+export async function deleteSkill(name: string) {
+  return request<{ status: string; name: string }>(
+    `/api/skills/${encodeURIComponent(name)}`,
+    { method: "DELETE" },
+  );
+}
+
 export async function enhancePrompt(prompt: string): Promise<EnhancePromptResponse> {
   return request<EnhancePromptResponse>("/api/ai/enhance-prompt", {
     method: "POST",

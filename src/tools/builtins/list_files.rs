@@ -67,11 +67,32 @@ pub async fn list_files(workspace: &Path, args: Value) -> anyhow::Result<Value> 
 
     let truncated = entries.len() >= max_entries;
 
-    Ok(json!({
-        "entries": entries,
-        "count": entries.len(),
-        "truncated": truncated,
-    }))
+    if include_metadata {
+        // Rich mode: keep full objects for metadata consumers.
+        let mut result = json!({ "entries": entries });
+        if truncated {
+            result["truncated"] = json!(true);
+        }
+        Ok(result)
+    } else {
+        // Compact mode (default): flat list of paths, dirs get trailing /
+        let paths: Vec<String> = entries
+            .iter()
+            .map(|e| {
+                let p = e["path"].as_str().unwrap_or("");
+                if e["type"].as_str() == Some("directory") {
+                    format!("{}/", p)
+                } else {
+                    p.to_string()
+                }
+            })
+            .collect();
+        let mut result = json!({ "files": paths });
+        if truncated {
+            result["truncated"] = json!(true);
+        }
+        Ok(result)
+    }
 }
 
 /// Recursively collect directory entries.

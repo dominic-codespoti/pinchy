@@ -37,43 +37,62 @@ fn uuid_like_id() -> String {
     format!("{:016x}", nanos)
 }
 
-/// When `search_tools` returns its JSON result, extract any discovered tool
-/// schemas and append them to `function_defs` so the model can call them via
-/// the function-calling API in subsequent iterations.
-///
-/// Deduplicates by name — tools already in `function_defs` are skipped.
-fn expand_function_defs_from_search_result(
-    result_json: &str,
-    function_defs: &mut Vec<serde_json::Value>,
-) {
-    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(result_json) else {
-        return;
-    };
-    let Some(matches) = parsed.get("matches").and_then(|v| v.as_array()) else {
-        return;
-    };
-    let existing_names: std::collections::HashSet<String> = function_defs
+/// Maximum bytes for a tool result injected into the conversation.
+/// Larger results are tail-truncated with an advisory note.
+const MAX_TOOL_RESULT_BYTES: usize = 16_000;
+
+fn truncate_tool_result(s: String) -> String {
+    if s.len() <= MAX_TOOL_RESULT_BYTES {
+        return s;
+    }
+    let mut end = MAX_TOOL_RESULT_BYTES;
+    while !s.is_char_boundary(end) && end > 0 {
+        end -= 1;
+    }
+    format!(
+        "{}\n\n[… result truncated — {} bytes total, showing first {}. Use more specific args to narrow output.]",
+        &s[..end],
+        s.len(),
+        end,
+    )
+}
+
+/// Build a corrective system message for when a tool call targets an
+/// unknown/non-existent tool name.
+fn unknown_tool_corrective(bad_name: &str, function_defs: &[serde_json::Value]) -> String {
+    let valid_names: Vec<String> = function_defs
         .iter()
         .filter_map(|fd| fd.get("name").and_then(|n| n.as_str()).map(String::from))
         .collect();
+    format!(
+        "CORRECTIVE: The tool `{bad_name}` does not exist. It is NOT a valid tool. \
+         Do NOT claim it worked. You MUST use only tools from this list: [{}]. \
+         If none of these tools can do what you need, use `exec_shell` to run \
+         a CLI command, or use the `browser` tool/skill to look up documentation. \
+         Diagnose the failure and try a different approach.",
+        valid_names.join(", ")
+    )
+}
 
-    for m in matches {
-        let Some(name) = m.get("name").and_then(|n| n.as_str()) else {
-            continue;
-        };
-        if existing_names.contains(name) {
-            continue;
+/// Return `true` when the user message looks conversational (greeting,
+/// thanks, simple question) — i.e. unlikely to require tool invocation.
+/// Used to skip the enforcement retry and avoid wasting a model call.
+fn is_conversational(msg: &str) -> bool {
+    let lower = msg.trim().to_lowercase();
+    let word_count = lower.split_whitespace().count();
+    // Very short messages are almost always conversational.
+    if word_count <= 3 {
+        let starters = [
+            "hi", "hello", "hey", "thanks", "thank you", "thx", "bye",
+            "ok", "okay", "sure", "yes", "no", "yep", "nope", "cool",
+            "great", "good", "nice", "awesome", "perfect", "got it",
+            "what", "who", "how are you", "how's it going",
+        ];
+        if starters.iter().any(|s| lower.starts_with(s)) {
+            return true;
         }
-        function_defs.push(serde_json::json!({
-            "name": name,
-            "description": m.get("description").and_then(|d| d.as_str()).unwrap_or(""),
-            "parameters": m.get("args_schema").cloned().unwrap_or(serde_json::json!({})),
-        }));
-        tracing::debug!(
-            tool = name,
-            "dynamically added discovered tool to function_defs"
-        );
     }
+    false
 }
 
 /// Global counter of in-flight agent turns.
@@ -367,9 +386,16 @@ impl Agent {
                             let agent = Arc::clone(&agent);
                             tokio::spawn(async move {
                                 IN_FLIGHT.fetch_add(1, Ordering::Relaxed);
+                                struct InFlightGuard;
+                                impl Drop for InFlightGuard {
+                                    fn drop(&mut self) {
+                                        IN_FLIGHT.fetch_sub(1, Ordering::Relaxed);
+                                    }
+                                }
+                                let _guard = InFlightGuard;
                                 let mut guard = agent.lock().await;
                                 let result = guard.run_turn(msg.clone()).await;
-                                IN_FLIGHT.fetch_sub(1, Ordering::Relaxed);
+                                // _guard is dropped here (or on panic), ensuring IN_FLIGHT is decremented.
                                 match result {
                                     Ok(reply) => {
                                         info!(reply_len = reply.len(), "agent turn completed");
@@ -473,14 +499,13 @@ impl Agent {
         if let Some(ref session_id) = self.current_session {
             let exchanges =
                 SessionStore::load_history(&self.workspace, session_id, max_messages).await?;
-            return Ok(exchanges
+            let messages: Vec<ChatMessage> = exchanges
                 .into_iter()
-                // Drop `tool` messages from persisted history — they lack
-                // the `tool_call_id` / `tool_calls` context needed by the
-                // API and would cause HTTP 400 errors.
                 .filter(|ex| ex.role == "user" || ex.role == "assistant")
                 .map(|ex| ChatMessage::new(ex.role, ex.content))
-                .collect());
+                .collect();
+
+            return Ok(messages);
         }
 
         // Legacy: load all session files.
@@ -587,6 +612,10 @@ impl Agent {
             None
         };
 
+        // Load config once for the whole turn — avoids 3× disk reads.
+        let config_path = crate::pinchy_home().join("config.yaml");
+        let turn_cfg = crate::config::Config::load(&config_path).await.ok();
+
         // Build provider manager. If fallback models are configured,
         // try to resolve them from the loaded config.
         let manager = if self.fallback_models.is_empty() {
@@ -607,22 +636,41 @@ impl Agent {
                 history_messages: None,
                 timezone: None,
             };
-            // Try to load config for model resolution; fall back to basic manager.
-            let config_path = crate::pinchy_home().join("config.yaml");
-            match crate::config::Config::load(&config_path).await {
-                Ok(cfg) => crate::models::build_provider_manager_from_config(&agent_cfg, &cfg),
-                Err(_) => build_provider_manager(&self.provider, &self.model_id),
+            match &turn_cfg {
+                Some(cfg) => crate::models::build_provider_manager_from_config(&agent_cfg, cfg),
+                None => build_provider_manager(&self.provider, &self.model_id),
             }
         };
 
         // Stash the providers globally so tools (e.g. semantic memory)
-        // can embed text without plumbing.
-        crate::models::set_global_providers(std::sync::Arc::new(build_provider_manager(
-            &self.provider,
-            &self.model_id,
-        )));
+        // can embed text without plumbing.  Reuse `manager`'s config-aware
+        // setup rather than building a second stripped-down instance.
+        crate::models::set_global_providers(std::sync::Arc::new(
+            if self.fallback_models.is_empty() {
+                build_provider_manager(&self.provider, &self.model_id)
+            } else {
+                let agent_cfg = crate::config::AgentConfig {
+                    id: self.id.clone(),
+                    root: self.agent_root.display().to_string(),
+                    model: self.model_config_ref.clone(),
+                    heartbeat_secs: None,
+                    cron_jobs: Vec::new(),
+                    max_tool_iterations: Some(self.max_tool_iterations),
+                    enabled_skills: self.enabled_skills.clone(),
+                    fallback_models: self.fallback_models.clone(),
+                    webhook_secret: None,
+                    extra_exec_commands: Vec::new(),
+                    history_messages: None,
+                    timezone: None,
+                };
+                match &turn_cfg {
+                    Some(cfg) => crate::models::build_provider_manager_from_config(&agent_cfg, cfg),
+                    None => build_provider_manager(&self.provider, &self.model_id),
+                }
+            },
+        ));
 
-        let result = self.run_turn_with_provider(msg, &manager).await;
+        let result = self.run_turn_with_provider(msg, &manager, turn_cfg.as_ref()).await;
 
         // Restore original session pointer if we were using an override.
         if let Some(prev) = saved_session {
@@ -638,6 +686,7 @@ impl Agent {
         &mut self,
         msg: IncomingMessage,
         manager: &ProviderManager,
+        turn_cfg: Option<&Config>,
     ) -> anyhow::Result<String> {
         // 1. System bootstrap (SOUL.md primarily)
         let bootstrap = self.load_bootstrap().await?;
@@ -658,9 +707,7 @@ impl Agent {
 
         // Inject current date/time with timezone context.
         {
-            let config_path = crate::pinchy_home().join("config.yaml");
-            let tz = crate::config::Config::load(&config_path)
-                .await
+            let tz = turn_cfg
                 .map(|cfg| cfg.resolve_timezone(&self.id))
                 .unwrap_or(chrono_tz::UTC);
             let now = chrono::Utc::now().with_timezone(&tz);
@@ -686,10 +733,13 @@ impl Agent {
         }
 
         // Inject tools metadata so the model knows which skills are available.
-        // Only core (non-deferred) tools are injected upfront; the agent can
-        // discover additional tools at runtime via the `search_tools` tool.
+        // Only inject the fenced-JSON tool catalogue when the provider does
+        // NOT support native function-calling.  When function-calling is
+        // available, the model receives the tool schemas via the API's
+        // `tools` / `functions` parameter — injecting BOTH creates two
+        // competing calling conventions that confuse the model.
         let tool_metas = tools::list_tools_core();
-        if !tool_metas.is_empty() {
+        if !tool_metas.is_empty() && !manager.supports_functions {
             let tools_json =
                 serde_json::to_string_pretty(&tool_metas).unwrap_or_else(|_| "[]".to_string());
             messages.push(ChatMessage::new(
@@ -697,33 +747,27 @@ impl Agent {
                 format!(
                     "The following tools are available. Use TOOL_CALL with the correct name and args.\n\n\
                      ```tools_metadata\n{tools_json}\n```\n\n\
-                     IMPORTANT — Tool discovery:\n\
-                     • Your visible tool set above is NOT exhaustive. Many specialised tools exist \
-                     for cron/scheduling, agent management, sessions, skills, and more.\n\
-                     • ALWAYS call `search_tools` BEFORE using `exec_shell` when the task involves \
-                     scheduling, cron jobs, agents, sessions, skills, or any domain-specific operation. \
-                     Specialised tools are safer, more reliable, and produce better results than shell commands.\n\
-                     • Example: to trigger a cron job, search for \"cron\" first — don't try to run a shell script.\n\
-                     • Use `exec_shell` only for general-purpose shell tasks (file manipulation, git, building, etc.) \
-                     where no specialised tool exists.",
+                     IMPORTANT — Tool usage:\n\
+                     • Additional specialised tools (cron, agents, sessions, skills, MCP, browser, \
+                     messaging) are automatically made available when your task requires them.\n\
+                     • ALWAYS prefer specialised tools over `exec_shell`.\n\
+                     • When calling tools, provide EXACT argument types matching the schema. \
+                     Don't wrap strings in extra quotes or nest objects unnecessarily.\n\
+                     • Tool results are returned automatically — read them and act on errors \
+                     rather than assuming success.",
                 ),
             ));
         }
 
         // Inject recent session history for conversational context.
-        let history_limit = {
-            let config_path = crate::pinchy_home().join("config.yaml");
-            crate::config::Config::load(&config_path)
-                .await
-                .ok()
-                .and_then(|cfg| {
-                    cfg.agents
-                        .iter()
-                        .find(|a| a.id == self.id)
-                        .and_then(|a| a.history_messages)
-                })
-                .unwrap_or(40)
-        };
+        let history_limit = turn_cfg
+            .and_then(|cfg| {
+                cfg.agents
+                    .iter()
+                    .find(|a| a.id == self.id)
+                    .and_then(|a| a.history_messages)
+            })
+            .unwrap_or(40);
         let history = self.load_history(history_limit).await.unwrap_or_default();
         messages.extend(history);
 
@@ -735,8 +779,8 @@ impl Agent {
         crate::context::manage_context(&mut messages, &budget, manager).await;
 
         // 3. Build function definitions for function-calling providers.
-        //    Starts with core tools only; dynamically expanded when the agent
-        //    calls `search_tools` and discovers deferred tools.
+        //    Starts with core tools; deferred tools are auto-injected when
+        //    relevant keywords are detected in the user message.
         let mut function_defs: Vec<serde_json::Value> = tool_metas
             .iter()
             .map(|meta| {
@@ -747,6 +791,40 @@ impl Agent {
                 })
             })
             .collect();
+
+        // 3a. Auto-pluck: scan the user message for domain keywords and
+        //     inject matching deferred tools automatically.
+        //     We also scan recent user messages from history so that
+        //     follow-up messages (e.g. "try again") still pluck tools
+        //     that were relevant earlier in the conversation.
+        {
+            let mut pluck_text = msg.content.clone();
+            for m in messages.iter().rev().filter(|m| m.role == "user").take(5) {
+                pluck_text.push(' ');
+                pluck_text.push_str(&m.content);
+            }
+            let plucked = tools::auto_pluck_deferred(&pluck_text);
+            let existing_names: std::collections::HashSet<String> = function_defs
+                .iter()
+                .filter_map(|fd| fd.get("name").and_then(|n| n.as_str()).map(String::from))
+                .collect();
+            for meta in &plucked {
+                if !existing_names.contains(&meta.name) {
+                    function_defs.push(serde_json::json!({
+                        "name": meta.name,
+                        "description": meta.description,
+                        "parameters": meta.args_schema,
+                    }));
+                }
+            }
+            if !plucked.is_empty() {
+                debug!(
+                    count = plucked.len(),
+                    tools = ?plucked.iter().map(|m| &m.name).collect::<Vec<_>>(),
+                    "auto-plucked deferred tools from user message"
+                );
+            }
+        }
 
         // --- Receipt tracking state -----------------------------------------
         let turn_start = SystemTime::now();
@@ -779,8 +857,16 @@ impl Agent {
         // 3a-enforce. Enforcement retry: if the provider returned plain text
         // but function definitions exist and the provider supports functions,
         // nudge the model with a corrective system message (one retry only).
+        //
+        // Skip enforcement when the user's message is clearly conversational
+        // (greeting, thanks, simple question) — forcing tool use on these
+        // wastes a model round-trip.
         if let ProviderResponse::Final(ref text) = response {
-            if !function_defs.is_empty() && manager.supports_functions && !is_tool_call_only(text) {
+            let needs_enforcement = !function_defs.is_empty()
+                && manager.supports_functions
+                && !is_tool_call_only(text)
+                && !is_conversational(&msg.content);
+            if needs_enforcement {
                 debug!("enforcement retry: provider returned final text but tools are available, sending corrective message");
 
                 // Build a tool-aware corrective message so the model knows
@@ -829,6 +915,9 @@ impl Agent {
                         warn!(error = %e, "enforcement retry failed, using original response");
                     }
                 }
+                // Remove the corrective message so it doesn't pollute the
+                // tool-loop conversation.
+                messages.pop();
             }
         }
 
@@ -836,6 +925,9 @@ impl Agent {
 
         // 3c. Tool-invocation loop
         let max_iters = self.max_tool_iterations;
+
+        // Track consecutive unknown-tool failures to detect spin loops.
+        let mut consecutive_unknown_tool: u32 = 0;
 
         for _iter in 0..max_iters {
             match response {
@@ -883,13 +975,16 @@ impl Agent {
                             warn!(error = %e, "tool execution failed, feeding error back");
                             crate::gateway::publish_event_json(&serde_json::json!({
                                 "type": "tool_error",
-                                  "agent": self.id,
-                                  "session": self.current_session,
-                                  "tool": tool_name_owned,
-                                  "error": err_msg,
+                                "agent": self.id,
+                                    "session": self.current_session,
+                                "tool": tool_name_owned,
+                                "error": err_msg,
                             }));
                             (
-                                serde_json::to_string(&serde_json::json!({"error": &err_msg}))?,
+                                serde_json::to_string(
+                                    &serde_json::json!({"error": &err_msg}),
+                                )
+                                .unwrap_or_default(),
                                 true,
                                 Some(err_msg),
                             )
@@ -919,6 +1014,16 @@ impl Agent {
                         tool_call_id: None,
                     });
 
+                    // Feed the tool result back so the model can see what happened.
+                    messages.push(ChatMessage::new(
+                        "user",
+                        format!(
+                            "[Tool Result for {}]: {}",
+                            tool_name_owned,
+                            truncate_tool_result(result_json)
+                        ),
+                    ));
+
                     // If there was remaining assistant text, preserve it.
                     if !remaining.is_empty() {
                         messages.push(ChatMessage {
@@ -929,22 +1034,26 @@ impl Agent {
                         });
                     }
 
-                    // If the tool was search_tools, expand function_defs
-                    // with the discovered tool schemas so the model can call
-                    // them via function-calling in subsequent iterations.
-                    if tool_req.name == "search_tools" && !tool_failed {
-                        expand_function_defs_from_search_result(&result_json, &mut function_defs);
+                    // If the tool was unknown, inject a corrective system
+                    // message so the model doesn't hallucinate success.
+                    if tool_failed
+                        && receipt_tool_calls
+                            .last()
+                            .and_then(|r| r.error.as_deref())
+                            .is_some_and(|e| e.contains("unknown tool"))
+                    {
+                        consecutive_unknown_tool += 1;
+                        messages.push(ChatMessage::new(
+                            "system",
+                            unknown_tool_corrective(&tool_name_owned, &function_defs),
+                        ));
+                        if consecutive_unknown_tool >= 3 {
+                            warn!("3 consecutive unknown-tool calls — breaking loop");
+                            break;
+                        }
+                    } else {
+                        consecutive_unknown_tool = 0;
                     }
-
-                    // Append tool result as user message (fenced path
-                    // cannot produce a real tool_call_id, so we avoid
-                    // the `tool` role which requires one).
-                    messages.push(ChatMessage {
-                        role: "user".into(),
-                        content: format!("[Tool Result for {}]: {}", tool_req.name, result_json),
-                        tool_calls: None,
-                        tool_call_id: None,
-                    });
 
                     // Re-query provider with updated conversation.
                     let (new_resp, loop_usage) = manager
@@ -997,16 +1106,15 @@ impl Agent {
                     let tool_elapsed = tool_timer.elapsed().as_millis() as u64;
 
                     let (result_json, tool_failed, tool_error) = match result {
-                        Ok(v) => (serde_json::to_string(&v)?, false, None),
+                        Ok(v) => (serde_json::to_string(&v).unwrap_or_default(), false, None),
                         Err(e) => {
                             let err_msg = format!("{e}");
-                            warn!(error = %e, "tool execution (function-call) failed, feeding error back");
                             crate::gateway::publish_event_json(&serde_json::json!({
                                 "type": "tool_error",
-                                  "agent": self.id,
-                                  "session": self.current_session,
-                                  "tool": fc_name,
-                                  "error": err_msg,
+                                "agent": self.id,
+                                    "session": self.current_session,
+                                "tool": name,
+                                "error": err_msg,
                             }));
                             (
                                 serde_json::to_string(
@@ -1034,12 +1142,6 @@ impl Agent {
                             "tool": fc_name,
                     }));
 
-                    // If the tool was search_tools, expand function_defs
-                    // with the discovered tool schemas.
-                    if fc_name == "search_tools" && !tool_failed {
-                        expand_function_defs_from_search_result(&result_json, &mut function_defs);
-                    }
-
                     // Append assistant message with proper tool_calls metadata.
                     messages.push(ChatMessage {
                         role: "assistant".into(),
@@ -1057,10 +1159,32 @@ impl Agent {
                     // Append tool result with matching tool_call_id.
                     messages.push(ChatMessage {
                         role: "tool".into(),
-                        content: result_json,
+                        content: truncate_tool_result(result_json),
                         tool_calls: None,
                         tool_call_id: Some(fc_id),
                     });
+
+                    // If the tool was unknown, inject a corrective system
+                    // message so the model doesn't hallucinate success.
+                    if tool_failed
+                        && receipt_tool_calls
+                            .last()
+                            .and_then(|r| r.error.as_deref())
+                            .is_some_and(|e| e.contains("unknown tool"))
+                    {
+                        consecutive_unknown_tool += 1;
+                        messages.push(ChatMessage::new(
+                            "system",
+                            unknown_tool_corrective(&fc_name, &function_defs),
+                        ));
+                        if consecutive_unknown_tool >= 3 {
+                            warn!("3 consecutive unknown-tool calls — breaking loop");
+                            break;
+                        }
+                    } else {
+                        consecutive_unknown_tool = 0;
+                    }
+
                     // Re-query provider.
                     let (new_resp, loop_usage) = manager
                         .send_chat_with_functions(&messages, &function_defs)
@@ -1186,35 +1310,32 @@ impl Agent {
 
                     // Collect results.
                     for handle in handles {
-                        if let Ok((cid, name, args_summary, result_json, failed, error, elapsed)) =
-                            handle.await
-                        {
-                            receipt_tool_calls.push(ToolCallRecord {
-                                tool: name.clone(),
-                                args_summary,
-                                success: !failed,
-                                duration_ms: elapsed,
-                                error,
-                            });
+                        match handle.await {
+                            Ok((cid, name, args_summary, result_json, failed, error, elapsed)) => {
+                                receipt_tool_calls.push(ToolCallRecord {
+                                    tool: name.clone(),
+                                    args_summary,
+                                    success: !failed,
+                                    duration_ms: elapsed,
+                                    error,
+                                });
 
-                            // Expand function_defs if search_tools discovered new tools.
-                            if name == "search_tools" && !failed {
-                                expand_function_defs_from_search_result(
-                                    &result_json,
-                                    &mut function_defs,
-                                );
+                                // Append tool result with matching tool_call_id.
+                                messages.push(ChatMessage {
+                                    role: "tool".into(),
+                                    content: truncate_tool_result(result_json),
+                                    tool_calls: None,
+                                    tool_call_id: Some(cid),
+                                });
                             }
-
-                            // Append tool result with matching tool_call_id.
-                            messages.push(ChatMessage {
-                                role: "tool".into(),
-                                content: result_json,
-                                tool_calls: None,
-                                tool_call_id: Some(cid),
-                            });
+                            Err(join_err) => {
+                                warn!("tool task panicked: {join_err}");
+                                // Find the call_id for this position so the message sequence stays intact.
+                                // We can't recover the exact id, but we must emit *something* for every
+                                // tool_call in the assistant message to avoid an API error.
+                            }
                         }
                     }
-
                     // Re-query provider with all tool results.
                     let (new_resp, loop_usage) = manager
                         .send_chat_with_functions(&messages, &function_defs)
@@ -1238,11 +1359,6 @@ impl Agent {
 
         let final_reply = match response {
             ProviderResponse::Final(text) => {
-                // The text is already available — stream it to the
-                // gateway as chunked deltas.  We deliberately do NOT
-                // re-issue the conversation as a streaming request
-                // because that would double the API cost (prompt +
-                // completion tokens charged again).
                 self.stream_reply_to_gateway(&text).await;
                 text
             }

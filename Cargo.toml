@@ -49,11 +49,11 @@ ring = "0.17"
 base64 = "0.22"
 libc = "0.2"
 openssl = { version = "0.10", features = ["vendored"], optional = true }
-playwright-rust = { version = "0.8", package = "playwright-rs", optional = true }
+rmcp = { version = "0.16", default-features = false, features = ["client", "server", "transport-streamable-http-client-reqwest", "reqwest-native-tls"] }
+http = "1"
 
 [features]
-default = ["playwright"]
-playwright = ["playwright-rust"]
+default = []
 vendored-openssl = ["openssl"]
 
 [dev-dependencies]

@@ -670,7 +670,13 @@ pub async fn load_heartbeat_status(ws: &Path) -> Option<HeartbeatStatus> {
 pub async fn load_persisted_cron_jobs(ws: &Path) -> Vec<PersistedCronJob> {
     let path = ws.join("cron_jobs.json");
     match tokio::fs::read_to_string(&path).await {
-        Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
+        Ok(json) => match serde_json::from_str(&json) {
+            Ok(jobs) => jobs,
+            Err(e) => {
+                tracing::warn!(path = %path.display(), error = %e, "corrupt cron_jobs.json — returning empty list");
+                Vec::new()
+            }
+        },
         Err(_) => Vec::new(),
     }
 }
