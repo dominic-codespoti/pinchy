@@ -1,256 +1,96 @@
 # AGENTS.md
 
-Goal: build a tiny Rust daemon that can run on a Pi, talks via channels such as Discord, calls LLMs, runs tools, and supports heartbeat + cron proactive triggers.
+Guidelines for AI agents working on the Pinchy codebase.
 
 ## Rules
+
 - Ship the smallest thing that works. Cut scope, don't add features "just in case".
-- **Always run `cargo fmt` and `cargo clippy` before committing or pushing to main.** Fix all warnings before pushing. No exceptions.
+- **Always run `cargo fmt` and `cargo clippy` before committing.** Fix all warnings. No exceptions.
+- Never `unwrap()` in production paths — use `?` or explicit error handling.
+- Keep TypeScript (web/) and Rust (src/) type boundaries in sync.
 
-## MVP (in this order)
-1) Load `config.yaml` (agents, discord token, model providers)
-2) Connect Discord bot, receive messages, send replies (generic pattern to allow for future channels)
-3) Agent runtime: build prompt from workspace markdown + short session history
-4) LLM provider trait + OpenAI implementation (API key first; OAuth later)
-5) Tool runner: only `read`, `write`, `exec` in workspace
-6) Heartbeat: `tokio::time::interval` + `HEARTBEAT.md` + `HEARTBEAT_OK`
-7) Cron: persisted jobs + `cron` scheduler + dispatch to agent
+## Architecture Overview
 
-## Workspace contract
-Per agent workspace contains optional:
-- `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`
-- `skills/` (later)
-- `sessions/*.jsonl`
+Pinchy is a single-binary Rust daemon. On start it launches:
+1. **Gateway** — Axum HTTP/WS server (default `:3131`)
+2. **Scheduler** — Heartbeat ticks + cron jobs via `tokio_cron_scheduler`
+3. **Discord connector** — if configured
 
-Never read/write outside the agent workspace unless explicitly configured.
+### Module Map
 
-## Code shape
-Crates/modules:
-- `config` (serde load + validate)
-- `discord` (connector)
-- `agent` (prompt build, session store)
-- `models` (provider trait + openai + azure_openai)
-- `tools` (builtin tools + sandbox rules)
-- `tools/memory_tool` (save/recall persistent memory)
-- `tools/skill_author_tool` (create_skill/list_skills)
-- `scheduler` (heartbeat + cron)
-- `main` (wires everything)
+| Module | Purpose |
+|---|---|
+| `config/` | Serde config loading, `Config`/`AgentConfig`/`ModelConfig` structs |
+| `agent/` | Agent runtime: prompt building, tool loop, session management |
+| `models/` | `ModelProvider` trait + `OpenAI`, `AzureOpenAI`, `Copilot`, `OpenAICompat` providers; `ProviderManager` with retry/fallback |
+| `tools/` | 31 built-in tools, `ToolRegistry`, `AUTO_PLUCK_RULES` keyword-based deferred injection |
+| `tools/builtins/` | Tool implementations: `mcp` (rmcp SDK), `browser` (Playwright), `skill_author`, etc. |
+| `skills/` | `SkillRegistry` — discovers `SKILL.md` manifests, progressive disclosure via `activate_skill` |
+| `memory/` | SQLite + FTS5 persistent memory (`save_memory`, `recall_memory`, `forget_memory`) |
+| `session/` | JSONL-backed session store, session index |
+| `context/` | Context window management — tiktoken (`o200k_base`), pruning, LLM-powered compaction |
+| `scheduler/` | Heartbeat + cron (persisted `cron_jobs.json`, retries, dependencies, per-agent timezone) |
+| `discord/` | Discord `ChannelConnector` |
+| `comm/` | Channel-agnostic `IncomingMessage` / `RichMessage` bus, connector registry |
+| `gateway/` | Axum REST routes + WebSocket + static serving; handler sub-modules |
+| `slash/` | Slash command registry (`/new`, `/status`, `/cron`, `/compact`, etc.) |
+| `auth/` | GitHub device-flow login, Copilot token exchange |
+| `secrets/` | AES-256-GCM encrypted file-backed secret store (via `ring`) |
 
-## "Done" criteria for a milestone
-- Works end-to-end on a Pi with `cargo run --release`
-- Logs are readable; failures don't crash the whole process
-- No hidden background magic: all actions are explicit and observable
+### Agent Workspace
 
-## Stretch-goals (keep in mind)
-- Web UI, websockets, pairing flows, multi-channel routing, mobile nodes
+Each agent gets a workspace at `agents/<id>/workspace/` containing:
+- `SOUL.md` — personality / system prompt
+- `TOOLS.md` — tool usage instructions
+- `HEARTBEAT.md` — heartbeat prompt
+- `sessions/*.jsonl` — conversation history
+- `memory.db` — SQLite persistent memory
+- `skills/*/SKILL.md` — skill manifests
+- `config/mcp.json` — MCP server definitions
 
-## Inspiration
-Pull from and take inspiration from the project "https://github.com/openclaw/openclaw" if needed via search tools.
+File tools are sandboxed to the agent workspace unless explicitly configured otherwise.
 
-Agents now use a canonical per-agent workspace at agents/<id>/workspace. Each workspace contains agent-specific files (`SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`, `sessions/`).
+### Tool System
 
----
+Tools are registered in `src/tools/mod.rs`. Two categories:
 
-## Phase 2 — Feature Plan
+- **Core tools** (always in prompt): `read_file`, `write_file`, `edit_file`, `list_files`, `exec_shell`, `save_memory`, `recall_memory`, `forget_memory`, `activate_skill`
+- **Deferred tools** (auto-plucked by keywords in recent conversation): managed by `AUTO_PLUCK_RULES` — scans last 5 user messages + current message for domain keywords, then injects matching tools into the function-calling payload
 
-### F1: Persistent Memory (cross-session knowledge store)
+### MCP Client
 
-**Why:** Sessions rotate — when one ends, the agent forgets everything.
-Memory lets the agent accumulate knowledge that persists across sessions
-(user preferences, project facts, recurring tasks).
+`src/tools/builtins/mcp.rs` — uses the `rmcp` SDK with Streamable HTTP transport.
+Config loaded from `config/mcp.json` (or `mcporter.json`, `.mcp.json`) in the agent workspace.
+Actions: `list_servers`, `list_tools`, `call_tool`, `add_server`, `remove_server`.
 
-**Design:**
-- Storage: one JSONL file per agent at `agents/<id>/workspace/memory.jsonl`
-- Each entry: `{ "key": "...", "value": "...", "tags": [...], "timestamp": <epoch_ms> }`
-- Key is a short slug (e.g. `"user_timezone"`, `"project_stack"`); value is free-text
-- Duplicate keys overwrite (last-write-wins on the slug)
+### Context Management
 
-**Two new tools registered in `tools/mod.rs`:**
-- `save_memory { key, value, tags? }` — append/upsert to memory.jsonl
-- `recall_memory { query?, tag?, limit? }` — search entries by substring or tag; returns top N
-  - If `query` is provided and an embedding model is configured, use cosine similarity
-  - Otherwise fall back to case-insensitive substring match on key+value
+`src/context/mod.rs` — budget-based context window management using `tiktoken-rs` (`o200k_base`).
+Default budget: 120k tokens max, prune at 80k, compact at 100k.
+Pruning strips old tool results; compaction summarises oldest messages via an LLM call.
 
-**Embedding support (optional, Azure path):**
-- New trait method on `ModelProvider`: `async fn embed(&self, texts: &[&str]) -> Result<Vec<Vec<f32>>>`
-  - Default impl returns `Err("not supported")`
-  - `AzureOpenAIProvider` overrides with a call to the Azure embeddings endpoint
-- `recall_memory` checks if an embedding provider is configured; if yes, embed the query
-  and rank stored memories by cosine similarity; if no, substring search
-- Embeddings are cached in `memory_embeddings.bin` (simple flat `Vec<f32>` per entry)
-  to avoid re-embedding on every recall
+## CI Pipeline
 
-**Prompt injection:**
-- At prompt-build time (`agent/mod.rs`), load all memory entries and inject them
-  as a `<memory>` block in the system prompt (after SOUL.md, before TOOLS.md)
-- Cap at ~2K tokens worth of entries; prioritise by recency + relevance
+`.github/workflows/ci.yml` runs on push/PR to `main`:
 
-**Files touched:**
-- New: `src/tools/memory_tool.rs`
-- Edit: `src/tools/mod.rs` (register + dispatch)
-- Edit: `src/agent/mod.rs` (inject memory into prompt)
-- Edit: `src/models/mod.rs` (add `embed()` default method to trait)
+1. `cargo fmt -- --check` + `cargo clippy --no-default-features`
+2. `cargo test --no-default-features --lib`
+3. Cross-platform release builds (x86_64 + aarch64 Linux, x86_64 + aarch64 macOS)
+4. Auto-tag (patch bump on main), GitHub Release, crates.io publish
 
----
+## Development Workflow
 
-### F2: Azure OpenAI / Azure AI Foundry Provider
-
-**Why:** User wants to use Azure-hosted models including embedding models.
-Azure OpenAI uses a different endpoint pattern and auth header than vanilla OpenAI.
-
-**Design:**
-- New file: `src/models/azure_openai.rs`
-- Struct `AzureOpenAIProvider`:
-  - `endpoint: String` — e.g. `https://<resource>.openai.azure.com`
-  - `api_key: String` — Azure API key
-  - `deployment: String` — deployment name (replaces model in URL)
-  - `api_version: String` — e.g. `"2024-10-21"`
-  - `embedding_deployment: Option<String>` — separate deployment for embeddings
-- Chat completions URL: `{endpoint}/openai/deployments/{deployment}/chat/completions?api-version={api_version}`
-- Embeddings URL: `{endpoint}/openai/deployments/{embedding_deployment}/embeddings?api-version={api_version}`
-- Auth header: `api-key: {api_key}` (NOT `Authorization: Bearer`)
-- Implements `ModelProvider` trait including `send_chat`, `send_chat_with_functions`, and `embed()`
-
-**Config extension:**
-```yaml
-models:
-  - id: azure-gpt4
-    provider: azure-openai
-    model: gpt-4o                    # deployment name
-    api_key: $AZURE_OPENAI_API_KEY
-    endpoint: https://myresource.openai.azure.com
-    api_version: "2024-10-21"        # optional, has default
-  - id: azure-embeddings
-    provider: azure-openai
-    model: text-embedding-3-small
-    api_key: $AZURE_OPENAI_API_KEY
-    endpoint: https://myresource.openai.azure.com
+```bash
+make dev        # Vite HMR + Rust auto-rebuild
+cargo fmt       # Must pass before push
+cargo clippy    # Must be clean before push
+cargo test      # 22 integration test files in tests/
 ```
 
-**Config struct changes:**
-- Add optional fields to `ModelConfig`: `endpoint`, `api_version`
-- Remove `deny_unknown_fields` from `ModelConfig` (already blocks new fields)
-- Wire into `build_provider()` match arm: `"azure-openai" | "azure_openai" | "azure"`
+## Key Patterns
 
-**Files touched:**
-- New: `src/models/azure_openai.rs`
-- Edit: `src/models/mod.rs` (add `embed()` to trait, `build_provider` arm, re-export)
-- Edit: `src/config/mod.rs` (add `endpoint`, `api_version` to `ModelConfig`)
-
----
-
-### F3: Webhook Ingest Endpoint
-
-**Why:** External systems (GitHub, Sentry, Stripe, IFTTT, Home Assistant)
-can POST events that trigger agent actions — the agent becomes reactive
-to the real world, not just chat messages.
-
-**Design:**
-- New route: `POST /api/webhook/:agent_id`
-- Accepts arbitrary JSON body
-- Wraps it in an `IncomingMessage` with `source: "webhook"` and dispatches
-  to the agent's message bus
-- Agent receives it as a system message: `"Webhook received:\n```json\n{body}\n```"`
-- Optional: `?secret=<token>` query param validated against a per-agent
-  `webhook_secret` in config (simple shared secret, not HMAC for now)
-- Returns `202 Accepted` with `{ "status": "dispatched", "agent": "<id>" }`
-
-**Config extension:**
-```yaml
-agents:
-  - id: default
-    webhook_secret: $WEBHOOK_SECRET   # optional
-```
-
-**Files touched:**
-- Edit: `src/gateway/mod.rs` (add route + handler)
-- Edit: `src/config/mod.rs` (add `webhook_secret` to `AgentConfig`)
-- Edit: `src/comm/mod.rs` (ensure IncomingMessage supports `source` field)
-
----
-
-### F4: Skill Self-Authoring Tool
-
-**Why:** The agent should be able to create new skills for itself at runtime,
-just like OpenClaw agents do. "Build a skill that checks the weather" →
-agent writes SKILL.md → hot-reloads the registry.
-
-**Design:**
-- New tool: `activate_skill { name }` — progressive disclosure; loads full instructions on demand
-- New tool: `create_skill { name, description, instructions }` — write SKILL.md
-  - Creates `agents/<id>/skills/<name>/SKILL.md` with proper frontmatter
-  - Calls `SkillRegistry::reload()` to hot-reload
-- New tool: `list_skills {}` — returns the agent's current skill list
-- New tool: `edit_skill { name, description?, instructions? }` — update a skill
-- New tool: `delete_skill { name }` — remove a skill
-
-**SkillRegistry changes:**
-- Add `pub fn reload(&mut self)` that re-scans skill dirs
-- Expose a global `reload_skills()` function that acquires the registry lock and reloads
-- Progressive disclosure: `prompt_metadata()` emits name+description only at boot;
-  full instructions loaded via `activate_skill` tool
-
-**Files touched:**
-- `src/tools/builtins/skill_author.rs` (skill authoring tools)
-- `src/tools/mod.rs` (register + dispatch)
-- `src/skills/mod.rs` (registry, progressive disclosure)
-
----
-
-### F5: Enhance `pinchy init` Wizard
-
-**Why:** The existing wizard (`app_onboard`) handles config creation and
-copilot login but doesn't guide through API key entry, Azure setup, or
-webhook configuration. It should be the friction-free entry point.
-
-**Enhancements:**
-1. **Provider-aware key prompts:**
-   - If user picks `openai` → prompt for `OPENAI_API_KEY`, save to secrets
-   - If user picks `azure-openai` → prompt for endpoint, API key, deployment names
-   - If user picks `copilot` → trigger device flow (already implemented)
-
-2. **Discord setup step:**
-   - Ask "Connect Discord?" → if yes, prompt for bot token, save to secrets
-
-3. **Embedding model step:**
-   - Ask "Configure an embedding model for memory search?" → if yes,
-     prompt for provider + deployment, add to config.models
-
-4. **Summary with next-steps:**
-   - Print URLs: dashboard at `http://localhost:8080`
-   - Print: "Send your first message: `pinchy chat hello`"
-
-**Files touched:**
-- Edit: `src/cli/mod.rs` (extend `app_onboard` + `interactive_onboard_tui`)
-- Edit: `src/config/mod.rs` (if new fields needed)
-
----
-
-## Implementation Order
-
-```
- F2: Azure OpenAI Provider       ← unlocks embedding support
-  │
-  ▼
- F1: Persistent Memory           ← uses embeddings from F2 for recall
-  │
-  ▼
- F3: Webhook Ingest              ← independent, small surface area
-  │
-  ▼
- F4: Skill Self-Authoring        ← independent, builds on existing skill infra
-  │
-  ▼
- F5: Enhanced Init Wizard        ← ties all new features into onboarding
-```
-
-Each feature is designed to be independently shippable and testable.
-F2 → F1 have a dependency (embeddings power semantic memory search).
-F3, F4, F5 are independent of each other and can be reordered.
-
-**Workspace additions:**
-- `memory.jsonl` — persistent knowledge store
-- `memory_embeddings.bin` — cached embedding vectors
-
-## Remember
-- Ensure strict type safety and error handling; avoid panics
-- Ensure TypeScript / Rust boundary is well-defined and types are kept in sync
+- **Provider fallback**: `ProviderManager` wraps a primary provider with `fallback_models` chain and a safety-net `FallbackProvider`
+- **Progressive disclosure**: Skills inject only name+description at boot; `activate_skill` loads full instructions on demand
+- **Auto-pluck**: Deferred tools are keyword-triggered — see `AUTO_PLUCK_RULES` in `src/tools/mod.rs`. The pluck scan covers recent history (last 5 user messages) so follow-up messages still get relevant tools
+- **Receipt tracking**: Every tool call in a turn is recorded as a `ToolCallRecord` for observability
+- **Session isolation**: Cron jobs run in isolated sessions; session expiry is configurable
