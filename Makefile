@@ -1,4 +1,4 @@
-.PHONY: dev build web run update install release
+.PHONY: dev build web run update install release lint setup
 
 # Start everything: Vite HMR + Rust backend (auto-rebuild if cargo-watch installed)
 dev:
@@ -32,3 +32,13 @@ install: update
 # Release build only (no git pull)
 release: web
 	cargo build --release
+
+# Run the same lint + format checks as CI
+lint:
+	cargo fmt -- --check
+	cargo clippy --no-default-features -- -D warnings
+
+# Install git pre-commit hook so lint errors are caught before push
+setup:
+	@ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
+	@echo "✅ Pre-commit hook installed"
