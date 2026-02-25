@@ -55,9 +55,4 @@ http = "1"
 [features]
 default = []
 vendored-openssl = ["openssl"]
-
-[dev-dependencies]
-tempfile = "3"
-wiremock = "0.6"
-tokio-tungstenite = "0.24"
-futures-util = "0.3"
+playwright = []
