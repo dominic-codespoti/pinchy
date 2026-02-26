@@ -253,6 +253,7 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
                         webhook_secret: None,
                         extra_exec_commands: Vec::new(),
                         history_messages: None,
+                        max_turns: None,
                         timezone: None,
                     });
                     if let Err(e) = cfg.save(&config_path).await {

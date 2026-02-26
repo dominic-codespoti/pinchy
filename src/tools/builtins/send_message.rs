@@ -18,7 +18,7 @@ const MAX_ATTACHMENT_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Execute the `send_message` tool.
 pub async fn send_message(workspace: &Path, args: Value) -> anyhow::Result<Value> {
-    let channel_id = match args["channel_id"].as_str() {
+    let channel_id = match args["channel_id"].as_str().filter(|s| !s.trim().is_empty()) {
         Some(id) => id.to_string(),
         None => {
             let config_path = crate::pinchy_home().join("config.yaml");

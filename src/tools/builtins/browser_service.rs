@@ -21,11 +21,11 @@ mod impl_playwright {
     use crate::config;
     use crate::utils::browser_detect;
 
-    use playwright_rust::api::LaunchOptions;
-    use playwright_rust::protocol::Playwright;
+    use playwright_rs::api::LaunchOptions;
+    use playwright_rs::protocol::Playwright;
     // TODO: if the crate re-exports `Page` / `Browser` at a different path,
     //       adjust these imports accordingly.
-    use playwright_rust::protocol::{Browser, Page};
+    use playwright_rs::protocol::{Browser, Page};
 
     /// Headless browser automation backed by `playwright-rs`.
     ///

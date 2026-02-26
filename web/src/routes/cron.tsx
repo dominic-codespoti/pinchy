@@ -20,10 +20,10 @@ import {
   listAgents,
   listCronJobs,
   queryKeys,
+  triggerCronJob,
 } from "@/api/client";
 import { Button, Checkbox, Dialog, DialogContent, Input, Select, SelectItem, Separator, StatusPill, TextArea } from "@/components/ui";
-import { CRON_RE, computeNextFires } from "@/lib/utils";
-import { sendOneShot } from "@/lib/ws";
+import { CRON_RE, computeNextFires, formatInTz } from "@/lib/utils";
 
 type CronJobView = {
   id: string;
@@ -56,6 +56,19 @@ export function CronRoute() {
     () => (agentsQuery.data?.agents ?? []).map((agent) => agent.id),
     [agentsQuery.data],
   );
+
+  const agentTzMap = useMemo(() => {
+    const map: Record<string, string | null> = {};
+    for (const agent of agentsQuery.data?.agents ?? []) {
+      map[agent.id] = agent.timezone ?? null;
+    }
+    return map;
+  }, [agentsQuery.data]);
+
+  const agentTz = useMemo(() => {
+    const agent = (agentsQuery.data?.agents ?? []).find((a) => a.id === agentId);
+    return agent?.timezone ?? null;
+  }, [agentsQuery.data, agentId]);
 
   const runsQuery = useQuery({
     queryKey: ["cron-runs", selectedJobId],
@@ -123,13 +136,16 @@ export function CronRoute() {
 
   const runNow = (job: CronJobView) => {
     setRunningJobId(job.id);
-    sendOneShot(`/cron run ${job.id}`, job.agent_id)
-      .then(() => toast.success(`Triggered ${job.name}`))
+    triggerCronJob(job.id)
+      .then(() => {
+        toast.success(`Triggered ${job.name}`);
+        void queryClient.invalidateQueries({ queryKey: ["cron-runs", job.id] });
+      })
       .catch(() => toast.error("Failed to trigger cron run"))
       .finally(() => setRunningJobId(null));
   };
 
-  const schedulePreview = computeNextFires(schedule, 5);
+  const schedulePreview = computeNextFires(schedule, 5, agentTz);
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg)]">
@@ -178,13 +194,13 @@ export function CronRoute() {
             </div>
 
             <div className="rounded-lg border border-white/[0.04] bg-white/[0.01] p-2 text-xs">
-              <span className="text-[10px] uppercase tracking-widest text-slate-600">Schedule preview</span>
+              <span className="text-[10px] uppercase tracking-widest text-slate-600">Schedule preview{agentTz ? ` · ${agentTz}` : ""}</span>
               {!CRON_RE.test(schedule.trim()) ? (
                 <p className="text-rose-300 mt-1">Expression appears invalid.</p>
               ) : (
                 <ul className="mt-1 space-y-0.5 text-slate-400">
                   {schedulePreview.map((d, i) => (
-                    <li key={i}>{d.toLocaleString()}</li>
+                    <li key={i}>{formatInTz(d, agentTz)}</li>
                   ))}
                   {!schedulePreview.length ? <li>No preview available for this expression.</li> : null}
                 </ul>
@@ -220,6 +236,7 @@ export function CronRoute() {
                     <th className="px-3 py-2.5">Name</th>
                     <th className="px-3 py-2.5">Agent</th>
                     <th className="px-3 py-2.5">Schedule</th>
+                    <th className="px-3 py-2.5">Next fire</th>
                     <th className="px-3 py-2.5">Status</th>
                     <th className="px-3 py-2.5">Actions</th>
                   </tr>
@@ -229,6 +246,7 @@ export function CronRoute() {
                     <CronRow
                       key={job.id}
                       job={job}
+                      agentTz={agentTzMap[job.agent_id] ?? null}
                       onDelete={(jobId, jobName) => setConfirmDelete({ id: jobId, name: jobName })}
                       onEdit={(jobId) => navigate({ to: "/cron/$jobId", params: { jobId: encodeURIComponent(jobId) } })}
                       onShowRuns={(jobId) => setSelectedJobId(jobId)}
@@ -247,6 +265,7 @@ export function CronRoute() {
               <CronCard
                 key={job.id}
                 job={job}
+                agentTz={agentTzMap[job.agent_id] ?? null}
                 onDelete={(jobId, jobName) => setConfirmDelete({ id: jobId, name: jobName })}
                 onEdit={(jobId) => navigate({ to: "/cron/$jobId", params: { jobId: encodeURIComponent(jobId) } })}
                 onShowRuns={(jobId) => setSelectedJobId(jobId)}
@@ -358,6 +377,7 @@ export function CronRoute() {
 
 function CronRow({
   job,
+  agentTz,
   onDelete,
   onEdit,
   onShowRuns,
@@ -365,12 +385,16 @@ function CronRow({
   running,
 }: {
   job: CronJobView;
+  agentTz: string | null;
   onDelete: (jobId: string, jobName: string) => void;
   onEdit: (jobId: string) => void;
   onShowRuns: (jobId: string) => void;
   onRunNow: (job: CronJobView) => void;
   running: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const nextFires = computeNextFires(job.schedule, 5, agentTz);
+  const nextFire = nextFires[0] ?? null;
   return (
     <tr
       className="border-b border-white/[0.04] align-top text-xs cursor-pointer hover:bg-white/[0.02] transition-colors"
@@ -380,6 +404,27 @@ function CronRow({
       <td className="px-3 py-2 text-slate-500">{job.agent_id}</td>
       <td className="px-3 py-2">
         <code className="text-slate-400">{job.schedule}</code>
+      </td>
+      <td
+        className="px-3 py-2 text-slate-500 tabular-nums"
+        onClick={(e) => { e.stopPropagation(); setExpanded((p) => !p); }}
+      >
+        {nextFire ? (
+          <div>
+            <span className="flex items-center gap-1 hover:text-slate-300 transition-colors cursor-pointer">
+              <Clock className="h-3 w-3 text-emerald-400/40" />
+              {formatInTz(nextFire, agentTz)}
+            </span>
+            {expanded && nextFires.length > 1 && (
+              <ul className="mt-1.5 space-y-0.5 pl-4 border-l border-white/[0.06]">
+                {nextFires.slice(1).map((d, i) => (
+                  <li key={i} className="text-[10px] text-slate-600">{formatInTz(d, agentTz)}</li>
+                ))}
+                {agentTz && <li className="text-[10px] text-slate-700 mt-1">{agentTz}</li>}
+              </ul>
+            )}
+          </div>
+        ) : "—"}
       </td>
       <td className="px-3 py-2">
         <StatusPill status={job.last_status ?? "PENDING"} />
@@ -416,6 +461,7 @@ function CronRow({
 
 function CronCard({
   job,
+  agentTz,
   onDelete,
   onEdit,
   onShowRuns,
@@ -423,12 +469,16 @@ function CronCard({
   running,
 }: {
   job: CronJobView;
+  agentTz: string | null;
   onDelete: (jobId: string, jobName: string) => void;
   onEdit: (jobId: string) => void;
   onShowRuns: (jobId: string) => void;
   onRunNow: (job: CronJobView) => void;
   running: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const nextFires = computeNextFires(job.schedule, 5, agentTz);
+  const nextFire = nextFires[0] ?? null;
   return (
     <article
       className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 cursor-pointer hover:bg-white/[0.03] transition-colors"
@@ -444,6 +494,25 @@ function CronCard({
 
       <p className="text-xs text-slate-500">Agent: {job.agent_id}</p>
       <p className="mt-2 rounded-lg border border-white/[0.04] bg-white/[0.01] px-2 py-1 font-mono text-xs text-slate-400">{job.schedule}</p>
+      {nextFire && (
+        <div
+          className="mt-1.5"
+          onClick={(e) => { e.stopPropagation(); setExpanded((p) => !p); }}
+        >
+          <p className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer">
+            <Clock className="h-3 w-3 text-emerald-400/40" />
+            Next: {formatInTz(nextFire, agentTz)}
+          </p>
+          {expanded && nextFires.length > 1 && (
+            <ul className="mt-1 ml-4 space-y-0.5 border-l border-white/[0.06] pl-2">
+              {nextFires.slice(1).map((d, i) => (
+                <li key={i} className="text-[10px] text-slate-600">{formatInTz(d, agentTz)}</li>
+              ))}
+              {agentTz && <li className="text-[10px] text-slate-700 mt-1">{agentTz}</li>}
+            </ul>
+          )}
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
         {[

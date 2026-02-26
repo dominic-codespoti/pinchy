@@ -5,10 +5,10 @@
 //! with `action: "status"` / `"kill"` / `"output"` to manage background
 //! processes.
 
-use once_cell::sync::Lazy;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::LazyLock;
 use std::sync::Mutex;
 use tokio::process::Child;
 
@@ -39,7 +39,8 @@ struct BgProcess {
     done: bool,
 }
 
-static BG_PROCS: Lazy<Mutex<HashMap<u64, BgProcess>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static BG_PROCS: LazyLock<Mutex<HashMap<u64, BgProcess>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Monotonically increasing process counter.
 static BG_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);

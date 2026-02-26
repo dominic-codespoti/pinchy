@@ -243,6 +243,7 @@ pub async fn create_agent(_workspace: &Path, args: Value) -> anyhow::Result<Valu
                 webhook_secret: None,
                 extra_exec_commands: Vec::new(),
                 history_messages: None,
+                max_turns: None,
                 timezone: None,
             });
             if let Err(e) = cfg.save(&config_path).await {

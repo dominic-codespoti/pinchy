@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
-use thiserror::Error;
 use tracing::debug;
 
 use crate::models::ModelProvider;
@@ -67,15 +66,26 @@ pub enum SlashResponse {
 }
 
 /// Errors during slash command dispatch or execution.
-#[derive(Debug, Error)]
+#[derive(Debug)]
 pub enum SlashError {
-    #[error("unknown command: /{0}")]
     UnknownCommand(String),
-    #[error("command /{cmd} is not available on channel `{channel}`")]
     NotAvailable { cmd: String, channel: String },
-    #[error("{0}")]
     Handler(String),
 }
+
+impl std::fmt::Display for SlashError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UnknownCommand(s) => write!(f, "unknown command: /{s}"),
+            Self::NotAvailable { cmd, channel } => {
+                write!(f, "command /{cmd} is not available on channel `{channel}`")
+            }
+            Self::Handler(s) => f.write_str(s),
+        }
+    }
+}
+
+impl std::error::Error for SlashError {}
 
 // ── Handler type alias ───────────────────────────────────────
 
@@ -320,6 +330,15 @@ pub fn register_builtin_commands(registry: &Registry) {
                     return Ok(SlashResponse::Text(
                         "usage: /switch_session <id>".to_string(),
                     ));
+                }
+                let session_file = ctx
+                    .workspace
+                    .join("sessions")
+                    .join(format!("{session_id}.jsonl"));
+                if !session_file.exists() {
+                    return Ok(SlashResponse::Text(format!(
+                        "session '{session_id}' not found — use /list_sessions to see available sessions"
+                    )));
                 }
                 SessionStore::set_current(&ctx.workspace, &session_id)
                     .await
@@ -571,34 +590,55 @@ pub fn register_builtin_commands(registry: &Registry) {
                         }
                         Ok(SlashResponse::Text(format!("added cron job: {schedule} — {message}")))
                     }
-                    other => Ok(SlashResponse::Text(format!("unknown cron subcommand: {other}\nusage: /cron list | status | delete | add"))),
+                    "run" => {
+                        let job_id = args.args.get(1).cloned().unwrap_or_default();
+                        if job_id.is_empty() {
+                            return Ok(SlashResponse::Text("usage: /cron run <name@agent_id>".to_string()));
+                        }
+                        let (job_name, agent_id) = job_id.split_once('@').unwrap_or((&job_id, &ctx.agent_id));
+                        let jobs = crate::scheduler::load_persisted_cron_jobs(&ctx.agent_root).await;
+                        let job = jobs.iter().find(|j| j.name == job_name && j.agent_id == agent_id);
+                        match job {
+                            Some(job) => {
+                                crate::scheduler::run_persisted_job_tick(&ctx.agent_root, job).await;
+                                Ok(SlashResponse::Text(format!("triggered cron job: {job_id}")))
+                            }
+                            None => Ok(SlashResponse::Text(format!("cron job not found: {job_id}"))),
+                        }
+                    }
+                    other => Ok(SlashResponse::Text(format!("unknown cron subcommand: {other}\nusage: /cron list | status | delete | add | run"))),
                 }
             })
         }),
     );
 
-    // /help — list available commands
-    registry.register(
-        cmd("help", "List available slash commands", "/help"),
-        Arc::new(|_ctx, _args| {
-            Box::pin(async move {
-                let lines = [
-                    "/new                   — Start a new conversation session",
-                    "/end                   — End the current session",
-                    "/session               — Show current session id",
-                    "/switch_session <id>   — Switch to an existing session",
-                    "/list_sessions         — List all saved sessions",
-                    "/list_agents           — List all agent folders",
-                    "/set-model <id>        — Change the model for this agent",
-                    "/status                — Show agent status",
-                    "/compact               — Summarise older messages into a compact card",
-                    "/help                  — Show this help message",
-                    "/exit                  — Quit the REPL (TUI only)",
-                ];
-                Ok(SlashResponse::Text(lines.join("\n")))
+    // /help — list available commands (auto-generated from registry)
+    {
+        let help_cmd = cmd("help", "List available slash commands", "/help");
+        let mut cmds = registry.list();
+        cmds.push(help_cmd.clone());
+        cmds.sort_by(|a, b| a.name.cmp(&b.name));
+        let max_usage_len = cmds.iter().map(|c| c.usage.len()).max().unwrap_or(0);
+        let help_text: String = cmds
+            .iter()
+            .map(|c| {
+                format!(
+                    "{:<width$} — {}",
+                    c.usage,
+                    c.description,
+                    width = max_usage_len
+                )
             })
-        }),
-    );
+            .collect::<Vec<_>>()
+            .join("\n");
+        registry.register(
+            help_cmd,
+            Arc::new(move |_ctx, _args| {
+                let text = help_text.clone();
+                Box::pin(async move { Ok(SlashResponse::Text(text)) })
+            }),
+        );
+    }
 
     // /compact — summarise older messages into a compact card via LLM
     registry.register(

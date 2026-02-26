@@ -16,12 +16,12 @@ pub mod parsing;
 pub use builtins::browser_service;
 
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
 use serde_json::Value;
 use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
+use std::sync::LazyLock;
 use std::sync::{Arc, Mutex};
 use tracing::info;
 
@@ -72,7 +72,7 @@ struct ToolEntry {
 }
 
 /// Global tool registry.
-static REGISTRY: Lazy<Mutex<Vec<ToolEntry>>> = Lazy::new(|| Mutex::new(Vec::new()));
+static REGISTRY: LazyLock<Mutex<Vec<ToolEntry>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 /// Register a tool's metadata in the global registry (no handler).
 ///
@@ -335,6 +335,12 @@ const AUTO_PLUCK_RULES: &[(&[&str], &[&str])] = &[
             "periodic",
             "recurring",
             "heartbeat",
+            "midnight",
+            "daily",
+            "nightly",
+            "weekly",
+            "hourly",
+            "every",
         ],
         &[
             "list_cron_jobs",
@@ -380,6 +386,9 @@ const AUTO_PLUCK_RULES: &[(&[&str], &[&str])] = &[
             "send",
             "channel",
             "embed",
+            "digest",
+            "alert",
+            "report",
         ],
         &["send_message"],
     ),
@@ -392,6 +401,8 @@ const AUTO_PLUCK_RULES: &[(&[&str], &[&str])] = &[
             "external tool",
             "remote tool",
             "api tool",
+            "enumerate",
+            "remote",
         ],
         &["mcp"],
     ),
@@ -436,7 +447,7 @@ pub fn auto_pluck_deferred(user_message: &str) -> Vec<ToolMeta> {
 // all agent capabilities — callable tools AND instructional context.
 
 /// Agent ID used for skill reload (stored at boot).
-static SKILL_AGENT_ID: Lazy<Mutex<Option<String>>> = Lazy::new(|| Mutex::new(None));
+static SKILL_AGENT_ID: LazyLock<Mutex<Option<String>>> = LazyLock::new(|| Mutex::new(None));
 
 /// Store the default agent ID so skill reload can reconstruct a
 /// [`SkillRegistry`](crate::skills::SkillRegistry) loader.

@@ -406,6 +406,59 @@ pub(crate) fn cron_run_to_json(run: &crate::scheduler::JobRun) -> serde_json::Va
     })
 }
 
+/// `POST /api/cron/jobs/:job_id/trigger` — manually trigger a cron job immediately.
+pub(crate) async fn api_cron_job_trigger(Path(job_id): Path<String>) -> impl IntoResponse {
+    let (job_name, agent_id) = if let Some(pos) = job_id.rfind('@') {
+        (&job_id[..pos], &job_id[pos + 1..])
+    } else {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "invalid job_id format, expected name@agent_id"
+            })),
+        )
+            .into_response();
+    };
+    if let Err(e) = validate_path_segment(agent_id) {
+        return e.into_response();
+    }
+
+    let ws = crate::utils::agent_root(agent_id);
+    if !ws.exists() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "agent not found", "agent_id": agent_id })),
+        )
+            .into_response();
+    }
+
+    let jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
+    let job = jobs
+        .iter()
+        .find(|j| j.name == job_name && j.agent_id == agent_id);
+
+    match job {
+        Some(job) => {
+            crate::scheduler::run_persisted_job_tick(&ws, job).await;
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "triggered": true,
+                    "job_id": job_id,
+                    "job_name": job_name,
+                    "agent_id": agent_id,
+                })),
+            )
+                .into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "job not found", "job_id": job_id })),
+        )
+            .into_response(),
+    }
+}
+
 /// `POST /api/ai/enhance-prompt` — use the configured model to enhance a cron prompt.
 pub(crate) async fn api_ai_enhance_prompt(
     Json(body): Json<serde_json::Value>,

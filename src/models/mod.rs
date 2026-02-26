@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_core::Stream;
+use reqwest::Client;
 use tracing::{debug, warn};
 
 // ---------------------------------------------------------------------------
@@ -610,11 +611,15 @@ impl ModelProvider for ProviderManager {
 
 /// Send chat messages via the best available provider.
 ///
-/// Selection order:
-/// 1. **Copilot** — if `COPILOT_TOKEN` or `COPILOT_CLIENT_ID` is set.
-/// 2. **OpenAI**  — if `OPENAI_API_KEY` is set.
-/// 3. **Stub**    — echoes the last user message (development fallback).
+/// Tries the global [`ProviderManager`] first (set at agent startup).
+/// Falls back to env-var sniffing only when the global isn't available yet.
 pub async fn send_chat_messages(messages: &[ChatMessage]) -> anyhow::Result<String> {
+    // NOTE: do NOT call get_global_providers() here — FallbackProvider lives
+    // inside the global ProviderManager, so re-entering it causes infinite
+    // recursion.  This function is the leaf fallback that picks a concrete
+    // provider from env vars.
+
+    // Pick the best provider from env vars.
     if std::env::var("COPILOT_TOKEN").is_ok() || std::env::var("COPILOT_CLIENT_ID").is_ok() {
         let provider = CopilotProvider::new();
         provider.send_chat(messages).await
@@ -667,7 +672,7 @@ pub fn build_provider_with_config_fields(
                 warn!("Azure provider requested but no endpoint configured — using fallback");
                 String::new()
             });
-        let key = std::env::var("AZURE_OPENAI_API_KEY").unwrap_or_default();
+        let key = resolve_config_key(api_key, "azure_openai");
         if ep.is_empty() || key.is_empty() {
             warn!("Azure provider missing endpoint or api_key — using fallback");
             return Box::new(FallbackProvider);
@@ -855,6 +860,72 @@ impl ModelProvider for FallbackProvider {
     fn as_any(&self) -> &dyn Any {
         self
     }
+}
+
+/// Build a shared `reqwest::Client` with sensible defaults for LLM API calls.
+///
+/// All providers should use this instead of constructing their own clients,
+/// so TCP connections are pooled across providers and fallback chains.
+pub fn shared_http_client() -> Client {
+    Client::builder()
+        .timeout(Duration::from_secs(90))
+        .connect_timeout(Duration::from_secs(10))
+        .pool_max_idle_per_host(4)
+        .build()
+        .expect("failed to build shared HTTP client")
+}
+
+/// Global shared HTTP client, lazily initialised.
+static SHARED_CLIENT: std::sync::OnceLock<Client> = std::sync::OnceLock::new();
+
+/// Get (or create) the global shared HTTP client.
+pub fn get_shared_http_client() -> Client {
+    SHARED_CLIENT.get_or_init(shared_http_client).clone()
+}
+
+// ---------------------------------------------------------------------------
+// Shared SSE stream parser
+// ---------------------------------------------------------------------------
+
+/// Parse an SSE byte stream from an OpenAI-compatible chat completions API
+/// and yield content deltas as they arrive.
+///
+/// All providers (OpenAI, Azure, OpenAI-compat) use the same SSE wire
+/// format — `data: {json}\n` lines with `data: [DONE]` as the sentinel.
+/// This function extracts `choices[0].delta.content` from each event.
+pub fn stream_sse_deltas(
+    resp: reqwest::Response,
+) -> Pin<Box<dyn Stream<Item = Result<String, anyhow::Error>> + Send>> {
+    Box::pin(async_stream::try_stream! {
+        use tokio_stream::StreamExt as _;
+        let mut byte_stream = resp.bytes_stream();
+        let mut buffer = String::new();
+
+        while let Some(chunk) = byte_stream.next().await {
+            let chunk = chunk?;
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+            while let Some(newline_pos) = buffer.find('\n') {
+                let line = buffer[..newline_pos].trim_end().to_string();
+                buffer = buffer[newline_pos + 1..].to_string();
+
+                if line.is_empty() || !line.starts_with("data: ") {
+                    continue;
+                }
+                let data = &line[6..];
+                if data == "[DONE]" {
+                    return;
+                }
+                if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
+                    if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                        if !content.is_empty() {
+                            yield content.to_string();
+                        }
+                    }
+                }
+            }
+        }
+    })
 }
 
 /// Module initialization stub (called from main).

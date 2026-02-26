@@ -152,6 +152,9 @@ async fn handle_ws(mut socket: WebSocket, state: AppState) {
         }
     }
 
+    // (Debug events are fetched via REST /api/debug/model-requests on
+    // dashboard mount — no need to replay them over WS too.)
+
     loop {
         tokio::select! {
             // Broadcast event → send to client

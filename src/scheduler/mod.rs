@@ -767,7 +767,7 @@ pub async fn remove_persisted_job(workspace: &Path, name: &str, agent_id: &str) 
 
 /// Execute a single persisted cron job tick: check dependencies, run,
 /// record result, handle oneshot removal.
-async fn run_persisted_job_tick(workspace: &Path, job: &PersistedCronJob) {
+pub async fn run_persisted_job_tick(workspace: &Path, job: &PersistedCronJob) {
     let agent_id = &job.agent_id;
     let job_name = &job.name;
     let job_id = format!("{}@{}", job_name, agent_id);

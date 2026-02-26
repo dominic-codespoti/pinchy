@@ -11,7 +11,7 @@
 //! Server configurations are read from `config/mcp.json` (or
 //! `config/mcporter.json`, `.mcp.json`) in the agent workspace.
 
-use http::{HeaderName, HeaderValue};
+use axum::http::{HeaderName, HeaderValue};
 use rmcp::{
     model::CallToolRequestParams,
     service::RunningService,
@@ -145,23 +145,28 @@ async fn connect_mcp(cfg: &McpServerConfig) -> anyhow::Result<RunningService<Rol
         .effective_url()
         .ok_or_else(|| anyhow::anyhow!("MCP server has no URL configured"))?;
 
-    let raw_headers = cfg.headers.clone().unwrap_or_default();
+    let mut custom = HashMap::new();
 
-    let transport = if raw_headers.is_empty() {
-        StreamableHttpClientTransport::from_uri(url.to_string())
-    } else {
-        let mut custom = HashMap::new();
-        for (k, v) in &raw_headers {
-            let name = HeaderName::try_from(k.as_str())
-                .map_err(|e| anyhow::anyhow!("Invalid header name '{k}': {e}"))?;
-            let value = HeaderValue::try_from(v.as_str())
-                .map_err(|e| anyhow::anyhow!("Invalid header value for '{k}': {e}"))?;
-            custom.insert(name, value);
-        }
-        let config =
-            StreamableHttpClientTransportConfig::with_uri(url.to_string()).custom_headers(custom);
-        StreamableHttpClientTransport::from_config(config)
-    };
+    // Always set Accept header — some MCP servers (e.g. Azure-hosted)
+    // return 406 without both content types.
+    custom.insert(
+        HeaderName::from_static("accept"),
+        HeaderValue::from_static("application/json, text/event-stream"),
+    );
+
+    // Merge in any user-configured headers (they can override Accept
+    // if needed).
+    for (k, v) in cfg.headers.as_ref().unwrap_or(&HashMap::new()) {
+        let name = HeaderName::try_from(k.as_str())
+            .map_err(|e| anyhow::anyhow!("Invalid header name '{k}': {e}"))?;
+        let value = HeaderValue::try_from(v.as_str())
+            .map_err(|e| anyhow::anyhow!("Invalid header value for '{k}': {e}"))?;
+        custom.insert(name, value);
+    }
+
+    let config =
+        StreamableHttpClientTransportConfig::with_uri(url.to_string()).custom_headers(custom);
+    let transport = StreamableHttpClientTransport::from_config(config);
 
     let client: RunningService<RoleClient, ()> = ().serve(transport).await?;
     Ok(client)

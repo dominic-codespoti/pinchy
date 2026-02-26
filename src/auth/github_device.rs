@@ -105,14 +105,18 @@ fn fallback_path() -> anyhow::Result<PathBuf> {
 /// Store a token in the OS keyring; fall back to a file if keyring fails.
 pub fn store_token(token: &str) -> anyhow::Result<()> {
     // Try keyring first.
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER);
-    match entry.set_password(token) {
-        Ok(()) => {
-            debug!("token stored in OS keyring");
-            return Ok(());
-        }
+    match keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
+        Ok(entry) => match entry.set_password(token) {
+            Ok(()) => {
+                debug!("token stored in OS keyring");
+                return Ok(());
+            }
+            Err(e) => {
+                warn!("keyring store failed ({e}), falling back to file");
+            }
+        },
         Err(e) => {
-            warn!("keyring store failed ({e}), falling back to file");
+            warn!("keyring entry creation failed ({e}), falling back to file");
         }
     }
 
@@ -132,12 +136,13 @@ pub fn store_token(token: &str) -> anyhow::Result<()> {
 /// Returns `Ok(None)` when no token has been stored yet.
 pub fn retrieve_token() -> anyhow::Result<Option<String>> {
     // Try keyring first.
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER);
-    match entry.get_password() {
-        Ok(pw) => return Ok(Some(pw)),
-        Err(keyring::Error::NoEntry) => { /* fall through */ }
-        Err(e) => {
-            warn!("keyring retrieve failed ({e}), trying file fallback");
+    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
+        match entry.get_password() {
+            Ok(pw) => return Ok(Some(pw)),
+            Err(keyring::Error::NoEntry) => { /* fall through */ }
+            Err(e) => {
+                warn!("keyring retrieve failed ({e}), trying file fallback");
+            }
         }
     }
 
@@ -161,14 +166,15 @@ pub fn remove_token() -> anyhow::Result<()> {
     let mut removed = false;
 
     // Keyring.
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER);
-    match entry.delete_password() {
-        Ok(()) => {
-            debug!("token removed from OS keyring");
-            removed = true;
+    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
+        match entry.delete_credential() {
+            Ok(()) => {
+                debug!("token removed from OS keyring");
+                removed = true;
+            }
+            Err(keyring::Error::NoEntry) => { /* nothing stored */ }
+            Err(e) => warn!("keyring delete failed: {e}"),
         }
-        Err(keyring::Error::NoEntry) => { /* nothing stored */ }
-        Err(e) => warn!("keyring delete failed: {e}"),
     }
 
     // File fallback.

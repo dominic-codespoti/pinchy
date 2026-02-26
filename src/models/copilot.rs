@@ -127,9 +127,7 @@ impl CopilotProvider {
         bearer: &str,
         messages: &[ChatMessage],
     ) -> anyhow::Result<String> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()?;
+        let http = super::get_shared_http_client();
 
         let body = json!({
             "model": "gpt-4o",
@@ -180,9 +178,7 @@ impl CopilotProvider {
         messages: &[ChatMessage],
         functions: &[serde_json::Value],
     ) -> anyhow::Result<(ProviderResponse, Option<super::TokenUsage>)> {
-        let http = reqwest::Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()?;
+        let http = super::get_shared_http_client();
 
         let mut body = json!({
             "model": "gpt-4o",

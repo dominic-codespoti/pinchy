@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{debug, error, info, warn};
 
@@ -164,6 +165,7 @@ pub async fn start_gateway_with_config(
             "/config",
             get(handlers::config::api_config_get).put(handlers::config::api_config_put),
         )
+        .route("/config/schema", get(handlers::config::api_config_schema))
         // Agents
         .route(
             "/agents",
@@ -234,6 +236,19 @@ pub async fn start_gateway_with_config(
             "/cron/jobs/:job_id/update",
             put(handlers::cron::api_cron_jobs_update),
         )
+        .route(
+            "/cron/jobs/:job_id/trigger",
+            post(handlers::cron::api_cron_job_trigger),
+        )
+        // Memory
+        .route(
+            "/agents/:agent_id/memory",
+            get(handlers::memory::api_memory_list),
+        )
+        .route(
+            "/agents/:agent_id/memory/:key",
+            delete(handlers::memory::api_memory_delete),
+        )
         // Skills
         .route("/skills", get(handlers::skills::api_skills_list))
         .route("/skills/:name", delete(handlers::skills::api_skills_delete))
@@ -246,6 +261,15 @@ pub async fn start_gateway_with_config(
         .route(
             "/slash/commands",
             get(handlers::slash_cmds::api_slash_commands),
+        )
+        // Debug
+        .route(
+            "/debug/model-requests",
+            get(handlers::debug::api_debug_model_requests_list),
+        )
+        .route(
+            "/debug/model-requests/:request_id",
+            get(handlers::debug::api_debug_model_request_get),
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -286,6 +310,12 @@ pub async fn start_gateway_with_config(
             state.clone(),
             auth::auth_middleware,
         ))
+        .layer(
+            CorsLayer::new()
+                .allow_origin(Any)
+                .allow_methods(Any)
+                .allow_headers(Any),
+        )
         .with_state(state)
         .fallback_service(static_service);
 

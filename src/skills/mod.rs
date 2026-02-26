@@ -106,7 +106,7 @@ impl SkillRegistry {
         let effective_cfg: Option<crate::config::SkillsConfig> = if override_path.is_file() {
             let raw = std::fs::read_to_string(&override_path)
                 .with_context(|| format!("reading {}", override_path.display()))?;
-            let sc: crate::config::SkillsConfig = serde_yaml::from_str(&raw)
+            let sc: crate::config::SkillsConfig = serde_yaml_ng::from_str(&raw)
                 .with_context(|| format!("parsing {}", override_path.display()))?;
             info!(agent = %id, "loaded per-agent skills override");
             Some(sc)
@@ -142,7 +142,7 @@ impl SkillRegistry {
             let (raw, instructions) = parse_skill_md(&content)
                 .with_context(|| format!("parsing {}", skill_md.display()))?;
 
-            let meta: SkillMeta = serde_yaml::from_str(&raw)
+            let meta: SkillMeta = serde_yaml_ng::from_str(&raw)
                 .with_context(|| format!("parsing front-matter in {}", skill_dir.display()))?;
 
             // Spec: name must match parent directory name.

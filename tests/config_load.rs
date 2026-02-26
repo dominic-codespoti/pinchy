@@ -82,7 +82,7 @@ fn config_yaml_parses() {
     let contents = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
 
-    let cfg: Config = serde_yaml::from_str(&contents)
+    let cfg: Config = serde_yaml_ng::from_str(&contents)
         .unwrap_or_else(|e| panic!("config.yaml failed to parse: {e}"));
 
     // Sanity checks on the parsed config.

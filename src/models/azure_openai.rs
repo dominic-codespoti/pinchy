@@ -40,11 +40,7 @@ impl AzureOpenAIProvider {
             api_key,
             deployment,
             api_version: api_version.unwrap_or_else(|| "2024-10-21".to_string()),
-            client: Client::builder()
-                .timeout(std::time::Duration::from_secs(90))
-                .connect_timeout(std::time::Duration::from_secs(10))
-                .build()
-                .expect("failed to build HTTP client"),
+            client: super::get_shared_http_client(),
             embedding_deployment,
         }
     }
@@ -120,8 +116,21 @@ impl AzureOpenAIProvider {
         });
 
         if !functions.is_empty() {
-            body["functions"] = serde_json::Value::Array(functions.to_vec());
-            body["function_call"] = json!("auto");
+            let tools: Vec<serde_json::Value> = functions
+                .iter()
+                .map(|f| {
+                    if f.get("type").and_then(|t| t.as_str()) == Some("function") {
+                        f.clone()
+                    } else {
+                        json!({
+                            "type": "function",
+                            "function": f,
+                        })
+                    }
+                })
+                .collect();
+            body["tools"] = serde_json::Value::Array(tools);
+            body["tool_choice"] = json!("auto");
         }
 
         let resp = self
@@ -182,33 +191,10 @@ impl AzureOpenAIProvider {
                 return;
             }
 
+            let mut delta_stream = super::stream_sse_deltas(resp);
             use tokio_stream::StreamExt as _;
-            let mut byte_stream = resp.bytes_stream();
-            let mut buffer = String::new();
-
-            while let Some(chunk) = byte_stream.next().await {
-                let chunk = chunk?;
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-                while let Some(newline_pos) = buffer.find('\n') {
-                    let line = buffer[..newline_pos].trim_end().to_string();
-                    buffer = buffer[newline_pos + 1..].to_string();
-
-                    if line.is_empty() || !line.starts_with("data: ") {
-                        continue;
-                    }
-                    let data = &line[6..];
-                    if data == "[DONE]" {
-                        return;
-                    }
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                        if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
-                            if !content.is_empty() {
-                                yield content.to_string();
-                            }
-                        }
-                    }
-                }
+            while let Some(chunk) = delta_stream.next().await {
+                yield chunk?;
             }
         })
     }

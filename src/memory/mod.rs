@@ -6,7 +6,7 @@
 //! matching, plus efficient upsert and tag filtering.
 
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -26,7 +26,7 @@ pub struct MemoryEntry {
 
 /// SQLite-backed memory store with FTS5 search.
 pub struct MemoryStore {
-    conn: Mutex<Connection>,
+    inner: Arc<Mutex<Connection>>,
 }
 
 impl MemoryStore {
@@ -91,7 +91,7 @@ impl MemoryStore {
         )?;
 
         Ok(Self {
-            conn: Mutex::new(conn),
+            inner: Arc::new(Mutex::new(conn)),
         })
     }
 
@@ -105,7 +105,10 @@ impl MemoryStore {
             Err(_) => return Ok(0),
         };
 
-        let conn = self.conn.lock().expect("memory db poisoned");
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
         let mut count = 0usize;
 
         for line in content.lines() {
@@ -143,7 +146,10 @@ impl MemoryStore {
 
     /// Upsert a memory entry by key.
     pub fn save(&self, key: &str, value: &str, tags: &[String]) -> anyhow::Result<()> {
-        let conn = self.conn.lock().expect("memory db poisoned");
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
         let tags_json = serde_json::to_string(tags)?;
         let ts = chrono::Utc::now().to_rfc3339();
         conn.execute(
@@ -157,7 +163,10 @@ impl MemoryStore {
 
     /// Delete a memory entry by key. Returns true if a row was deleted.
     pub fn forget(&self, key: &str) -> anyhow::Result<bool> {
-        let conn = self.conn.lock().expect("memory db poisoned");
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
         let deleted = conn.execute("DELETE FROM memories WHERE key = ?1", params![key])?;
         Ok(deleted > 0)
     }
@@ -172,7 +181,10 @@ impl MemoryStore {
         tag: Option<&str>,
         limit: usize,
     ) -> anyhow::Result<Vec<MemoryEntry>> {
-        let conn = self.conn.lock().expect("memory db poisoned");
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
 
         if query.is_empty() {
             // No search query — return all, optionally filtered by tag.
@@ -267,7 +279,10 @@ impl MemoryStore {
 
     /// Return total number of memory entries.
     pub fn count(&self) -> anyhow::Result<usize> {
-        let conn = self.conn.lock().expect("memory db poisoned");
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
         let count: i64 = conn.query_row("SELECT COUNT(*) FROM memories", [], |r| r.get(0))?;
         Ok(count as usize)
     }
@@ -276,7 +291,10 @@ impl MemoryStore {
 
     /// Store an embedding vector for a memory key.
     pub fn save_embedding(&self, key: &str, embedding: &[f32]) -> anyhow::Result<()> {
-        let conn = self.conn.lock().expect("memory db poisoned");
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
         let blob = embedding_to_blob(embedding);
         conn.execute(
             "INSERT INTO memory_embeddings (key, embedding, dim)
@@ -289,14 +307,20 @@ impl MemoryStore {
 
     /// Delete a cached embedding for a key.
     pub fn delete_embedding(&self, key: &str) -> anyhow::Result<()> {
-        let conn = self.conn.lock().expect("memory db poisoned");
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
         conn.execute("DELETE FROM memory_embeddings WHERE key = ?1", params![key])?;
         Ok(())
     }
 
     /// Return all keys that have no cached embedding yet.
     pub fn keys_without_embeddings(&self) -> anyhow::Result<Vec<String>> {
-        let conn = self.conn.lock().expect("memory db poisoned");
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT m.key FROM memories m
              LEFT JOIN memory_embeddings e ON m.key = e.key
@@ -320,7 +344,10 @@ impl MemoryStore {
         tag: Option<&str>,
         limit: usize,
     ) -> anyhow::Result<Vec<MemoryEntry>> {
-        let conn = self.conn.lock().expect("memory db poisoned");
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT m.key, m.value, m.tags, m.ts, e.embedding, e.dim
              FROM memory_embeddings e
@@ -677,7 +704,7 @@ mod tests {
 
     #[test]
     fn embedding_blob_roundtrip() {
-        let original: Vec<f32> = vec![1.0, -0.5, 0.0, 3.14, -2.71];
+        let original: Vec<f32> = vec![1.0, -0.5, 0.0, 3.15, -2.71];
         let blob = embedding_to_blob(&original);
         let recovered = blob_to_embedding(&blob, original.len());
         assert_eq!(original, recovered);

@@ -16,11 +16,15 @@ import {
   FileText,
   Layers,
   Activity,
+  Brain,
+  Search,
+  X,
 } from "lucide-react";
 
 import {
   createAgent,
   deleteAgent,
+  deleteMemory,
   getConfig,
   getAgent,
   getAgentFile,
@@ -28,6 +32,7 @@ import {
   getSkills,
   listAgents,
   listCronJobsByAgent,
+  listMemory,
   listSessions,
   queryKeys,
   saveAgentFile,
@@ -39,7 +44,7 @@ import { humanBytes } from "@/lib/utils";
 const fileTabs = ["SOUL.md", "TOOLS.md", "HEARTBEAT.md"] as const;
 
 type AgentTab = "settings" | "skills" | (typeof fileTabs)[number];
-type AgentDetailTab = AgentTab | "sessions";
+type AgentDetailTab = AgentTab | "sessions" | "memory";
 
 export function AgentsListRoute() {
   const navigate = useNavigate();
@@ -435,6 +440,7 @@ export function AgentDetailRoute() {
             ["settings", "Settings", Settings],
             ["skills", "Skills", Sparkles],
             ["sessions", "Sessions", Layers],
+            ["memory", "Memory", Brain],
             ...fileTabs.map((f) => [f, f, FileText] as const),
           ] as const).map(([value, label, Icon]) => (
             <button
@@ -673,6 +679,10 @@ export function AgentDetailRoute() {
             </div>
           )}
 
+          {initialized && tab === "memory" && (
+            <AgentMemoryPanel agentId={agentId} />
+          )}
+
           {agentQuery.isLoading ? (
             <div className="flex items-center justify-center gap-2 py-12">
               <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400/30 border-t-emerald-400" />
@@ -778,6 +788,167 @@ function AgentFileEditor({
       </div>
       {fileQuery.isLoading ? <p className="text-sm text-slate-500">Loading file...</p> : null}
       {fileQuery.error ? <p className="text-sm text-rose-300">Unable to load file.</p> : null}
+    </div>
+  );
+}
+
+function AgentMemoryPanel({ agentId }: { agentId: string }) {
+  const queryClient = useQueryClient();
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [deleteKey, setDeleteKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const memoryQuery = useQuery({
+    queryKey: [...queryKeys.memory(agentId), debouncedSearch],
+    queryFn: () => listMemory(agentId, { q: debouncedSearch || undefined, limit: 200 }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (key: string) => deleteMemory(agentId, key),
+    onSuccess: () => {
+      toast.success("Memory entry deleted");
+      setDeleteKey(null);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.memory(agentId) });
+    },
+    onError: (err) => toast.error(`Delete failed: ${err.message}`),
+  });
+
+  const entries = memoryQuery.data?.entries ?? [];
+
+  return (
+    <div className="space-y-3">
+      {/* Search bar */}
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+        <input
+          type="text"
+          placeholder="Search memories…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="h-9 w-full rounded-lg border border-white/[0.06] bg-white/[0.02] pl-9 pr-8 text-sm text-slate-200 placeholder:text-slate-600 outline-none focus:border-emerald-400/30 transition-colors"
+        />
+        {search && (
+          <button
+            type="button"
+            onClick={() => setSearch("")}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Result count */}
+      {!memoryQuery.isLoading && (
+        <p className="text-[10px] text-slate-600">
+          {entries.length} {entries.length === 1 ? "entry" : "entries"}
+          {debouncedSearch ? ` matching "${debouncedSearch}"` : ""}
+        </p>
+      )}
+
+      {/* Loading */}
+      {memoryQuery.isLoading && (
+        <div className="flex items-center justify-center gap-2 py-8">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400/30 border-t-emerald-400" />
+          <span className="text-sm text-slate-500">Loading memories…</span>
+        </div>
+      )}
+
+      {/* Error */}
+      {memoryQuery.error && (
+        <p className="text-sm text-rose-300">Failed to load memories.</p>
+      )}
+
+      {/* Entries */}
+      {entries.map((entry) => (
+        <div
+          key={entry.key}
+          className="group relative rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 hover:border-white/[0.12] transition-colors duration-200"
+        >
+          <div className="flex items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-slate-200 truncate font-mono">{entry.key}</p>
+              <p className="mt-1 text-xs text-slate-400 whitespace-pre-wrap break-words line-clamp-4">{entry.value}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDeleteKey(entry.key)}
+              className="shrink-0 rounded-md p-1 opacity-0 group-hover:opacity-100 text-rose-400/60 hover:text-rose-300 hover:bg-rose-400/10 transition-opacity"
+              title="Delete"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="mt-2 flex items-center gap-2 flex-wrap">
+            {entry.tags.map((tag) => (
+              <span
+                key={tag}
+                className="inline-block rounded-md bg-emerald-400/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300/80"
+              >
+                {tag}
+              </span>
+            ))}
+            <span className="text-[10px] text-slate-600 ml-auto">
+              {new Date(entry.timestamp).toLocaleString()}
+            </span>
+            {entry.score != null && (
+              <span className="text-[10px] text-slate-600" title="Relevance score">
+                score {entry.score.toFixed(2)}
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {/* Empty */}
+      {!memoryQuery.isLoading && !memoryQuery.error && entries.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-12 text-center">
+          <Brain className="h-5 w-5 text-slate-700 mb-2" />
+          <p className="text-xs text-slate-600">
+            {debouncedSearch ? "No memories match your search" : "No memories stored yet"}
+          </p>
+          <p className="text-[10px] text-slate-700 mt-0.5">
+            Memories are created automatically when the agent uses the remember tool.
+          </p>
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      <Dialog open={deleteKey !== null} onOpenChange={(open) => { if (!open) setDeleteKey(null); }}>
+        <DialogContent>
+          <div className="p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-400/10">
+                <Trash2 className="h-5 w-5 text-rose-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-100">Delete Memory</p>
+                <p className="text-xs text-slate-500">This action cannot be undone.</p>
+              </div>
+            </div>
+            <p className="text-sm text-slate-300">
+              Delete memory <span className="font-mono text-rose-300">{deleteKey}</span>?
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setDeleteKey(null)}>Cancel</Button>
+              <Button
+                variant="primary"
+                size="sm"
+                className="!bg-rose-500 hover:!bg-rose-400"
+                disabled={deleteMutation.isPending}
+                onClick={() => deleteKey && deleteMutation.mutate(deleteKey)}
+              >
+                {deleteMutation.isPending ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

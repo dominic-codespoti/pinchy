@@ -24,6 +24,7 @@ import {
   listCronJobs,
   queryKeys,
   updateCronJob,
+  triggerCronJob,
 } from "@/api/client";
 import type { CronJob, CronRun } from "@/api/client";
 import {
@@ -38,8 +39,7 @@ import {
   StatusPill,
   TextArea,
 } from "@/components/ui";
-import { CRON_RE, computeNextFires } from "@/lib/utils";
-import { sendOneShot } from "@/lib/ws";
+import { CRON_RE, computeNextFires, formatInTz } from "@/lib/utils";
 
 export function CronEditRoute() {
   const { jobId } = useParams({ strict: false }) as { jobId: string };
@@ -129,13 +129,22 @@ export function CronEditRoute() {
   const runNow = () => {
     if (!job) return;
     setRunningJobId(job.id);
-    sendOneShot(`/cron run ${job.id}`, job.agent_id)
-      .then(() => toast.success(`Triggered ${job.name}`))
+    triggerCronJob(job.id)
+      .then(() => {
+        toast.success(`Triggered ${job.name}`);
+        void queryClient.invalidateQueries({ queryKey: ["cron-runs", decodedJobId] });
+      })
       .catch(() => toast.error("Failed to trigger cron run"))
       .finally(() => setRunningJobId(null));
   };
 
-  const schedulePreview = computeNextFires(schedule, 5);
+  const agentTz = useMemo(() => {
+    if (!job) return null;
+    const agent = (agentsQuery.data?.agents ?? []).find((a) => a.id === job.agent_id);
+    return agent?.timezone ?? null;
+  }, [agentsQuery.data, job?.agent_id]);
+
+  const schedulePreview = computeNextFires(schedule, 5, agentTz);
 
   if (cronQuery.isLoading) {
     return (
@@ -225,13 +234,13 @@ export function CronEditRoute() {
               className="font-mono"
             />
             <div className="rounded-lg border border-white/[0.04] bg-white/[0.01] p-3 text-xs">
-              <span className="text-[10px] uppercase tracking-widest text-slate-600">Next fires</span>
+              <span className="text-[10px] uppercase tracking-widest text-slate-600">Next fires{agentTz ? ` · ${agentTz}` : ""}</span>
               {!CRON_RE.test(schedule.trim()) ? (
                 <p className="text-rose-300 mt-1">Expression appears invalid.</p>
               ) : (
                 <ul className="mt-1 space-y-0.5 text-slate-400">
                   {schedulePreview.map((d, i) => (
-                    <li key={i}>{d.toLocaleString()}</li>
+                    <li key={i}>{formatInTz(d, agentTz)}</li>
                   ))}
                   {!schedulePreview.length && <li>No preview available.</li>}
                 </ul>

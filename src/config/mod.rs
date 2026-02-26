@@ -1,7 +1,9 @@
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use anyhow::Context;
 use chrono_tz::{Tz, UTC};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -20,7 +22,7 @@ pub async fn config_lock() -> tokio::sync::MutexGuard<'static, ()> {
 ///   - Plain string:  `token: $DISCORD_TOKEN`
 ///   - At-prefixed:   `token: "@DISCORD_TOKEN"`
 ///   - Pointer object: `token: { key: "DISCORD_TOKEN", source: "secrets" }`
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(untagged)]
 pub enum SecretRef {
     /// Plain string or env-var / at-prefixed reference.
@@ -30,7 +32,7 @@ pub enum SecretRef {
 }
 
 /// Global secrets-store configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SecretsConfig {
     /// Path to the file-backed secrets directory.
@@ -44,7 +46,7 @@ pub struct SecretsConfig {
 /// Skills gating configuration.
 ///
 /// Controls which skills are available at the global or per-agent level.
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, JsonSchema)]
 pub struct SkillsConfig {
     /// Master switch — when `false` all skills are removed.
     #[serde(default = "default_true")]
@@ -65,7 +67,7 @@ fn default_true() -> bool {
 }
 
 /// Top-level configuration loaded from `config.yaml`.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// Model provider definitions.
@@ -127,7 +129,7 @@ fn default_cron_events_max_keep() -> Option<usize> {
 }
 
 /// Channel routing rules.
-#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, JsonSchema)]
 pub struct RoutingConfig {
     /// Map of `channel:id` to `agent_id`.
     #[serde(flatten)]
@@ -138,7 +140,7 @@ pub struct RoutingConfig {
 }
 
 /// A configured LLM provider.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 pub struct ModelConfig {
     /// Unique identifier for this provider entry (e.g. "openai-default").
     pub id: String,
@@ -159,10 +161,14 @@ pub struct ModelConfig {
     /// Azure embedding deployment name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedding_deployment: Option<String>,
+    /// Embedding model override (e.g. "text-embedding-3-small").
+    /// If unset, the provider's default embedding model is used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_model: Option<String>,
 }
 
 /// Channel connector settings.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ChannelsConfig {
     /// Discord bot configuration. Optional so the daemon can start without it.
@@ -174,7 +180,7 @@ pub struct ChannelsConfig {
 }
 
 /// The kind of default channel target.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum ChannelKind {
     /// A Discord text channel (or any numeric channel id).
@@ -200,7 +206,7 @@ pub enum ChannelKind {
 ///   kind: user
 ///   id: "237445681323704321"
 /// ```
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, JsonSchema)]
 pub struct DefaultChannel {
     pub kind: ChannelKind,
     pub id: String,
@@ -263,7 +269,7 @@ impl<'de> Deserialize<'de> for DefaultChannel {
 }
 
 /// Discord-specific channel config.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DiscordConfig {
     /// Bot token – plain string, env-var ref, or secret pointer.
@@ -271,7 +277,7 @@ pub struct DiscordConfig {
 }
 
 /// Per-agent configuration.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AgentConfig {
     /// Unique agent identifier.
@@ -306,6 +312,10 @@ pub struct AgentConfig {
     /// Defaults to 40 if unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub history_messages: Option<usize>,
+    /// Maximum conversation turns before compaction kicks in.
+    /// Defaults to 20 if unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_turns: Option<usize>,
     /// Per-agent IANA timezone override (e.g. "Europe/London").
     /// Falls back to the global `timezone` if unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -313,7 +323,7 @@ pub struct AgentConfig {
 }
 
 /// A cron job definition attached to an agent.
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CronJobConfig {
     /// Human-readable name for the job.
@@ -421,7 +431,7 @@ impl Config {
         };
 
         let mut config: Config =
-            serde_yaml::from_str(&contents).context("failed to parse config YAML")?;
+            serde_yaml_ng::from_str(&contents).context("failed to parse config YAML")?;
         config.validate()?;
 
         // Resolve relative agent root paths against pinchy_home.
@@ -446,11 +456,54 @@ impl Config {
     fn validate(&self) -> anyhow::Result<()> {
         use std::collections::HashSet;
 
+        const KNOWN_PROVIDERS: &[&str] = &[
+            "openai",
+            "azure-openai",
+            "azure_openai",
+            "azure",
+            "copilot",
+            "openai-compat",
+            "openai_compat",
+            "compat",
+            "openrouter",
+            "ollama",
+            "groq",
+            "together",
+            "fireworks",
+            "mistral",
+            "lmstudio",
+            "vllm",
+            "deepseek",
+            "xai",
+        ];
+
         let model_ids: HashSet<&str> = self.models.iter().map(|m| m.id.as_str()).collect();
 
         // Check for duplicate model IDs
         if model_ids.len() != self.models.len() {
             anyhow::bail!("config: duplicate model IDs detected");
+        }
+
+        // Validate provider names
+        for model in &self.models {
+            if !KNOWN_PROVIDERS.contains(&model.provider.as_str()) {
+                tracing::warn!(
+                    provider = %model.provider,
+                    model_id = %model.id,
+                    "config: unknown provider '{}' for model '{}' — \
+                     known providers: {}",
+                    model.provider,
+                    model.id,
+                    KNOWN_PROVIDERS.join(", "),
+                );
+            }
+        }
+
+        // Validate global timezone
+        if let Some(ref tz) = self.timezone {
+            if tz.parse::<chrono_tz::Tz>().is_err() {
+                anyhow::bail!("config: invalid timezone '{tz}'");
+            }
         }
 
         // Check for duplicate agent IDs
@@ -490,13 +543,30 @@ impl Config {
                 );
             }
 
-            // Validate cron schedules
+            // Validate agent timezone
+            if let Some(ref tz) = agent.timezone {
+                if tz.parse::<chrono_tz::Tz>().is_err() {
+                    anyhow::bail!("config: agent '{}' has invalid timezone '{tz}'", agent.id);
+                }
+            }
+
+            // Validate cron schedules (syntax, not just non-empty)
             for job in &agent.cron_jobs {
-                if job.schedule.trim().is_empty() {
+                let sched = job.schedule.trim();
+                if sched.is_empty() {
                     anyhow::bail!(
                         "config: agent '{}' cron job '{}' has empty schedule",
                         agent.id,
                         job.name
+                    );
+                }
+                if cron::Schedule::from_str(sched).is_err() {
+                    anyhow::bail!(
+                        "config: agent '{}' cron job '{}' has invalid schedule '{}' \
+                         — expected a 6 or 7 field cron expression",
+                        agent.id,
+                        job.name,
+                        sched,
                     );
                 }
             }
@@ -507,11 +577,15 @@ impl Config {
 
     /// Serialize and write the configuration back to a YAML file.
     pub async fn save(&self, path: &Path) -> anyhow::Result<()> {
-        let contents = serde_yaml::to_string(self).context("serialize config YAML")?;
+        let contents = serde_yaml_ng::to_string(self).context("serialize config YAML")?;
         tokio::fs::write(path, &contents)
             .await
             .with_context(|| format!("failed to write config file: {}", path.display()))?;
         tracing::debug!(path = %path.display(), "configuration saved");
         Ok(())
+    }
+
+    pub fn json_schema() -> schemars::schema::RootSchema {
+        schemars::schema_for!(Config)
     }
 }

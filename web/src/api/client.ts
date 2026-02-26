@@ -17,6 +17,7 @@ const agentSchema = z.object({
   cron_jobs_count: z.number().optional(),
   cron_job_count: z.number().optional(),
   history_messages: z.number().nullable().optional(),
+  timezone: z.string().nullable().optional(),
 });
 
 const agentDetailSchema = agentSchema.extend({
@@ -228,14 +229,44 @@ export interface ListReceiptsResponse {
   receipts: string[];
 }
 
+export interface RawReceipt {
+  started_at?: number;
+  duration_ms?: number;
+  user_prompt?: string;
+  reply_summary?: string;
+  model_calls?: number;
+  tokens?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+  tool_calls?: Array<{ tool?: string; args_summary?: string; success?: boolean; duration_ms?: number; error?: string }>;
+}
+
 export interface GetReceiptsResponse {
   file: string;
-  receipts: unknown[];
+  receipts: RawReceipt[];
 }
 
 export interface EnhancePromptResponse {
   original: string;
   enhanced: string;
+}
+
+export interface MemoryEntry {
+  key: string;
+  value: string;
+  tags: string[];
+  timestamp: string;
+  score?: number;
+}
+
+export interface MemoryListResponse {
+  entries: MemoryEntry[];
+}
+
+export interface MemoryDeleteResponse {
+  deleted: boolean;
+  key: string;
 }
 
 // ── API functions ────────────────────────────────────
@@ -289,6 +320,10 @@ export async function getConfig(): Promise<Record<string, unknown>> {
   return request<Record<string, unknown>>("/api/config");
 }
 
+export async function getConfigSchema(): Promise<Record<string, unknown>> {
+  return request<Record<string, unknown>>("/api/config/schema");
+}
+
 export async function saveConfig(config: Record<string, unknown>): Promise<SaveConfigResponse> {
   return request<SaveConfigResponse>("/api/config", {
     method: "PUT",
@@ -333,6 +368,13 @@ export async function deleteCronJob(jobId: string): Promise<DeleteCronJobRespons
 export async function getCronJobRuns(jobId: string) {
   const response = await request<unknown>(`/api/cron/jobs/${encodeURIComponent(jobId)}/runs`);
   return z.object({ runs: z.array(cronRunSchema) }).parse(response);
+}
+
+export async function triggerCronJob(jobId: string) {
+  return request<{ triggered: boolean; job_id: string; job_name: string; agent_id: string }>(
+    `/api/cron/jobs/${encodeURIComponent(jobId)}/trigger`,
+    { method: "POST" },
+  );
 }
 
 export async function listSessions(agentId: string) {
@@ -390,6 +432,27 @@ export async function enhancePrompt(prompt: string): Promise<EnhancePromptRespon
   });
 }
 
+export async function listMemory(
+  agentId: string,
+  opts?: { q?: string; tag?: string; limit?: number },
+): Promise<MemoryListResponse> {
+  const params = new URLSearchParams();
+  if (opts?.q) params.set("q", opts.q);
+  if (opts?.tag) params.set("tag", opts.tag);
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return request<MemoryListResponse>(
+    `/api/agents/${encodeURIComponent(agentId)}/memory${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export async function deleteMemory(agentId: string, key: string): Promise<MemoryDeleteResponse> {
+  return request<MemoryDeleteResponse>(
+    `/api/agents/${encodeURIComponent(agentId)}/memory/${encodeURIComponent(key)}`,
+    { method: "DELETE" },
+  );
+}
+
 export async function getAgentFile(agentId: string, filename: string): Promise<AgentFileResponse> {
   return request<AgentFileResponse>(
     `/api/agents/${encodeURIComponent(agentId)}/files/${encodeURIComponent(filename)}`,
@@ -438,6 +501,17 @@ export async function listSlashCommands(): Promise<SlashCommand[]> {
   return parsed.commands;
 }
 
+export async function getDebugModelRequest(requestId: string): Promise<Record<string, unknown>> {
+  return request<Record<string, unknown>>(
+    `/api/debug/model-requests/${encodeURIComponent(requestId)}`,
+  );
+}
+
+export async function listDebugModelRequests(): Promise<Record<string, unknown>[]> {
+  const res = await request<{ requests: Record<string, unknown>[] }>(`/api/debug/model-requests`);
+  return res.requests ?? [];
+}
+
 // ── Query keys ───────────────────────────────────────
 
 export const queryKeys = {
@@ -445,6 +519,7 @@ export const queryKeys = {
   health: ["health"] as const,
   agents: ["agents"] as const,
   config: ["config"] as const,
+  configSchema: ["config-schema"] as const,
   cronJobs: ["cron-jobs"] as const,
   cronJobsByAgent: (agentId: string) => ["cron-jobs", agentId] as const,
   cronJobRuns: (jobId: string) => ["cron-job-runs", jobId] as const,
@@ -459,4 +534,5 @@ export const queryKeys = {
   receipts: (agentId: string) => ["receipts", agentId] as const,
   receiptSession: (agentId: string, sessionId: string) => ["receipts", agentId, sessionId] as const,
   slashCommands: ["slash-commands"] as const,
+  memory: (agentId: string) => ["memory", agentId] as const,
 };

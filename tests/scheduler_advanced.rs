@@ -18,6 +18,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str) -> Config {
             endpoint: None,
             api_version: None,
             embedding_deployment: None,
+            embedding_model: None,
         }],
         channels: ChannelsConfig {
             discord: None,
@@ -35,6 +36,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str) -> Config {
             webhook_secret: None,
             extra_exec_commands: Vec::new(),
             history_messages: None,
+            max_turns: None,
             timezone: None,
         }],
         secrets: None,

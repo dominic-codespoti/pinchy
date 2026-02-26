@@ -162,16 +162,16 @@ pub async fn edit_skill(workspace: &Path, args: Value) -> anyhow::Result<Value> 
         .unwrap_or_else(|_| (String::new(), existing.clone()));
 
     // Parse existing frontmatter, patch the requested fields, re-serialize.
-    let mut meta: serde_yaml::Value = serde_yaml::from_str(&old_yaml)
-        .unwrap_or_else(|_| serde_yaml::Value::Mapping(Default::default()));
+    let mut meta: serde_yaml_ng::Value = serde_yaml_ng::from_str(&old_yaml)
+        .unwrap_or_else(|_| serde_yaml_ng::Value::Mapping(Default::default()));
 
     if let Some(desc) = description {
-        meta["description"] = serde_yaml::Value::String(desc.to_string());
+        meta["description"] = serde_yaml_ng::Value::String(desc.to_string());
     }
 
     let new_body = instructions.unwrap_or(&old_body);
 
-    let new_yaml = serde_yaml::to_string(&meta).unwrap_or(old_yaml);
+    let new_yaml = serde_yaml_ng::to_string(&meta).unwrap_or(old_yaml);
     // serde_yaml emits a trailing newline; trim for clean output.
     let new_yaml = new_yaml.trim_end();
 

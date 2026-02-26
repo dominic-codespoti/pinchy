@@ -2,6 +2,12 @@ use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 
 use super::super::AppState;
 
+/// `GET /api/config/schema` — return the JSON Schema for the config struct.
+pub(crate) async fn api_config_schema() -> impl IntoResponse {
+    let schema = crate::config::Config::json_schema();
+    (StatusCode::OK, Json(schema)).into_response()
+}
+
 /// `GET /api/config` — return the current config as JSON.
 pub(crate) async fn api_config_get(State(state): State<AppState>) -> impl IntoResponse {
     match crate::config::Config::load(&state.config_path).await {

@@ -8,6 +8,7 @@
 //! - `forget_memory { key }` — delete a memory entry
 
 use std::path::Path;
+use std::sync::Arc;
 
 use serde_json::Value;
 
@@ -33,10 +34,17 @@ pub async fn save_memory(workspace: &Path, args: Value) -> anyhow::Result<Value>
         })
         .unwrap_or_default();
 
-    let store = crate::memory::MemoryStore::open(workspace)?;
-    store.save(&key, &value, &tags)?;
-    // Invalidate cached embedding so it gets re-computed on next semantic search.
-    let _ = store.delete_embedding(&key);
+    let store = Arc::new(crate::memory::MemoryStore::open(workspace)?);
+    let store2 = Arc::clone(&store);
+    let key2 = key.clone();
+    let value2 = value.clone();
+    tokio::task::spawn_blocking(move || {
+        store2.save(&key2, &value2, &tags)?;
+        // Invalidate cached embedding so it gets re-computed on next semantic search.
+        let _ = store2.delete_embedding(&key2);
+        Ok::<_, anyhow::Error>(())
+    })
+    .await??;
 
     Ok(serde_json::json!({
         "status": "saved",
@@ -49,16 +57,16 @@ pub async fn save_memory(workspace: &Path, args: Value) -> anyhow::Result<Value>
 /// When mode is unspecified (the default), this auto-detects whether an
 /// embedding provider is available and prefers semantic search if so.
 pub async fn recall_memory(workspace: &Path, args: Value) -> anyhow::Result<Value> {
-    let query = args["query"].as_str().unwrap_or("");
-    let tag = args["tag"].as_str();
+    let query = args["query"].as_str().unwrap_or("").to_string();
+    let tag = args["tag"].as_str().map(String::from);
     let limit = args["limit"].as_u64().unwrap_or(10) as usize;
-    let explicit_mode = args["mode"].as_str();
+    let explicit_mode = args["mode"].as_str().map(String::from);
 
-    let store = crate::memory::MemoryStore::open(workspace)?;
+    let store = Arc::new(crate::memory::MemoryStore::open(workspace)?);
 
     // Determine effective mode: if the caller didn't specify, auto-detect
     // embedding availability and prefer semantic search when possible.
-    let use_semantic = match explicit_mode {
+    let use_semantic = match explicit_mode.as_deref() {
         Some("semantic") => true,
         Some("text") => false,
         _ => {
@@ -73,16 +81,22 @@ pub async fn recall_memory(workspace: &Path, args: Value) -> anyhow::Result<Valu
     };
 
     let results = if use_semantic {
-        match recall_semantic(&store, query, tag, limit).await {
+        match recall_semantic(&store, &query, tag.as_deref(), limit).await {
             Ok(r) => r,
             Err(e) => {
                 // Fallback to text search if semantic fails.
                 tracing::debug!(error = %e, "semantic recall failed, falling back to text search");
-                store.search(query, tag, limit)?
+                let s = Arc::clone(&store);
+                let q = query.clone();
+                let t = tag.clone();
+                tokio::task::spawn_blocking(move || s.search(&q, t.as_deref(), limit)).await??
             }
         }
     } else {
-        store.search(query, tag, limit)?
+        let s = Arc::clone(&store);
+        let q = query.clone();
+        let t = tag.clone();
+        tokio::task::spawn_blocking(move || s.search(&q, t.as_deref(), limit)).await??
     };
 
     let items: Vec<Value> = results
@@ -114,7 +128,7 @@ fn has_embedding_provider() -> bool {
 
 /// Helper: semantic recall via embedding provider.
 async fn recall_semantic(
-    store: &crate::memory::MemoryStore,
+    store: &Arc<crate::memory::MemoryStore>,
     query: &str,
     tag: Option<&str>,
     limit: usize,
@@ -138,26 +152,40 @@ async fn recall_semantic(
         .ok_or_else(|| anyhow::anyhow!("embedding returned empty result"))?;
 
     // Ensure all memories have cached embeddings (best-effort).
-    let missing = store.keys_without_embeddings()?;
+    let s = Arc::clone(store);
+    let missing = tokio::task::spawn_blocking(move || s.keys_without_embeddings()).await??;
     if !missing.is_empty() {
-        let entries = store.search("", None, 10000)?;
-        let texts_to_embed: Vec<(&str, &str)> = entries
+        let s = Arc::clone(store);
+        let entries = tokio::task::spawn_blocking(move || s.search("", None, 10000)).await??;
+        let texts_to_embed: Vec<(String, String)> = entries
             .iter()
             .filter(|e| missing.iter().any(|k| k == &e.key))
-            .map(|e| (e.key.as_str(), e.value.as_str()))
+            .map(|e| (e.key.clone(), e.value.clone()))
             .collect();
 
         if !texts_to_embed.is_empty() {
-            let text_refs: Vec<&str> = texts_to_embed.iter().map(|(_, v)| *v).collect();
+            let text_refs: Vec<&str> = texts_to_embed.iter().map(|(_, v)| v.as_str()).collect();
             if let Ok(Some(vecs)) = pm.embed(&text_refs).await {
-                for ((key, _), vec) in texts_to_embed.iter().zip(vecs.iter()) {
-                    let _ = store.save_embedding(key, vec);
-                }
+                let s = Arc::clone(store);
+                let pairs: Vec<(String, Vec<f32>)> = texts_to_embed
+                    .iter()
+                    .map(|(k, _)| k.clone())
+                    .zip(vecs.into_iter())
+                    .collect();
+                tokio::task::spawn_blocking(move || {
+                    for (key, vec) in &pairs {
+                        let _ = s.save_embedding(key, vec);
+                    }
+                })
+                .await?;
             }
         }
     }
 
-    store.search_semantic(&query_emb, tag, limit)
+    let s = Arc::clone(store);
+    let tag_owned = tag.map(String::from);
+    tokio::task::spawn_blocking(move || s.search_semantic(&query_emb, tag_owned.as_deref(), limit))
+        .await?
 }
 
 /// `forget_memory` tool — delete a memory entry by key.
@@ -167,26 +195,19 @@ pub async fn forget_memory(workspace: &Path, args: Value) -> anyhow::Result<Valu
         .ok_or_else(|| anyhow::anyhow!("forget_memory requires a 'key' string"))?
         .to_string();
 
-    let store = crate::memory::MemoryStore::open(workspace)?;
-    let deleted = store.forget(&key)?;
-    let _ = store.delete_embedding(&key);
+    let store = Arc::new(crate::memory::MemoryStore::open(workspace)?);
+    let key2 = key.clone();
+    let deleted = tokio::task::spawn_blocking(move || {
+        let deleted = store.forget(&key2)?;
+        let _ = store.delete_embedding(&key2);
+        Ok::<_, anyhow::Error>(deleted)
+    })
+    .await??;
 
     Ok(serde_json::json!({
         "status": if deleted { "deleted" } else { "not_found" },
         "key": key,
     }))
-}
-
-/// Build the `<memory>` block for system prompt injection.
-pub async fn memory_prompt_block(workspace: &Path, max_chars: usize) -> String {
-    match crate::memory::MemoryStore::open(workspace) {
-        Ok(store) => {
-            // Auto-migrate legacy JSONL on first access.
-            let _ = store.migrate_from_jsonl(workspace);
-            store.prompt_block(max_chars)
-        }
-        Err(_) => String::new(),
-    }
 }
 
 /// Register memory tools in the global tool registry.

@@ -4,7 +4,7 @@
 //! connector (Discord, HTTP, CLI, ...) can produce -- and a process-wide
 //! broadcast channel that the agent runtime subscribes to.
 //!
-//! The global channel is initialised lazily via `once_cell::sync::Lazy`.
+//! The global channel is initialised lazily via `std::sync::LazyLock`.
 //! Connectors call `sender()` to push messages; the agent runtime calls
 //! `subscribe()` to obtain an independent receiver.
 
@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use tokio::sync::{broadcast, RwLock};
 
 // ---------------------------------------------------------------------------
@@ -119,7 +119,7 @@ pub struct IncomingMessage {
 const CHANNEL_CAPACITY: usize = 256;
 
 /// Global broadcast sender, created once on first access.
-static SENDER: Lazy<broadcast::Sender<IncomingMessage>> = Lazy::new(|| {
+static SENDER: LazyLock<broadcast::Sender<IncomingMessage>> = LazyLock::new(|| {
     let (tx, _rx) = broadcast::channel(CHANNEL_CAPACITY);
     tx
 });
@@ -181,8 +181,8 @@ pub trait ChannelConnector: Send + Sync + 'static {
 }
 
 /// Process-wide registry of channel connectors.
-static CONNECTORS: Lazy<RwLock<HashMap<String, Arc<dyn ChannelConnector>>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
+static CONNECTORS: LazyLock<RwLock<HashMap<String, Arc<dyn ChannelConnector>>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Register a channel connector. Replaces any previous connector with the
 /// same `name()`.

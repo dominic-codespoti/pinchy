@@ -7,6 +7,7 @@ import { Toaster } from "sonner";
 
 import { router } from "@/app/router";
 import "@/styles/global.css";
+import "highlight.js/styles/github-dark.min.css";
 
 const queryClient = new QueryClient({
   defaultOptions: {

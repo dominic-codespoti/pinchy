@@ -13,7 +13,7 @@ use serenity::http::Http;
 use serenity::model::channel::Message;
 use serenity::model::gateway::GatewayIntents;
 use serenity::model::id::{ChannelId, UserId};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 use tokio::sync::RwLock;
@@ -56,10 +56,10 @@ pub struct ReplyContext {
 
 const REPLY_TRACKER_CAPACITY: usize = 2000;
 
-static REPLY_TRACKER: OnceLock<RwLock<HashMap<u64, ReplyContext>>> = OnceLock::new();
+static REPLY_TRACKER: OnceLock<RwLock<BTreeMap<u64, ReplyContext>>> = OnceLock::new();
 
-fn reply_tracker() -> &'static RwLock<HashMap<u64, ReplyContext>> {
-    REPLY_TRACKER.get_or_init(|| RwLock::new(HashMap::new()))
+fn reply_tracker() -> &'static RwLock<BTreeMap<u64, ReplyContext>> {
+    REPLY_TRACKER.get_or_init(|| RwLock::new(BTreeMap::new()))
 }
 
 pub async fn track_reply(discord_msg_id: u64, ctx: ReplyContext) {
@@ -630,10 +630,11 @@ fn resolve_token(cfg: &Config) -> Option<String> {
                         .and_then(|s| s.keyring_service.as_ref())
                         .map(|s| s.as_str())
                         .unwrap_or("pinchy");
-                    let entry = keyring::Entry::new(service, key);
-                    if let Ok(pw) = entry.get_password() {
-                        if !pw.is_empty() {
-                            return Some(pw);
+                    if let Ok(entry) = keyring::Entry::new(service, key) {
+                        if let Ok(pw) = entry.get_password() {
+                            if !pw.is_empty() {
+                                return Some(pw);
+                            }
                         }
                     }
                 }

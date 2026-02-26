@@ -1,9 +1,12 @@
 import React, { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Marked } from "marked";
+import hljs from "highlight.js/lib/common";
 
 import {
   type SessionMessage,
   type SlashCommand,
+  type RawReceipt,
   getCurrentSession,
   getReceipts,
   getSession,
@@ -43,6 +46,26 @@ import {
 } from "lucide-react";
 import { useUiStore } from "@/state/ui";
 
+const markedParser = new Marked({
+  async: false,
+  breaks: true,
+  gfm: true,
+  renderer: {
+    link({ href, text }) {
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer">${text}</a>`;
+    },
+    code({ text, lang }) {
+      let highlighted: string;
+      if (lang && hljs.getLanguage(lang)) {
+        highlighted = hljs.highlight(text, { language: lang }).value;
+      } else {
+        highlighted = hljs.highlightAuto(text).value;
+      }
+      return `<pre><code class="hljs${lang ? ` language-${lang}` : ""}">${highlighted}</code></pre>`;
+    },
+  },
+});
+
 type LiveMessage = {
   role: string;
   content: string;
@@ -78,6 +101,8 @@ type ReceiptItem = {
     duration: number;
     error?: string;
   }>;
+  userPrompt?: string;
+  replySummary?: string;
 };
 
 type GatewayEvent = {
@@ -103,6 +128,9 @@ type GatewayEvent = {
   summary?: string;
   messages_compacted?: number;
   messages_kept?: number;
+  started_at?: number;
+  user_prompt?: string;
+  reply_summary?: string;
 };
 
 export function ChatRoute() {
@@ -127,6 +155,7 @@ export function ChatRoute() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [expandedReceipt, setExpandedReceipt] = useState<number | null>(null);
   const [collapsedOutOfContext, setCollapsedOutOfContext] = useState(true);
+  const [expandedInlineReceipt, setExpandedInlineReceipt] = useState<number | null>(null);
   const [compactSummaries, setCompactSummaries] = useState<Array<{ summary: string; messagesCompacted: number; messagesKept: number; timestamp: number }>>([]);
   const [wsConnected, setWsConnectedLocal] = useState(true);
   const setWsConnectedGlobal = useUiStore((s) => s.setWsConnected);
@@ -314,8 +343,8 @@ export function ChatRoute() {
   const persistedReceipts = useMemo<ReceiptItem[]>(() => {
     const raw = receiptsQuery.data?.receipts ?? [];
     if (!Array.isArray(raw)) return [];
-    return raw.map((r: any) => {
-      const toolCalls = Array.isArray(r.tool_calls) ? r.tool_calls.map((tc: any) => ({
+    return raw.map((r) => {
+      const toolCalls = Array.isArray(r.tool_calls) ? r.tool_calls.map((tc) => ({
         name: tc.tool ?? "unknown",
         args: tc.args_summary ?? "",
         success: tc.success ?? true,
@@ -331,12 +360,14 @@ export function ChatRoute() {
         },
         durationMs: r.duration_ms ?? null,
         modelCalls: r.model_calls ?? null,
-        tools: toolCalls.map((tc: any) => ({
+        tools: toolCalls.map((tc) => ({
           tool: tc.name,
           success: tc.success,
           durationMs: tc.duration ?? null,
         })),
         toolCalls,
+        userPrompt: r.user_prompt ?? undefined,
+        replySummary: r.reply_summary ?? undefined,
       };
     });
   }, [receiptsQuery.data]);
@@ -392,6 +423,7 @@ export function ChatRoute() {
     setTyping(false);
     setTypingLabel("Thinking…");
     setOtherSession(null);
+    setExpandedInlineReceipt(null);
   }, [selectedAgent, selectedSession]);
 
   // ── WebSocket ──────────────────────────────────────
@@ -522,7 +554,7 @@ export function ChatRoute() {
         }
         if (type === "turn_receipt") {
           const toolCalls = Array.isArray(payload.tool_calls)
-            ? payload.tool_calls.map((tc: any) => ({
+            ? payload.tool_calls.map((tc) => ({
                 name: tc.tool ?? "unknown",
                 args: tc.args_summary ?? "",
                 success: tc.success ?? true,
@@ -530,7 +562,7 @@ export function ChatRoute() {
                 error: tc.error,
               }))
             : [];
-          const startedAt = payload.timestamp ?? (payload as any).started_at;
+          const startedAt = payload.timestamp ?? payload.started_at;
           setReceipts((prev) => [
             ...prev,
             {
@@ -547,12 +579,14 @@ export function ChatRoute() {
               },
               durationMs: payload.duration_ms ?? null,
               modelCalls: payload.model_calls ?? null,
-              tools: toolCalls.map((tc: any) => ({
+              tools: toolCalls.map((tc) => ({
                 tool: tc.name,
                 success: tc.success,
                 durationMs: tc.duration ?? null,
               })),
               toolCalls,
+              userPrompt: payload.user_prompt ?? undefined,
+              replySummary: payload.reply_summary ?? undefined,
             },
           ]);
           appendActivity(setActivityItems, "Turn receipt", "receipt");
@@ -689,29 +723,34 @@ export function ChatRoute() {
     const map = new Map<number, ReceiptItem>();
     if (!allReceipts.length || !filteredMessages.length) return map;
 
-    // Build a list of assistant message indices sorted by timestamp.
     const assistants: Array<{ idx: number; ts: number }> = [];
     for (let i = 0; i < filteredMessages.length; i++) {
       if (filteredMessages[i].role.toLowerCase() === "assistant") {
         assistants.push({ idx: i, ts: filteredMessages[i].timestamp });
       }
     }
+    if (!assistants.length) return map;
 
-    for (const receipt of allReceipts) {
-      // Find the assistant message whose timestamp is closest to receipt end time.
+    const sortedReceipts = [...allReceipts].sort((a, b) => a.timestamp - b.timestamp);
+    const usedAssistants = new Set<number>();
+
+    for (const receipt of sortedReceipts) {
       const receiptEnd = receipt.timestamp + (receipt.durationMs ?? 0);
       let best: { idx: number; ts: number } | null = null;
       let bestDist = Infinity;
       for (const a of assistants) {
+        if (usedAssistants.has(a.idx)) continue;
+        // Prefer assistant messages that come after (or near) the receipt end
         const dist = Math.abs(a.ts - receiptEnd);
         if (dist < bestDist) {
           bestDist = dist;
           best = a;
         }
       }
-      // Only match if within 60 seconds
-      if (best && bestDist < 60_000) {
+      // Match within 5 minutes to handle long turns and timing skew
+      if (best && bestDist < 300_000) {
         map.set(best.idx, receipt);
+        usedAssistants.add(best.idx);
       }
     }
     return map;
@@ -1029,53 +1068,7 @@ export function ChatRoute() {
                   )}
                   {/* Inline receipt for this assistant message */}
                   {!isUser && !isSystem && !isCompactedHistory && receiptByMsgIndex.has(index) && (() => {
-                    const r = receiptByMsgIndex.get(index)!;
-                    const okCount = r.tools.filter(t => t.success).length;
-                    const failCount = r.tools.length - okCount;
-                    const grouped = new Map<string, { total: number; ok: number }>();
-                    for (const t of r.tools) {
-                      const g = grouped.get(t.tool) ?? { total: 0, ok: 0 };
-                      g.total++;
-                      if (t.success) g.ok++;
-                      grouped.set(t.tool, g);
-                    }
-                    return (
-                      <div className="ml-10 -mt-3 mb-2 rounded-lg border border-white/[0.04] bg-white/[0.015] px-3 py-2">
-                        <div className="flex items-center gap-2 text-[10px] text-slate-500">
-                          <Zap className="h-2.5 w-2.5 text-slate-600" />
-                          <span className="font-medium text-slate-400">Receipt</span>
-                          <span className="tabular-nums">
-                            {new Date(r.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                          </span>
-                          <span className="text-slate-600">·</span>
-                          <span><span className="text-emerald-300">{r.tokens.total}</span> tok</span>
-                          <span className="text-slate-600">·</span>
-                          {failCount > 0
-                            ? <span>{okCount} <span className="text-emerald-400">✓</span> · {failCount} <span className="text-rose-400">✗</span></span>
-                            : <span>{r.tools.length} tools</span>
-                          }
-                          <span className="text-slate-600">·</span>
-                          <span>{r.durationMs ? `${(r.durationMs / 1000).toFixed(1)}s` : "-"}</span>
-                        </div>
-                        {r.tools.length > 0 && (
-                          <div className="mt-1.5 flex flex-wrap gap-1">
-                            {Array.from(grouped.entries()).slice(0, 8).map(([name, { total, ok }]) => (
-                              <span
-                                key={name}
-                                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] ${
-                                  ok > 0
-                                    ? "bg-emerald-400/8 text-emerald-300 border border-emerald-400/15"
-                                    : "bg-rose-400/8 text-rose-300 border border-rose-400/15"
-                                }`}
-                              >
-                                {name}
-                                {total > 1 && <span className="text-[8px] opacity-60">{ok}/{total}</span>}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    );
+                    return <InlineReceipt receipt={receiptByMsgIndex.get(index)!} index={index} expanded={expandedInlineReceipt === index} onToggle={() => setExpandedInlineReceipt(expandedInlineReceipt === index ? null : index)} />;
                   })()}
                 </React.Fragment>
               );
@@ -1362,6 +1355,131 @@ function toText(value: unknown): string {
   return String(value);
 }
 
+function InlineReceipt({ receipt: r, index, expanded, onToggle }: { receipt: ReceiptItem; index: number; expanded: boolean; onToggle: () => void }) {
+  const okCount = r.tools.filter(t => t.success).length;
+  const failCount = r.tools.length - okCount;
+  const grouped = new Map<string, { total: number; ok: number }>();
+  for (const t of r.tools) {
+    const g = grouped.get(t.tool) ?? { total: 0, ok: 0 };
+    g.total++;
+    if (t.success) g.ok++;
+    grouped.set(t.tool, g);
+  }
+
+  return (
+    <div className="ml-10 -mt-3 mb-2 rounded-lg border border-white/[0.04] bg-white/[0.015] overflow-hidden">
+      <button
+        onClick={onToggle}
+        className="w-full flex items-center gap-2 px-3 py-2 text-[10px] text-slate-500 hover:bg-white/[0.02] transition-colors"
+      >
+        <ChevronRight className={`h-2.5 w-2.5 text-slate-600 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`} />
+        <Zap className="h-2.5 w-2.5 text-slate-600 shrink-0" />
+        <span className="font-medium text-slate-400">Receipt</span>
+        <span className="tabular-nums">
+          {new Date(r.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+        </span>
+        <span className="text-slate-600">·</span>
+        <span><span className="text-emerald-300">{r.tokens.total.toLocaleString()}</span> tok</span>
+        <span className="text-slate-600">·</span>
+        {failCount > 0
+          ? <span>{okCount} <span className="text-emerald-400">✓</span> · {failCount} <span className="text-rose-400">✗</span></span>
+          : <span>{r.tools.length} tools</span>
+        }
+        <span className="text-slate-600">·</span>
+        <span>{r.durationMs ? `${(r.durationMs / 1000).toFixed(1)}s` : "-"}</span>
+      </button>
+
+      {!expanded && r.tools.length > 0 && (
+        <div className="px-3 pb-2 flex flex-wrap gap-1">
+          {Array.from(grouped.entries()).slice(0, 8).map(([name, { total, ok }]) => (
+            <span
+              key={name}
+              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] ${
+                ok > 0
+                  ? "bg-emerald-400/8 text-emerald-300 border border-emerald-400/15"
+                  : "bg-rose-400/8 text-rose-300 border border-rose-400/15"
+              }`}
+            >
+              {name}
+              {total > 1 && <span className="text-[8px] opacity-60">{ok}/{total}</span>}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {expanded && (
+        <div className="border-t border-white/[0.04]">
+          <div className="px-3 py-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px]">
+            <span className="text-slate-500">Prompt: <span className="text-slate-300 tabular-nums">{r.tokens.prompt.toLocaleString()}</span></span>
+            <span className="text-slate-500">Completion: <span className="text-slate-300 tabular-nums">{r.tokens.completion.toLocaleString()}</span></span>
+            <span className="text-slate-500">Total: <span className="text-emerald-300 tabular-nums">{r.tokens.total.toLocaleString()}</span></span>
+            {r.modelCalls != null && (
+              <span className="text-slate-500">Model calls: <span className="text-slate-300 tabular-nums">{r.modelCalls}</span></span>
+            )}
+            {r.durationMs != null && (
+              <span className="text-slate-500">Duration: <span className="text-slate-300 tabular-nums">{(r.durationMs / 1000).toFixed(1)}s</span></span>
+            )}
+          </div>
+
+          {(r.userPrompt || r.replySummary) && (
+            <div className="px-3 pb-2 space-y-1.5">
+              {r.userPrompt && (
+                <div className="rounded-md border border-white/[0.04] bg-black/20 p-2">
+                  <span className="text-[9px] uppercase tracking-widest text-slate-500">Input</span>
+                  <p className="mt-0.5 text-[11px] text-slate-400 leading-snug break-words">{r.userPrompt}</p>
+                </div>
+              )}
+              {r.replySummary && (
+                <div className="rounded-md border border-white/[0.04] bg-black/20 p-2">
+                  <span className="text-[9px] uppercase tracking-widest text-slate-500">Output</span>
+                  <p className="mt-0.5 text-[11px] text-slate-300 leading-snug break-words">{r.replySummary}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {r.toolCalls && r.toolCalls.length > 0 && (
+            <div className="px-3 pb-2 space-y-1">
+              <span className="text-[9px] uppercase tracking-widest text-slate-500">Tool Calls</span>
+              {r.toolCalls.map((tc, tci) => (
+                <div key={tci} className="rounded-md border border-white/[0.04] bg-black/20 p-2 text-[11px]">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-slate-200">{tc.name}</span>
+                    <div className="flex items-center gap-2">
+                      {tc.duration > 0 && <span className="text-slate-600 tabular-nums">{tc.duration >= 1000 ? `${(tc.duration / 1000).toFixed(1)}s` : `${tc.duration}ms`}</span>}
+                      <span className={tc.success ? "text-emerald-400" : "text-rose-400"}>{tc.success ? "✓" : "✗"}</span>
+                    </div>
+                  </div>
+                  {tc.args && <p className="mt-1 text-slate-500 font-mono text-[10px] break-all">{tc.args}</p>}
+                  {tc.error && <p className="mt-1 text-rose-300 text-[10px]">{tc.error}</p>}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {(!r.toolCalls || r.toolCalls.length === 0) && r.tools.length > 0 && (
+            <div className="px-3 pb-2 flex flex-wrap gap-1">
+              {Array.from(grouped.entries()).map(([name, { total, ok }]) => (
+                <span
+                  key={name}
+                  className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] ${
+                    ok > 0
+                      ? "bg-emerald-400/8 text-emerald-300 border border-emerald-400/15"
+                      : "bg-rose-400/8 text-rose-300 border border-rose-400/15"
+                  }`}
+                >
+                  {name}
+                  {total > 1 && <span className="text-[8px] opacity-60">{ok}/{total}</span>}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CompactSummaryCard({ summary }: { summary: { summary: string; messagesCompacted: number; messagesKept: number; timestamp: number } }) {
   const [expanded, setExpanded] = useState(true);
 
@@ -1427,8 +1545,13 @@ function CompactedHistoryCard({ content }: { content: string }) {
   );
 }
 
+function renderMarkdown(src: string): string {
+  return markedParser.parse(src || "") as string;
+}
+
 function MarkdownBlock({ content }: { content: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const html = useMemo(() => renderMarkdown(content), [content]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -1451,46 +1574,7 @@ function MarkdownBlock({ content }: { content: string }) {
       };
       pre.appendChild(btn);
     });
-  }, [content]);
+  }, [html]);
 
-  return <div ref={containerRef} dangerouslySetInnerHTML={{ __html: renderMarkdownHtml(content) }} />;
-}
-
-function renderMarkdownHtml(src: string): string {
-  if (!src) return "";
-  let html = escapeHtml(src);
-
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_m, lang: string, code: string) => {
-    const cls = lang ? ` class="lang-${lang}"` : "";
-    return `<pre><code${cls}>${code.replace(/\n$/, "")}</code></pre>`;
-  });
-
-  html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
-  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
-  html = html.replace(/^### (.+)$/gm, "<h4>$1</h4>");
-  html = html.replace(/^## (.+)$/gm, "<h3>$1</h3>");
-  html = html.replace(/^# (.+)$/gm, "<h2>$1</h2>");
-
-  html = html.replace(/(^|\n)(- .+(?:\n- .+)*)/g, (_m, pre: string, block: string) => {
-    const items = block.split("\n").map((line) => `<li>${line.replace(/^- /, "")}</li>`).join("");
-    return `${pre}<ul>${items}</ul>`;
-  });
-
-  html = html.replace(/(^|\n)(\d+\. .+(?:\n\d+\. .+)*)/g, (_m, pre: string, block: string) => {
-    const items = block.split("\n").map((line) => `<li>${line.replace(/^\d+\.\s*/, "")}</li>`).join("");
-    return `${pre}<ol>${items}</ol>`;
-  });
-
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-  html = html.replace(/^---$/gm, "<hr>");
-
-  const parts = html.split(/(<pre>[\s\S]*?<\/pre>)/);
-  html = parts.map((part) => (part.startsWith("<pre>") ? part : part.replace(/\n/g, "<br>"))).join("");
-
-  return html;
-}
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return <div ref={containerRef} dangerouslySetInnerHTML={{ __html: html }} />;
 }

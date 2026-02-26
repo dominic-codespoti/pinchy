@@ -163,7 +163,8 @@ pub fn interactive_onboard_tui(
     // Load current config synchronously (we're in a sync TUI context).
     let cfg_contents = std::fs::read_to_string(config_path)
         .with_context(|| format!("read config {}", config_path.display()))?;
-    let cfg: config::Config = serde_yaml::from_str(&cfg_contents).context("parse config YAML")?;
+    let cfg: config::Config =
+        serde_yaml_ng::from_str(&cfg_contents).context("parse config YAML")?;
 
     let base = crate::utils::agent_root(id);
 
@@ -314,7 +315,7 @@ pub fn interactive_onboard_tui(
                     let cfg_contents = std::fs::read_to_string(config_path)
                         .with_context(|| format!("read config {}", config_path.display()))?;
                     let mut cfg: config::Config =
-                        serde_yaml::from_str(&cfg_contents).context("parse config YAML")?;
+                        serde_yaml_ng::from_str(&cfg_contents).context("parse config YAML")?;
 
                     // Save browser path at top-level config
                     cfg.chromium_path = data.browser_path.clone();
@@ -334,6 +335,7 @@ pub fn interactive_onboard_tui(
                             endpoint: None,
                             api_version: None,
                             embedding_deployment: None,
+                            embedding_model: None,
                         });
                         new_id
                     };
@@ -354,11 +356,12 @@ pub fn interactive_onboard_tui(
                             webhook_secret: None,
                             extra_exec_commands: Vec::new(),
                             history_messages: None,
+                            max_turns: None,
                             timezone: None,
                         });
                     }
 
-                    let yaml_out = serde_yaml::to_string(&cfg).context("serialize config")?;
+                    let yaml_out = serde_yaml_ng::to_string(&cfg).context("serialize config")?;
                     sync_backup_file(config_path)?;
                     std::fs::write(config_path, &yaml_out)
                         .with_context(|| format!("write {}", config_path.display()))?;
@@ -502,7 +505,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                 .unwrap_or_default();
             if !key.is_empty() {
                 let cfg_contents = std::fs::read_to_string(config_path).unwrap_or_default();
-                if let Ok(mut cfg) = serde_yaml::from_str::<config::Config>(&cfg_contents) {
+                if let Ok(mut cfg) = serde_yaml_ng::from_str::<config::Config>(&cfg_contents) {
                     if !cfg.models.iter().any(|m| m.provider == "openai") {
                         cfg.models.push(config::ModelConfig {
                             id: "openai-default".into(),
@@ -512,6 +515,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                             endpoint: None,
                             api_version: None,
                             embedding_deployment: None,
+                            embedding_model: None,
                         });
                     }
                     // Update agent model reference if it doesn't match any model
@@ -524,7 +528,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                             }
                         }
                     }
-                    let yaml_out = serde_yaml::to_string(&cfg).unwrap_or_default();
+                    let yaml_out = serde_yaml_ng::to_string(&cfg).unwrap_or_default();
                     sync_backup_file(config_path).ok();
                     std::fs::write(config_path, &yaml_out).ok();
                     println!("  OpenAI model entry written to config.yaml");
@@ -556,7 +560,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
             if !endpoint.is_empty() && !key.is_empty() && !deployment.is_empty() {
                 // Write an azure model entry into config
                 let cfg_contents = std::fs::read_to_string(config_path).unwrap_or_default();
-                if let Ok(mut cfg) = serde_yaml::from_str::<config::Config>(&cfg_contents) {
+                if let Ok(mut cfg) = serde_yaml_ng::from_str::<config::Config>(&cfg_contents) {
                     let embed = if embed_dep.is_empty() {
                         None
                     } else {
@@ -570,8 +574,9 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                         endpoint: Some(endpoint),
                         api_version: Some("2024-10-21".into()),
                         embedding_deployment: embed,
+                        embedding_model: None,
                     });
-                    let yaml_out = serde_yaml::to_string(&cfg).unwrap_or_default();
+                    let yaml_out = serde_yaml_ng::to_string(&cfg).unwrap_or_default();
                     sync_backup_file(config_path).ok();
                     std::fs::write(config_path, &yaml_out).ok();
                     println!("  Azure model entry written to config.yaml");
@@ -602,7 +607,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                     }
                     // Ensure a copilot model config entry exists
                     let cfg_contents = std::fs::read_to_string(config_path).unwrap_or_default();
-                    if let Ok(mut cfg) = serde_yaml::from_str::<config::Config>(&cfg_contents) {
+                    if let Ok(mut cfg) = serde_yaml_ng::from_str::<config::Config>(&cfg_contents) {
                         if !cfg.models.iter().any(|m| m.provider == "copilot") {
                             let model_name: String = dialoguer::Input::new()
                                 .with_prompt("Copilot model name")
@@ -617,6 +622,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                                 endpoint: None,
                                 api_version: None,
                                 embedding_deployment: None,
+                                embedding_model: None,
                             });
                         }
                         // Update agent model reference if it doesn't match any model
@@ -629,7 +635,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                                 }
                             }
                         }
-                        let yaml_out = serde_yaml::to_string(&cfg).unwrap_or_default();
+                        let yaml_out = serde_yaml_ng::to_string(&cfg).unwrap_or_default();
                         sync_backup_file(config_path).ok();
                         std::fs::write(config_path, &yaml_out).ok();
                         println!("  Copilot model entry written to config.yaml");
@@ -729,9 +735,9 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
     if !tz_input.is_empty() {
         if tz_input.parse::<chrono_tz::Tz>().is_ok() {
             let cfg_contents = std::fs::read_to_string(config_path).unwrap_or_default();
-            if let Ok(mut cfg) = serde_yaml::from_str::<config::Config>(&cfg_contents) {
+            if let Ok(mut cfg) = serde_yaml_ng::from_str::<config::Config>(&cfg_contents) {
                 cfg.timezone = Some(tz_input.clone());
-                let yaml_out = serde_yaml::to_string(&cfg).unwrap_or_default();
+                let yaml_out = serde_yaml_ng::to_string(&cfg).unwrap_or_default();
                 sync_backup_file(config_path).ok();
                 std::fs::write(config_path, &yaml_out).ok();
                 println!("  Timezone set to: {tz_input}");
@@ -1039,7 +1045,7 @@ pub async fn configure_agent(config_path: &Path, id: &str) -> anyhow::Result<()>
                     if let Ok(raw) = tokio::fs::read_to_string(&skill_md).await {
                         if let Ok((yaml, _)) = crate::skills::parse_skill_md(&raw) {
                             if let Ok(meta) =
-                                serde_yaml::from_str::<crate::skills::SkillMeta>(&yaml)
+                                serde_yaml_ng::from_str::<crate::skills::SkillMeta>(&yaml)
                             {
                                 available_skills.push(meta.name.clone());
                             }
@@ -1060,7 +1066,7 @@ pub async fn configure_agent(config_path: &Path, id: &str) -> anyhow::Result<()>
                 .join("skills.yaml");
             let existing_skills: config::SkillsConfig =
                 if let Ok(raw) = tokio::fs::read_to_string(&agent_skills_path).await {
-                    serde_yaml::from_str(&raw).unwrap_or_default()
+                    serde_yaml_ng::from_str(&raw).unwrap_or_default()
                 } else {
                     config::SkillsConfig::default()
                 };
@@ -1090,7 +1096,8 @@ pub async fn configure_agent(config_path: &Path, id: &str) -> anyhow::Result<()>
                 deny: vec![],
                 operator_allowed: existing_skills.operator_allowed.clone(),
             };
-            let yaml_out = serde_yaml::to_string(&new_skills).context("serialize skills YAML")?;
+            let yaml_out =
+                serde_yaml_ng::to_string(&new_skills).context("serialize skills YAML")?;
 
             if let Some(parent) = agent_skills_path.parent() {
                 tokio::fs::create_dir_all(parent).await?;
@@ -1249,7 +1256,7 @@ pub async fn apply_manifest(
 ) -> anyhow::Result<()> {
     let raw = std::fs::read_to_string(manifest_path)
         .with_context(|| format!("read manifest {manifest_path}"))?;
-    let manifest: ApplyManifest = serde_yaml::from_str(&raw).context("parse apply manifest")?;
+    let manifest: ApplyManifest = serde_yaml_ng::from_str(&raw).context("parse apply manifest")?;
 
     // Resolve workspace
     let workspace = match config::Config::load(config_path).await {

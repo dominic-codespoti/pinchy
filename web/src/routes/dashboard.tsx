@@ -12,6 +12,9 @@ import {
   X,
   LayoutDashboard,
   Server,
+  ChevronDown,
+  ChevronRight,
+  Bug,
 } from "lucide-react";
 import { wsUrl, sendOneShot } from "@/lib/ws";
 
@@ -23,6 +26,8 @@ import {
   listAgents,
   listCronJobs,
   listReceipts,
+  getDebugModelRequest,
+  listDebugModelRequests,
   queryKeys,
 } from "@/api/client";
 import { Badge, Button, Separator, Skeleton } from "@/components/ui";
@@ -58,6 +63,7 @@ export function DashboardRoute() {
   const [eventFilter, setEventFilter] = useState("all");
   const [forcingHeartbeatFor, setForcingHeartbeatFor] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
+  const [debugExpandedMsgs, setDebugExpandedMsgs] = useState<Set<number>>(new Set());
 
   useEffect(() => {
     const ws = new WebSocket(wsUrl());
@@ -74,21 +80,26 @@ export function DashboardRoute() {
               : "";
         const content = extractContent(data);
 
-        setEvents((prev) => [
-          ...prev.slice(-199),
-          {
-            id: crypto.randomUUID(),
-            ts: normalizeTimestamp(data.timestamp),
-            type,
-            agent,
-            content,
-            payload: data,
-          },
-        ]);
-
-        if (type.toLowerCase().includes("heartbeat")) {
-          void queryClient.invalidateQueries({ queryKey: ["heartbeat"] });
-        }
+        setEvents((prev) => {
+          // Deduplicate model_request events by request_id
+          if (type === "model_request" && data.request_id) {
+            const rid = data.request_id as string;
+            if (prev.some((e) => e.type === "model_request" && (e.payload as Record<string, unknown>).request_id === rid)) {
+              return prev;
+            }
+          }
+          return [
+            ...prev.slice(-199),
+            {
+              id: typeof data.request_id === "string" ? data.request_id : crypto.randomUUID(),
+              ts: normalizeTimestamp(data.timestamp),
+              type,
+              agent,
+              content,
+              payload: data,
+            },
+          ];
+        });
       } catch {
         // Ignore malformed payloads.
       }
@@ -97,6 +108,34 @@ export function DashboardRoute() {
     ws.onerror = () => ws.close();
     return () => ws.close();
   }, [queryClient]);
+
+  // Seed stored debug events from the REST API on mount.
+  // The WS only broadcasts live events — if the dashboard opens after
+  // model calls have already happened, we'd miss them without this.
+  useEffect(() => {
+    listDebugModelRequests()
+      .then((requests) => {
+        if (!requests.length) return;
+        setEvents((prev) => {
+          const existingIds = new Set(
+            prev.filter((e) => e.type === "model_request").map((e) => (e.payload as Record<string, unknown>).request_id),
+          );
+          const newEvents: TimelineEvent[] = requests
+            .filter((r) => !existingIds.has(r.id as string))
+            .map((r) => ({
+              id: (r.id as string) ?? crypto.randomUUID(),
+              ts: normalizeTimestamp(r.timestamp),
+              type: "model_request",
+              agent: typeof r.agent === "string" ? r.agent : "",
+              content: extractContent({ ...r, type: "model_request" }),
+              payload: { ...r, type: "model_request", request_id: r.id },
+            }));
+          if (!newEvents.length) return prev;
+          return [...prev, ...newEvents];
+        });
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -187,6 +226,7 @@ export function DashboardRoute() {
       session: 0,
       tool: 0,
       error: 0,
+      debug: 0,
     };
 
     for (const event of events) {
@@ -391,6 +431,7 @@ export function DashboardRoute() {
                 ["session", "Session"],
                 ["tool", "Tool"],
                 ["error", "Error"],
+                ["debug", "Debug"],
               ].map(([value, label]) => (
                 <button
                   key={value}
@@ -417,7 +458,7 @@ export function DashboardRoute() {
                       ? "bg-emerald-400/[0.08] border border-emerald-400/20"
                       : "border border-transparent hover:bg-white/[0.03]"
                   }`}
-                  onClick={() => setSelectedEventId(event.id)}
+                  onClick={() => { setSelectedEventId(event.id); setDebugExpandedMsgs(new Set()); }}
                 >
                   <span className="text-slate-600 tabular-nums">{new Date(event.ts).toLocaleTimeString()}</span>
                   <span><TypeChip type={event.type} /></span>
@@ -463,9 +504,23 @@ export function DashboardRoute() {
                     </button>
                   </div>
                 </div>
-                <pre className="max-h-72 overflow-auto rounded-lg border border-white/[0.04] bg-black/40 p-2 text-[11px] text-emerald-100/90">
-                  {JSON.stringify(selectedEvent.payload, null, 2)}
-                </pre>
+                {selectedEvent.type === "model_request" ? (
+                  <ModelRequestDetail
+                    payload={selectedEvent.payload}
+                    expandedMsgs={debugExpandedMsgs}
+                    onToggleMsg={(i) =>
+                      setDebugExpandedMsgs((prev) => {
+                        const next = new Set(prev);
+                        next.has(i) ? next.delete(i) : next.add(i);
+                        return next;
+                      })
+                    }
+                  />
+                ) : (
+                  <pre className="max-h-72 overflow-auto rounded-lg border border-white/[0.04] bg-black/40 p-2 text-[11px] text-emerald-100/90">
+                    {JSON.stringify(selectedEvent.payload, null, 2)}
+                  </pre>
+                )}
               </div>
             )}
           </div>
@@ -517,7 +572,9 @@ function TypeChip({ type }: { type: string }) {
       ? "info"
       : normalized.includes("heartbeat")
         ? "success"
-        : "neutral";
+        : normalized === "model_request"
+          ? "warning"
+          : "neutral";
   return <Badge variant={variant}>{type}</Badge>;
 }
 
@@ -546,6 +603,12 @@ function buildAgentTrend(events: TimelineEvent[], agentId: string): string {
 }
 
 function extractContent(data: Record<string, unknown>): string {
+  if (data.type === "model_request") {
+    const mc = typeof data.message_count === "number" ? data.message_count : "?";
+    const fc = typeof data.function_count === "number" ? data.function_count : "?";
+    const et = typeof data.estimated_tokens === "number" ? `~${(data.estimated_tokens as number).toLocaleString()} tokens` : "";
+    return `${mc} msgs · ${fc} tools${et ? ` · ${et}` : ""}`;
+  }
   for (const key of ["content", "message", "response", "output_preview", "command"]) {
     const value = data[key];
     if (typeof value === "string" && value.length) return value.slice(0, 180);
@@ -571,6 +634,7 @@ function eventTypeMatchesFilter(type: string, filter: string): boolean {
   if (filter === "error") return normalized.includes("error") || normalized.includes("failed");
   if (filter === "session") return normalized.includes("session");
   if (filter === "tool") return normalized.includes("tool");
+  if (filter === "debug") return normalized === "model_request";
   return normalized.includes(filter);
 }
 
@@ -579,4 +643,194 @@ function formatUptime(secs: number): string {
   if (secs < 3600) return `${Math.floor(secs / 60)}m`;
   if (secs < 86400) return `${Math.floor(secs / 3600)}h ${Math.floor((secs % 3600) / 60)}m`;
   return `${Math.floor(secs / 86400)}d ${Math.floor((secs % 86400) / 3600)}h`;
+}
+
+// ── Model Request Debug Detail ─────────────────────────────────────────
+const ROLE_COLORS: Record<string, string> = {
+  system: "text-violet-300 bg-violet-400/10 border-violet-400/20",
+  user: "text-sky-300 bg-sky-400/10 border-sky-400/20",
+  assistant: "text-emerald-300 bg-emerald-400/10 border-emerald-400/20",
+  tool: "text-amber-300 bg-amber-400/10 border-amber-400/20",
+};
+
+function ModelRequestDetail({
+  payload,
+  expandedMsgs,
+  onToggleMsg,
+}: {
+  payload: Record<string, unknown>;
+  expandedMsgs: Set<number>;
+  onToggleMsg: (i: number) => void;
+}) {
+  const requestId = typeof payload.request_id === "string" ? payload.request_id : null;
+  const [fullPayload, setFullPayload] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  // Auto-fetch the full payload when the component mounts (i.e. user selected a model_request event).
+  useEffect(() => {
+    if (!requestId) return;
+    setLoading(true);
+    setFetchError(null);
+    getDebugModelRequest(requestId)
+      .then((data) => setFullPayload(data as Record<string, unknown>))
+      .catch((e) => setFetchError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setLoading(false));
+  }, [requestId]);
+
+  const source = fullPayload ?? payload;
+  const messages = Array.isArray(source.messages) ? source.messages : [];
+  const functions = Array.isArray(source.functions) ? source.functions : [];
+  const fnNames = Array.isArray(payload.function_names) ? payload.function_names : [];
+  const msgCount = typeof payload.message_count === "number" ? payload.message_count : messages.length;
+  const fnCount = typeof payload.function_count === "number" ? payload.function_count : functions.length;
+  const estTokens = typeof payload.estimated_tokens === "number" ? payload.estimated_tokens : null;
+  const [showFunctions, setShowFunctions] = useState(false);
+
+  return (
+    <div className="space-y-3">
+      {/* Summary bar */}
+      <div className="flex flex-wrap items-center gap-3 text-[10px]">
+        <span className="flex items-center gap-1 text-slate-400">
+          <Bug className="h-3 w-3 text-amber-400/60" />
+          <span className="font-medium text-amber-300">Model Request Debug</span>
+        </span>
+        <span className="text-slate-500">
+          {msgCount} messages · {fnCount} tools
+          {estTokens !== null && <> · ~{estTokens.toLocaleString()} tokens</>}
+        </span>
+        {loading && <span className="text-[9px] text-slate-600 animate-pulse">Loading full payload…</span>}
+        {fetchError && <span className="text-[9px] text-rose-400">Failed to load: {fetchError}</span>}
+      </div>
+
+      {/* Messages accordion */}
+      {messages.length > 0 ? (
+        <div className="space-y-1 max-h-[28rem] overflow-auto">
+          {messages.map((msg: Record<string, unknown>, i: number) => {
+            const role = typeof msg.role === "string" ? msg.role : "unknown";
+            const content = typeof msg.content === "string" ? msg.content : msg.content === null ? "" : JSON.stringify(msg.content);
+            const hasToolCalls = Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0;
+            const toolCallId = typeof msg.tool_call_id === "string" ? msg.tool_call_id : null;
+            const isExpanded = expandedMsgs.has(i);
+            const colors = ROLE_COLORS[role] ?? "text-slate-300 bg-white/[0.03] border-white/[0.06]";
+            const preview = content.length > 120 ? content.slice(0, 120) + "…" : content;
+
+            return (
+              <div key={i} className={`rounded-lg border ${colors.split(" ").slice(1).join(" ")} overflow-hidden`}>
+                <button
+                  type="button"
+                  onClick={() => onToggleMsg(i)}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left"
+                >
+                  {isExpanded ? (
+                    <ChevronDown className="h-3 w-3 shrink-0 text-slate-500" />
+                  ) : (
+                    <ChevronRight className="h-3 w-3 shrink-0 text-slate-500" />
+                  )}
+                  <span className={`text-[10px] font-semibold uppercase tracking-wider shrink-0 ${colors.split(" ")[0]}`}>
+                    {role}
+                  </span>
+                  {toolCallId && (
+                    <span className="text-[9px] font-mono text-slate-600 shrink-0">
+                      tc:{toolCallId.slice(0, 12)}
+                    </span>
+                  )}
+                  {hasToolCalls && (
+                    <span className="text-[9px] text-amber-400/70 shrink-0">
+                      {(msg.tool_calls as unknown[]).length} tool call{(msg.tool_calls as unknown[]).length > 1 ? "s" : ""}
+                    </span>
+                  )}
+                  <span className="text-[10px] text-slate-500 tabular-nums shrink-0">
+                    [{i}] {content.length.toLocaleString()}ch
+                  </span>
+                  {!isExpanded && (
+                    <span className="text-[10px] text-slate-600 truncate ml-1">
+                      {preview}
+                    </span>
+                  )}
+                </button>
+                {isExpanded && (
+                  <div className="px-2.5 pb-2 space-y-1.5">
+                    <pre className="max-h-64 overflow-auto rounded-md border border-white/[0.04] bg-black/40 p-2 text-[10px] leading-relaxed text-slate-200 whitespace-pre-wrap break-words">
+                      {content || <span className="italic text-slate-600">(empty)</span>}
+                    </pre>
+                    {hasToolCalls && (
+                      <div className="space-y-1">
+                        <p className="text-[9px] uppercase tracking-widest text-amber-400/60 font-medium">Tool Calls</p>
+                        {(msg.tool_calls as Array<Record<string, unknown>>).map((tc, j) => {
+                          const fn = tc.function as Record<string, unknown> | undefined;
+                          const name = fn?.name ?? tc.name ?? "?";
+                          const args = typeof (fn?.arguments ?? tc.arguments) === "string"
+                            ? (fn?.arguments ?? tc.arguments) as string
+                            : JSON.stringify(fn?.arguments ?? tc.arguments ?? {});
+                          const tcId = typeof tc.id === "string" ? tc.id : "";
+                          return (
+                            <div key={j} className="rounded-md border border-amber-400/10 bg-amber-400/[0.03] p-1.5 text-[10px]">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-semibold text-amber-300">{String(name)}</span>
+                                {tcId && <span className="font-mono text-[9px] text-slate-600">id:{tcId.slice(0, 12)}</span>}
+                              </div>
+                              <pre className="mt-1 max-h-32 overflow-auto rounded border border-white/[0.04] bg-black/30 p-1 text-[9px] text-slate-400 whitespace-pre-wrap break-words">
+                                {args}
+                              </pre>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      ) : !loading ? (
+        <div className="text-[10px] text-slate-600 italic py-2">
+          {requestId ? "No message data available for this request." : "No request ID — cannot fetch payload."}
+        </div>
+      ) : null}
+
+      {/* Functions collapsible */}
+      {functions.length > 0 && (
+        <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+          <button
+            type="button"
+            onClick={() => setShowFunctions((v) => !v)}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left"
+          >
+            {showFunctions ? (
+              <ChevronDown className="h-3 w-3 text-slate-500" />
+            ) : (
+              <ChevronRight className="h-3 w-3 text-slate-500" />
+            )}
+            <span className="text-[10px] font-medium text-slate-400">
+              Available Tools ({fnCount})
+            </span>
+            {!showFunctions && (
+              <span className="text-[10px] text-slate-600 truncate">
+                {(fnNames as string[]).join(", ")}
+              </span>
+            )}
+          </button>
+          {showFunctions && (
+            <div className="px-2.5 pb-2 space-y-1 max-h-64 overflow-auto">
+              {functions.map((fn: Record<string, unknown>, i: number) => (
+                <div key={i} className="rounded-md border border-white/[0.04] bg-black/30 p-1.5 text-[10px]">
+                  <span className="font-mono font-semibold text-sky-300">{String(fn.name ?? "?")}</span>
+                  {typeof fn.description === "string" && (
+                    <p className="text-slate-500 mt-0.5">{fn.description}</p>
+                  )}
+                  {fn.parameters != null && (
+                    <pre className="mt-1 max-h-24 overflow-auto rounded border border-white/[0.04] bg-black/20 p-1 text-[9px] text-slate-500 whitespace-pre-wrap">
+                      {JSON.stringify(fn.parameters, null, 2)}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

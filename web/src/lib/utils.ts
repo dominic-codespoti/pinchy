@@ -33,7 +33,7 @@ export function toText(value: unknown): string {
 
 export const CRON_RE = /^(@(annually|yearly|monthly|weekly|daily|midnight|hourly|reboot|every\s+\S+))$|^(\S+\s+){4,6}\S+$/i;
 
-export function computeNextFires(expr: string, count: number): Date[] {
+export function computeNextFires(expr: string, count: number, tz?: string | null): Date[] {
   if (!expr || !CRON_RE.test(expr)) return [];
   if (expr.startsWith("@")) return [];
   const parts = expr.split(/\s+/);
@@ -46,10 +46,37 @@ export function computeNextFires(expr: string, count: number): Date[] {
   cursor.setSeconds(0, 0);
   for (let tries = 0; tries < 1440 * 7 && results.length < count; tries += 1) {
     cursor = new Date(cursor.getTime() + 60_000);
-    if ((m === null || cursor.getMinutes() === m) && (h === null || cursor.getHours() === h)) {
+    const tzMinutes = tz ? getMinutesInTz(cursor, tz) : cursor.getMinutes();
+    const tzHours = tz ? getHoursInTz(cursor, tz) : cursor.getHours();
+    if ((m === null || tzMinutes === m) && (h === null || tzHours === h)) {
       results.push(new Date(cursor));
     }
   }
   return results;
+}
+
+function getMinutesInTz(date: Date, tz: string): number {
+  const s = date.toLocaleString("en-US", { timeZone: tz, minute: "numeric" });
+  return parseInt(s, 10);
+}
+
+function getHoursInTz(date: Date, tz: string): number {
+  const s = date.toLocaleString("en-US", { timeZone: tz, hour: "numeric", hour12: false });
+  return parseInt(s, 10) % 24;
+}
+
+export function formatInTz(date: Date, tz?: string | null): string {
+  if (!tz) return date.toLocaleString();
+  return date.toLocaleString("en-US", {
+    timeZone: tz,
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+    timeZoneName: "short",
+  });
 }
 

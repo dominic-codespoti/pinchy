@@ -15,6 +15,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str, heartbeat_secs: u64)
             endpoint: None,
             api_version: None,
             embedding_deployment: None,
+            embedding_model: None,
         }],
         channels: ChannelsConfig {
             discord: None,
@@ -32,6 +33,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str, heartbeat_secs: u64)
             webhook_secret: None,
             extra_exec_commands: Vec::new(),
             history_messages: None,
+            max_turns: None,
             timezone: None,
         }],
         secrets: None,
@@ -167,6 +169,7 @@ async fn cron_merge_persisted_jobs_on_startup() {
             endpoint: None,
             api_version: None,
             embedding_deployment: None,
+            embedding_model: None,
         }],
         channels: ChannelsConfig {
             discord: None,
@@ -195,6 +198,7 @@ async fn cron_merge_persisted_jobs_on_startup() {
             webhook_secret: None,
             extra_exec_commands: Vec::new(),
             history_messages: None,
+            max_turns: None,
             timezone: None,
         }],
         secrets: None,

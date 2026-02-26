@@ -2,7 +2,6 @@
 
 use std::any::Any;
 use std::pin::Pin;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use futures_core::Stream;
@@ -13,6 +12,8 @@ use super::{ChatMessage, ModelProvider, ProviderResponse, TokenUsage};
 
 /// Default endpoint for OpenAI chat completions.
 pub const DEFAULT_ENDPOINT: &str = "https://api.openai.com/v1/chat/completions";
+
+const DEFAULT_EMBEDDING_MODEL: &str = "text-embedding-3-small";
 
 /// Provider that talks to the OpenAI-compatible chat completions API.
 pub struct OpenAIProvider {
@@ -40,11 +41,7 @@ impl OpenAIProvider {
         Self {
             api_key,
             endpoint: DEFAULT_ENDPOINT.to_string(),
-            client: Client::builder()
-                .timeout(Duration::from_secs(90))
-                .connect_timeout(Duration::from_secs(10))
-                .build()
-                .expect("failed to build HTTP client"),
+            client: super::get_shared_http_client(),
             model: "gpt-4o-mini".to_string(),
         }
     }
@@ -55,11 +52,7 @@ impl OpenAIProvider {
         Self {
             api_key,
             endpoint,
-            client: Client::builder()
-                .timeout(Duration::from_secs(90))
-                .connect_timeout(Duration::from_secs(10))
-                .build()
-                .expect("failed to build HTTP client"),
+            client: super::get_shared_http_client(),
             model,
         }
     }
@@ -126,45 +119,13 @@ impl OpenAIProvider {
                 Err(anyhow::anyhow!(
                     "OpenAI streaming API returned {status}: {text}"
                 ))?;
-                // The `?` above yields the error and ends the stream
-                // inside try_stream!, but the compiler cannot see the
-                // divergence through the macro.  The explicit `return`
-                // silences "use of moved value".
                 return;
             }
 
-            // Read chunks from the byte stream and parse SSE events
-            // incrementally so we can yield content deltas as they arrive.
+            let mut delta_stream = super::stream_sse_deltas(resp);
             use tokio_stream::StreamExt as _;
-            let mut byte_stream = resp.bytes_stream();
-            let mut buffer = String::new();
-
-            while let Some(chunk) = byte_stream.next().await {
-                let chunk = chunk?;
-                buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-                // Process all complete lines accumulated so far.
-                while let Some(newline_pos) = buffer.find('\n') {
-                    let line = buffer[..newline_pos].trim_end().to_string();
-                    buffer = buffer[newline_pos + 1..].to_string();
-
-                    if line.is_empty() || !line.starts_with("data: ") {
-                        continue;
-                    }
-                    let data = &line[6..]; // skip "data: "
-                    if data == "[DONE]" {
-                        return;
-                    }
-                    if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                        if let Some(content) =
-                            json["choices"][0]["delta"]["content"].as_str()
-                        {
-                            if !content.is_empty() {
-                                yield content.to_string();
-                            }
-                        }
-                    }
-                }
+            while let Some(chunk) = delta_stream.next().await {
+                yield chunk?;
             }
         })
     }
@@ -198,8 +159,21 @@ impl OpenAIProvider {
         });
 
         if !functions.is_empty() {
-            body["functions"] = serde_json::Value::Array(functions.to_vec());
-            body["function_call"] = json!("auto");
+            let tools: Vec<serde_json::Value> = functions
+                .iter()
+                .map(|f| {
+                    if f.get("type").and_then(|t| t.as_str()) == Some("function") {
+                        f.clone()
+                    } else {
+                        json!({
+                            "type": "function",
+                            "function": f,
+                        })
+                    }
+                })
+                .collect();
+            body["tools"] = serde_json::Value::Array(tools);
+            body["tool_choice"] = json!("auto");
         }
 
         let resp = self
@@ -219,7 +193,6 @@ impl OpenAIProvider {
         let json: serde_json::Value = resp.json().await?;
         let usage = super::parse_token_usage(&json);
 
-        // Check for tool_calls / function_call in the response.
         if let Some(pr) = super::parse_tool_calls(&json) {
             return Ok((pr, usage));
         }
@@ -296,7 +269,7 @@ impl ModelProvider for OpenAIProvider {
             "https://api.openai.com/v1/embeddings".to_string()
         };
         let body = json!({
-            "model": self.model,
+            "model": DEFAULT_EMBEDDING_MODEL,
             "input": texts,
         });
         let resp = self

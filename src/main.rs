@@ -272,8 +272,9 @@ async fn main() -> anyhow::Result<()> {
                 Command::Onboard => cli::app_onboard(&config_path).await,
                 Command::Secrets { command } => match command {
                     SecretsCmd::Set { key } => {
-                        let prompt = format!("Enter value for {key}: ");
-                        let val = rpassword::prompt_password(&prompt)
+                        let val = dialoguer::Password::new()
+                            .with_prompt(format!("Enter value for {key}"))
+                            .interact()
                             .context("failed to read secret value")?;
                         mini_claw::secrets::set_secret_file(None, &key, &val)?;
                         println!("Secret '{key}' saved.");

@@ -11,8 +11,8 @@ use super::browser_service;
 use crate::tools::{register_tool, ToolMeta};
 
 /// Lazy-initialized persistent browser service + session.
-static PERSISTENT: once_cell::sync::Lazy<Arc<Mutex<Option<PersistentBrowser>>>> =
-    once_cell::sync::Lazy::new(|| Arc::new(Mutex::new(None)));
+static PERSISTENT: std::sync::LazyLock<Arc<Mutex<Option<PersistentBrowser>>>> =
+    std::sync::LazyLock::new(|| Arc::new(Mutex::new(None)));
 
 struct PersistentBrowser {
     svc: browser_service::BrowserService,

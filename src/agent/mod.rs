@@ -5,6 +5,7 @@
 //! subscribes to the [`crate::comm`] message bus and dispatches incoming
 //! messages to the appropriate agent instance.
 
+use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -74,6 +75,158 @@ fn unknown_tool_corrective(bad_name: &str, function_defs: &[serde_json::Value]) 
     )
 }
 
+// ---------------------------------------------------------------------------
+// Tool-loop helpers (shared across all call variants)
+// ---------------------------------------------------------------------------
+
+/// A single tool invocation to be executed.
+struct ToolInvocation {
+    call_id: String,
+    name: String,
+    args_str: String,
+}
+
+/// Result of executing a single tool invocation.
+struct ToolResult {
+    call_id: String,
+    name: String,
+    result_json: String,
+    failed: bool,
+    record: ToolCallRecord,
+}
+
+/// Execute a single tool call, publish gateway events, and return the result.
+async fn execute_tool(
+    inv: &ToolInvocation,
+    workspace: &std::path::Path,
+    agent_id: &str,
+    session_id: &Option<String>,
+) -> ToolResult {
+    let args: serde_json::Value =
+        serde_json::from_str(&inv.args_str).unwrap_or(serde_json::json!({}));
+    let args_summary = crate::utils::truncate_str(&inv.args_str, 200);
+
+    crate::gateway::publish_event_json(&serde_json::json!({
+        "type": "tool_start",
+        "agent": agent_id,
+        "session": session_id,
+        "tool": inv.name,
+    }));
+
+    let timer = std::time::Instant::now();
+    let result = tools::call_skill(&inv.name, args, workspace).await;
+    let elapsed = timer.elapsed().as_millis() as u64;
+
+    let (result_json, failed, error) = match result {
+        Ok(v) => (serde_json::to_string(&v).unwrap_or_default(), false, None),
+        Err(e) => {
+            let err_msg = format!("{e}");
+            crate::gateway::publish_event_json(&serde_json::json!({
+                "type": "tool_error",
+                "agent": agent_id,
+                "session": session_id,
+                "tool": inv.name,
+                "error": err_msg,
+            }));
+            (
+                serde_json::to_string(&serde_json::json!({"error": &err_msg})).unwrap_or_default(),
+                true,
+                Some(err_msg),
+            )
+        }
+    };
+
+    crate::gateway::publish_event_json(&serde_json::json!({
+        "type": "tool_end",
+        "agent": agent_id,
+        "session": session_id,
+        "tool": inv.name,
+    }));
+
+    ToolResult {
+        call_id: inv.call_id.clone(),
+        name: inv.name.clone(),
+        result_json,
+        failed,
+        record: ToolCallRecord {
+            tool: inv.name.clone(),
+            args_summary,
+            success: !failed,
+            duration_ms: elapsed,
+            error,
+        },
+    }
+}
+
+/// Emit a token_usage gateway event and accumulate into the receipt.
+fn emit_and_accumulate_usage(
+    usage: &Option<TokenUsage>,
+    agent_id: &str,
+    receipt_tokens: &mut TokenUsageSummary,
+) {
+    if let Some(ref u) = usage {
+        receipt_tokens.accumulate(u);
+        crate::gateway::publish_event_json(&serde_json::json!({
+            "type": "token_usage",
+            "agent": agent_id,
+            "prompt_tokens": u.prompt_tokens,
+            "completion_tokens": u.completion_tokens,
+            "total_tokens": u.total_tokens,
+        }));
+    }
+}
+
+/// Re-query the provider and update tracking state.
+async fn requery_provider(
+    manager: &ProviderManager,
+    messages: &[ChatMessage],
+    function_defs: &[serde_json::Value],
+    agent_id: &str,
+    session_id: Option<&str>,
+    receipt_tokens: &mut TokenUsageSummary,
+    receipt_model_calls: &mut u32,
+) -> anyhow::Result<ProviderResponse> {
+    emit_model_request_debug(agent_id, session_id, messages, function_defs);
+    let (new_resp, loop_usage) = manager
+        .send_chat_with_functions(messages, function_defs)
+        .await
+        .context("model call failed (tool loop)")?;
+    *receipt_model_calls += 1;
+    emit_and_accumulate_usage(&loop_usage, agent_id, receipt_tokens);
+    Ok(new_resp)
+}
+
+/// Check if the last tool call was an unknown-tool error. If so, inject a
+/// corrective message and bump the counter. Returns true if the loop should
+/// break (3 consecutive unknown-tool calls).
+fn handle_unknown_tool(
+    result: &ToolResult,
+    consecutive_unknown_tool: &mut u32,
+    messages: &mut Vec<ChatMessage>,
+    function_defs: &[serde_json::Value],
+) -> bool {
+    if result.failed
+        && result
+            .record
+            .error
+            .as_deref()
+            .is_some_and(|e| e.contains("unknown tool"))
+    {
+        *consecutive_unknown_tool += 1;
+        messages.push(ChatMessage::new(
+            "system",
+            unknown_tool_corrective(&result.name, function_defs),
+        ));
+        if *consecutive_unknown_tool >= 3 {
+            warn!("3 consecutive unknown-tool calls — breaking loop");
+            return true;
+        }
+    } else {
+        *consecutive_unknown_tool = 0;
+    }
+    false
+}
+
 /// Return `true` when the user message looks conversational (greeting,
 /// thanks, simple question) — i.e. unlikely to require tool invocation.
 /// Used to skip the enforcement retry and avoid wasting a model call.
@@ -118,6 +271,144 @@ fn is_conversational(msg: &str) -> bool {
 
 /// Global counter of in-flight agent turns.
 static IN_FLIGHT: AtomicUsize = AtomicUsize::new(0);
+
+/// Ring buffer of recent model request debug payloads (disk-backed).
+/// Keyed by a unique request_id. Keeps the last 50 payloads in memory,
+/// persisted to `pinchy_home()/debug_payloads.jsonl` so they survive restarts.
+static DEBUG_PAYLOADS: std::sync::LazyLock<
+    std::sync::Mutex<VecDeque<(String, serde_json::Value)>>,
+> = std::sync::LazyLock::new(|| {
+    let mut buf = VecDeque::new();
+    let path = debug_payloads_path();
+    if let Ok(contents) = std::fs::read_to_string(&path) {
+        for line in contents.lines() {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
+                if let Some(id) = v.get("id").and_then(|i| i.as_str()) {
+                    buf.push_back((id.to_string(), v));
+                }
+            }
+        }
+        // Keep only the last N entries.
+        while buf.len() > MAX_DEBUG_PAYLOADS {
+            buf.pop_front();
+        }
+    }
+    std::sync::Mutex::new(buf)
+});
+
+const MAX_DEBUG_PAYLOADS: usize = 50;
+
+fn debug_payloads_path() -> std::path::PathBuf {
+    crate::pinchy_home().join("debug_payloads.jsonl")
+}
+
+pub fn get_debug_payload(id: &str) -> Option<serde_json::Value> {
+    let store = DEBUG_PAYLOADS.lock().ok()?;
+    store.iter().find(|(k, _)| k == id).map(|(_, v)| v.clone())
+}
+
+pub fn list_debug_payloads() -> Vec<serde_json::Value> {
+    let store = DEBUG_PAYLOADS.lock().unwrap_or_else(|e| e.into_inner());
+    store
+        .iter()
+        .rev()
+        .map(|(id, v)| {
+            serde_json::json!({
+                "type": "model_request",
+                "request_id": id,
+                "id": id,
+                "agent": v.get("agent"),
+                "session": v.get("session"),
+                "timestamp": v.get("timestamp"),
+                "message_count": v.get("message_count"),
+                "function_count": v.get("function_count"),
+                "estimated_tokens": v.get("estimated_tokens"),
+                "function_names": v.get("function_names"),
+            })
+        })
+        .collect()
+}
+
+fn emit_model_request_debug(
+    agent_id: &str,
+    session: Option<&str>,
+    messages: &[ChatMessage],
+    function_defs: &[serde_json::Value],
+) {
+    warn!(
+        agent = agent_id,
+        msgs = messages.len(),
+        fns = function_defs.len(),
+        "emit_model_request_debug: broadcasting model_request event"
+    );
+    let request_id = format!(
+        "dbg_{}",
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos()
+    );
+
+    let api_messages = crate::models::serialize_messages(messages);
+    let fn_names: Vec<&str> = function_defs
+        .iter()
+        .filter_map(|f| f.get("name").and_then(|n| n.as_str()))
+        .collect();
+    let total_tokens = crate::context::estimate_total(messages);
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64;
+
+    let full_payload = serde_json::json!({
+        "id": request_id,
+        "type": "model_request",
+        "agent": agent_id,
+        "session": session,
+        "timestamp": ts,
+        "message_count": messages.len(),
+        "function_count": function_defs.len(),
+        "estimated_tokens": total_tokens,
+        "function_names": fn_names,
+        "functions": function_defs,
+        "messages": api_messages,
+    });
+
+    // Store full payload in ring buffer.
+    if let Ok(mut store) = DEBUG_PAYLOADS.lock() {
+        if store.len() >= MAX_DEBUG_PAYLOADS {
+            store.pop_front();
+        }
+        store.push_back((request_id.clone(), full_payload.clone()));
+    }
+
+    // Persist to disk (append one JSONL line).
+    if let Ok(mut line) = serde_json::to_string(&full_payload) {
+        line.push('\n');
+        let path = debug_payloads_path();
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut f| std::io::Write::write_all(&mut f, line.as_bytes()));
+    }
+
+    // Broadcast lightweight summary (full payload fetched on demand via REST).
+    crate::gateway::publish_event_json(&serde_json::json!({
+        "type": "model_request",
+        "agent": agent_id,
+        "session": session,
+        "timestamp": ts,
+        "request_id": request_id,
+        "message_count": messages.len(),
+        "function_count": function_defs.len(),
+        "estimated_tokens": total_tokens,
+        "function_names": fn_names,
+    }));
+}
 
 /// Returns the number of agent turns currently executing.
 pub fn in_flight_count() -> usize {
@@ -637,36 +928,10 @@ impl Agent {
         let config_path = crate::pinchy_home().join("config.yaml");
         let turn_cfg = crate::config::Config::load(&config_path).await.ok();
 
-        // Build provider manager. If fallback models are configured,
-        // try to resolve them from the loaded config.
-        let manager = if self.fallback_models.is_empty() {
-            build_provider_manager(&self.provider, &self.model_id)
-        } else {
-            // Build a synthetic AgentConfig for the config-aware builder.
-            let agent_cfg = crate::config::AgentConfig {
-                id: self.id.clone(),
-                root: self.agent_root.display().to_string(),
-                model: self.model_config_ref.clone(),
-                heartbeat_secs: None,
-                cron_jobs: Vec::new(),
-                max_tool_iterations: Some(self.max_tool_iterations),
-                enabled_skills: self.enabled_skills.clone(),
-                fallback_models: self.fallback_models.clone(),
-                webhook_secret: None,
-                extra_exec_commands: Vec::new(),
-                history_messages: None,
-                timezone: None,
-            };
-            match &turn_cfg {
-                Some(cfg) => crate::models::build_provider_manager_from_config(&agent_cfg, cfg),
-                None => build_provider_manager(&self.provider, &self.model_id),
-            }
-        };
-
-        // Stash the providers globally so tools (e.g. semantic memory)
-        // can embed text without plumbing.  Reuse `manager`'s config-aware
-        // setup rather than building a second stripped-down instance.
-        crate::models::set_global_providers(std::sync::Arc::new(
+        // Helper: build a ProviderManager from agent state + config.
+        // Called twice because ProviderManager holds trait objects and isn't
+        // Clone — once for the turn, once for the global embedding accessor.
+        let build_pm = |cfg: Option<&crate::config::Config>| -> ProviderManager {
             if self.fallback_models.is_empty() {
                 build_provider_manager(&self.provider, &self.model_id)
             } else {
@@ -682,14 +947,21 @@ impl Agent {
                     webhook_secret: None,
                     extra_exec_commands: Vec::new(),
                     history_messages: None,
+                    max_turns: None,
                     timezone: None,
                 };
-                match &turn_cfg {
-                    Some(cfg) => crate::models::build_provider_manager_from_config(&agent_cfg, cfg),
+                match cfg {
+                    Some(c) => crate::models::build_provider_manager_from_config(&agent_cfg, c),
                     None => build_provider_manager(&self.provider, &self.model_id),
                 }
-            },
-        ));
+            }
+        };
+
+        let manager = build_pm(turn_cfg.as_ref());
+
+        // Stash the providers globally so tools (e.g. semantic memory)
+        // can embed text without plumbing.
+        crate::models::set_global_providers(std::sync::Arc::new(build_pm(turn_cfg.as_ref())));
 
         let result = self
             .run_turn_with_provider(msg, &manager, turn_cfg.as_ref())
@@ -748,13 +1020,6 @@ impl Agent {
             messages.push(ChatMessage::new("system", skill_prompt));
         }
 
-        // Inject persistent memory (cross-session knowledge).
-        let mem_block =
-            crate::tools::builtins::memory::memory_prompt_block(&self.workspace, 4000).await;
-        if !mem_block.is_empty() {
-            messages.push(ChatMessage::new("system", mem_block));
-        }
-
         // Inject tools metadata so the model knows which skills are available.
         // Only inject the fenced-JSON tool catalogue when the provider does
         // NOT support native function-calling.  When function-calling is
@@ -798,7 +1063,15 @@ impl Agent {
 
         // 2b. Context window management: prune old tool results and
         //     compact if over budget.
-        let budget = crate::context::ContextBudget::default();
+        let mut budget = crate::context::ContextBudget::default();
+        if let Some(max_turns) = turn_cfg.and_then(|cfg| {
+            cfg.agents
+                .iter()
+                .find(|a| a.id == self.id)
+                .and_then(|a| a.max_turns)
+        }) {
+            budget.max_turns = max_turns;
+        }
         crate::context::manage_context(&mut messages, &budget, manager).await;
 
         // 3. Build function definitions for function-calling providers.
@@ -817,12 +1090,41 @@ impl Agent {
 
         // 3a. Auto-pluck: scan the user message for domain keywords and
         //     inject matching deferred tools automatically.
-        //     We also scan recent user messages from history so that
-        //     follow-up messages (e.g. "try again") still pluck tools
-        //     that were relevant earlier in the conversation.
+        //     We scan recent messages of ALL roles (user, assistant, tool)
+        //     so that follow-up messages like "try again" or "enumerate
+        //     the tools" still pluck tools used in prior turns.
         {
             let mut pluck_text = msg.content.clone();
+            // Scan last 5 user messages.
             for m in messages.iter().rev().filter(|m| m.role == "user").take(5) {
+                pluck_text.push(' ');
+                pluck_text.push_str(&m.content);
+            }
+            // Scan last 3 assistant messages (contain tool names / results).
+            for m in messages
+                .iter()
+                .rev()
+                .filter(|m| m.role == "assistant")
+                .take(3)
+            {
+                pluck_text.push(' ');
+                pluck_text.push_str(&m.content);
+                // Also extract tool names from tool_calls metadata.
+                if let Some(ref tcs) = m.tool_calls {
+                    for tc in tcs {
+                        if let Some(name) = tc
+                            .get("function")
+                            .and_then(|f| f.get("name"))
+                            .and_then(|n| n.as_str())
+                        {
+                            pluck_text.push(' ');
+                            pluck_text.push_str(name);
+                        }
+                    }
+                }
+            }
+            // Scan last 3 tool-role messages (contain tool result content).
+            for m in messages.iter().rev().filter(|m| m.role == "tool").take(3) {
                 pluck_text.push(' ');
                 pluck_text.push_str(&m.content);
             }
@@ -860,22 +1162,19 @@ impl Agent {
         let mut receipt_model_calls: u32 = 0;
 
         // 3a. Call model via provider manager (tries function-calling first).
+        emit_model_request_debug(
+            &self.id,
+            self.current_session.as_deref(),
+            &messages,
+            &function_defs,
+        );
         let (mut response, usage) = manager
             .send_chat_with_functions(&messages, &function_defs)
             .await
             .context("model call failed")?;
         receipt_model_calls += 1;
 
-        if let Some(ref u) = usage {
-            receipt_tokens.accumulate(u);
-            crate::gateway::publish_event_json(&serde_json::json!({
-                "type": "token_usage",
-                "agent": self.id,
-                "prompt_tokens": u.prompt_tokens,
-                "completion_tokens": u.completion_tokens,
-                "total_tokens": u.total_tokens,
-            }));
-        }
+        emit_and_accumulate_usage(&usage, &self.id, &mut receipt_tokens);
 
         // 3a-enforce. Enforcement retry: if the provider returned plain text
         // but function definitions exist and the provider supports functions,
@@ -907,6 +1206,12 @@ impl Agent {
                     available_tool_names.join(", ")
                 );
                 messages.push(ChatMessage::new("system", corrective));
+                emit_model_request_debug(
+                    &self.id,
+                    self.current_session.as_deref(),
+                    &messages,
+                    &function_defs,
+                );
                 match manager
                     .send_chat_with_functions(&messages, &function_defs)
                     .await
@@ -923,16 +1228,7 @@ impl Agent {
                             "enforcement retry completed"
                         );
                         response = retry_resp;
-                        if let Some(ref u) = retry_usage {
-                            receipt_tokens.accumulate(u);
-                            crate::gateway::publish_event_json(&serde_json::json!({
-                                "type": "token_usage",
-                                "agent": self.id,
-                                "prompt_tokens": u.prompt_tokens,
-                                "completion_tokens": u.completion_tokens,
-                                "total_tokens": u.total_tokens,
-                            }));
-                        }
+                        emit_and_accumulate_usage(&retry_usage, &self.id, &mut receipt_tokens);
                     }
                     Err(e) => {
                         warn!(error = %e, "enforcement retry failed, using original response");
@@ -953,427 +1249,233 @@ impl Agent {
         let mut consecutive_unknown_tool: u32 = 0;
 
         for _iter in 0..max_iters {
-            match response {
-                ProviderResponse::Final(ref text) => {
-                    // Check for fenced-JSON tool call (fallback for
-                    // non-function-calling providers).
-                    let Some((json_str, remaining)) = extract_tool_call_block(text) else {
+            // ── Fenced-JSON tool call (non-function-calling providers) ──
+            if let ProviderResponse::Final(ref text) = response {
+                let Some((json_str, remaining)) = extract_tool_call_block(text) else {
+                    break;
+                };
+
+                let tool_req: ToolRequest = match serde_json::from_str(&json_str) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        warn!(error = %e, "failed to parse TOOL_CALL JSON, stopping loop");
                         break;
-                    };
+                    }
+                };
 
-                    let tool_req: ToolRequest = match serde_json::from_str(&json_str) {
-                        Ok(r) => r,
-                        Err(e) => {
-                            warn!(error = %e, "failed to parse TOOL_CALL JSON, stopping loop");
-                            break;
-                        }
-                    };
+                debug!(tool = %tool_req.name, "invoking tool (fenced)");
 
-                    // exec/exec_shell allowed unconditionally (TOOLS.md gating removed).
+                let inv = ToolInvocation {
+                    call_id: format!("call_{}", uuid_like_id()),
+                    name: tool_req.name.clone(),
+                    args_str: serde_json::to_string(&tool_req.args).unwrap_or_default(),
+                };
+                let tr = execute_tool(&inv, &self.workspace, &self.id, &self.current_session).await;
 
-                    debug!(tool = %tool_req.name, "invoking tool (fenced)");
+                // Echo the assistant's tool-call block.
+                messages.push(ChatMessage {
+                    role: "assistant".into(),
+                    content: text.clone(),
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
 
-                    let tool_name_owned = tool_req.name.clone();
-                    let args_summary = crate::utils::truncate_str(
-                        &serde_json::to_string(&tool_req.args).unwrap_or_default(),
-                        200,
-                    );
+                // Feed the tool result back so the model can see what happened.
+                messages.push(ChatMessage::new(
+                    "user",
+                    format!(
+                        "[Tool Result for {}]: {}",
+                        tr.name,
+                        truncate_tool_result(tr.result_json.clone())
+                    ),
+                ));
 
-                    crate::gateway::publish_event_json(&serde_json::json!({
-                        "type": "tool_start",
-                            "agent": self.id,
-                            "session": self.current_session,
-                            "tool": tool_req.name,
-                    }));
-
-                    let tool_timer = std::time::Instant::now();
-                    let result =
-                        tools::call_skill(&tool_req.name, tool_req.args, &self.workspace).await;
-                    let tool_elapsed = tool_timer.elapsed().as_millis() as u64;
-
-                    let (result_json, tool_failed, tool_error) = match result {
-                        Ok(v) => (serde_json::to_string(&v)?, false, None),
-                        Err(e) => {
-                            let err_msg = format!("{e}");
-                            warn!(error = %e, "tool execution failed, feeding error back");
-                            crate::gateway::publish_event_json(&serde_json::json!({
-                                "type": "tool_error",
-                                "agent": self.id,
-                                    "session": self.current_session,
-                                "tool": tool_name_owned,
-                                "error": err_msg,
-                            }));
-                            (
-                                serde_json::to_string(&serde_json::json!({"error": &err_msg}))
-                                    .unwrap_or_default(),
-                                true,
-                                Some(err_msg),
-                            )
-                        }
-                    };
-
-                    receipt_tool_calls.push(ToolCallRecord {
-                        tool: tool_name_owned.clone(),
-                        args_summary,
-                        success: !tool_failed,
-                        duration_ms: tool_elapsed,
-                        error: tool_error,
-                    });
-
-                    crate::gateway::publish_event_json(&serde_json::json!({
-                        "type": "tool_end",
-                            "agent": self.id,
-                            "session": self.current_session,
-                            "tool": tool_name_owned,
-                    }));
-
-                    // Echo the assistant's tool-call block.
+                // If there was remaining assistant text, preserve it.
+                if !remaining.is_empty() {
                     messages.push(ChatMessage {
                         role: "assistant".into(),
-                        content: text.clone(),
+                        content: remaining,
                         tool_calls: None,
                         tool_call_id: None,
                     });
-
-                    // Feed the tool result back so the model can see what happened.
-                    messages.push(ChatMessage::new(
-                        "user",
-                        format!(
-                            "[Tool Result for {}]: {}",
-                            tool_name_owned,
-                            truncate_tool_result(result_json)
-                        ),
-                    ));
-
-                    // If there was remaining assistant text, preserve it.
-                    if !remaining.is_empty() {
-                        messages.push(ChatMessage {
-                            role: "assistant".into(),
-                            content: remaining,
-                            tool_calls: None,
-                            tool_call_id: None,
-                        });
-                    }
-
-                    // If the tool was unknown, inject a corrective system
-                    // message so the model doesn't hallucinate success.
-                    if tool_failed
-                        && receipt_tool_calls
-                            .last()
-                            .and_then(|r| r.error.as_deref())
-                            .is_some_and(|e| e.contains("unknown tool"))
-                    {
-                        consecutive_unknown_tool += 1;
-                        messages.push(ChatMessage::new(
-                            "system",
-                            unknown_tool_corrective(&tool_name_owned, &function_defs),
-                        ));
-                        if consecutive_unknown_tool >= 3 {
-                            warn!("3 consecutive unknown-tool calls — breaking loop");
-                            break;
-                        }
-                    } else {
-                        consecutive_unknown_tool = 0;
-                    }
-
-                    // Re-query provider with updated conversation.
-                    let (new_resp, loop_usage) = manager
-                        .send_chat_with_functions(&messages, &function_defs)
-                        .await
-                        .context("model call failed (tool loop)")?;
-                    response = new_resp;
-                    receipt_model_calls += 1;
-                    if let Some(ref u) = loop_usage {
-                        receipt_tokens.accumulate(u);
-                        crate::gateway::publish_event_json(&serde_json::json!({
-                            "type": "token_usage",
-                            "agent": self.id,
-                            "prompt_tokens": u.prompt_tokens,
-                            "completion_tokens": u.completion_tokens,
-                            "total_tokens": u.total_tokens,
-                        }));
-                    }
                 }
-                ProviderResponse::FunctionCall {
-                    ref id,
-                    ref name,
-                    ref arguments,
-                } => {
-                    // Parse arguments JSON.
-                    let args: serde_json::Value =
-                        serde_json::from_str(arguments).unwrap_or(serde_json::json!({}));
 
-                    // exec/exec_shell allowed unconditionally (TOOLS.md gating removed).
+                if handle_unknown_tool(
+                    &tr,
+                    &mut consecutive_unknown_tool,
+                    &mut messages,
+                    &function_defs,
+                ) {
+                    receipt_tool_calls.push(tr.record);
+                    break;
+                }
+                receipt_tool_calls.push(tr.record);
 
-                    let fc_id = if id.is_empty() {
-                        format!("call_{}", uuid_like_id())
-                    } else {
-                        id.clone()
-                    };
-                    let fc_name = name.clone();
-                    let fc_args_summary = crate::utils::truncate_str(arguments, 200);
+                response = requery_provider(
+                    manager,
+                    &messages,
+                    &function_defs,
+                    &self.id,
+                    self.current_session.as_deref(),
+                    &mut receipt_tokens,
+                    &mut receipt_model_calls,
+                )
+                .await?;
+                continue;
+            }
 
-                    debug!(tool = %name, "invoking tool (function-call)");
+            // ── Single function call ──
+            if let ProviderResponse::FunctionCall {
+                ref id,
+                ref name,
+                ref arguments,
+            } = response
+            {
+                let fc_id = if id.is_empty() {
+                    format!("call_{}", uuid_like_id())
+                } else {
+                    id.clone()
+                };
 
-                    crate::gateway::publish_event_json(&serde_json::json!({
-                        "type": "tool_start",
-                            "agent": self.id,
-                            "session": self.current_session,
-                            "tool": fc_name,
-                    }));
+                debug!(tool = %name, "invoking tool (function-call)");
 
-                    let tool_timer = std::time::Instant::now();
-                    let result = tools::call_skill(name, args, &self.workspace).await;
-                    let tool_elapsed = tool_timer.elapsed().as_millis() as u64;
+                let inv = ToolInvocation {
+                    call_id: fc_id.clone(),
+                    name: name.clone(),
+                    args_str: arguments.clone(),
+                };
+                let tr = execute_tool(&inv, &self.workspace, &self.id, &self.current_session).await;
 
-                    let (result_json, tool_failed, tool_error) = match result {
-                        Ok(v) => (serde_json::to_string(&v).unwrap_or_default(), false, None),
-                        Err(e) => {
-                            let err_msg = format!("{e}");
-                            crate::gateway::publish_event_json(&serde_json::json!({
-                                "type": "tool_error",
-                                "agent": self.id,
-                                    "session": self.current_session,
-                                "tool": name,
-                                "error": err_msg,
-                            }));
-                            (
-                                serde_json::to_string(&serde_json::json!({"error": &err_msg}))
-                                    .unwrap_or_default(),
-                                true,
-                                Some(err_msg),
-                            )
+                // Append assistant message with proper tool_calls metadata.
+                messages.push(ChatMessage {
+                    role: "assistant".into(),
+                    content: String::new(),
+                    tool_calls: Some(vec![serde_json::json!({
+                        "id": fc_id,
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "arguments": arguments,
                         }
-                    };
+                    })]),
+                    tool_call_id: None,
+                });
+                // Append tool result with matching tool_call_id.
+                messages.push(ChatMessage {
+                    role: "tool".into(),
+                    content: truncate_tool_result(tr.result_json.clone()),
+                    tool_calls: None,
+                    tool_call_id: Some(fc_id),
+                });
 
-                    receipt_tool_calls.push(ToolCallRecord {
-                        tool: fc_name.clone(),
-                        args_summary: fc_args_summary,
-                        success: !tool_failed,
-                        duration_ms: tool_elapsed,
-                        error: tool_error,
-                    });
+                if handle_unknown_tool(
+                    &tr,
+                    &mut consecutive_unknown_tool,
+                    &mut messages,
+                    &function_defs,
+                ) {
+                    receipt_tool_calls.push(tr.record);
+                    break;
+                }
+                receipt_tool_calls.push(tr.record);
 
-                    crate::gateway::publish_event_json(&serde_json::json!({
-                        "type": "tool_end",
-                            "agent": self.id,
-                            "session": self.current_session,
-                            "tool": fc_name,
-                    }));
+                response = requery_provider(
+                    manager,
+                    &messages,
+                    &function_defs,
+                    &self.id,
+                    self.current_session.as_deref(),
+                    &mut receipt_tokens,
+                    &mut receipt_model_calls,
+                )
+                .await?;
+                continue;
+            }
 
-                    // Append assistant message with proper tool_calls metadata.
-                    messages.push(ChatMessage {
-                        role: "assistant".into(),
-                        content: String::new(),
-                        tool_calls: Some(vec![serde_json::json!({
-                            "id": fc_id,
+            // ── Multiple function calls (parallel) ──
+            if let ProviderResponse::MultiFunctionCall(ref calls) = response {
+                let invocations: Vec<ToolInvocation> = calls
+                    .iter()
+                    .map(|c| ToolInvocation {
+                        call_id: if c.id.is_empty() {
+                            format!("call_{}", uuid_like_id())
+                        } else {
+                            c.id.clone()
+                        },
+                        name: c.name.clone(),
+                        args_str: c.arguments.clone(),
+                    })
+                    .collect();
+
+                // Push the assistant message with all tool_calls up-front.
+                let tc_json: Vec<serde_json::Value> = invocations
+                    .iter()
+                    .map(|inv| {
+                        serde_json::json!({
+                            "id": inv.call_id,
                             "type": "function",
                             "function": {
-                                "name": name,
-                                "arguments": arguments,
+                                "name": inv.name,
+                                "arguments": inv.args_str,
                             }
-                        })]),
-                        tool_call_id: None,
-                    });
-                    // Append tool result with matching tool_call_id.
-                    messages.push(ChatMessage {
-                        role: "tool".into(),
-                        content: truncate_tool_result(result_json),
-                        tool_calls: None,
-                        tool_call_id: Some(fc_id),
-                    });
+                        })
+                    })
+                    .collect();
+                messages.push(ChatMessage {
+                    role: "assistant".into(),
+                    content: String::new(),
+                    tool_calls: Some(tc_json),
+                    tool_call_id: None,
+                });
 
-                    // If the tool was unknown, inject a corrective system
-                    // message so the model doesn't hallucinate success.
-                    if tool_failed
-                        && receipt_tool_calls
-                            .last()
-                            .and_then(|r| r.error.as_deref())
-                            .is_some_and(|e| e.contains("unknown tool"))
-                    {
-                        consecutive_unknown_tool += 1;
-                        messages.push(ChatMessage::new(
-                            "system",
-                            unknown_tool_corrective(&fc_name, &function_defs),
-                        ));
-                        if consecutive_unknown_tool >= 3 {
-                            warn!("3 consecutive unknown-tool calls — breaking loop");
-                            break;
-                        }
-                    } else {
-                        consecutive_unknown_tool = 0;
-                    }
+                // Execute all tool calls concurrently.
+                let ws = self.workspace.clone();
+                let agent_id = self.id.clone();
+                let session_id = self.current_session.clone();
 
-                    // Re-query provider.
-                    let (new_resp, loop_usage) = manager
-                        .send_chat_with_functions(&messages, &function_defs)
-                        .await
-                        .context("model call failed (function-call loop)")?;
-                    response = new_resp;
-                    receipt_model_calls += 1;
-                    if let Some(ref u) = loop_usage {
-                        receipt_tokens.accumulate(u);
-                        crate::gateway::publish_event_json(&serde_json::json!({
-                            "type": "token_usage",
-                            "agent": self.id,
-                            "prompt_tokens": u.prompt_tokens,
-                            "completion_tokens": u.completion_tokens,
-                            "total_tokens": u.total_tokens,
-                        }));
-                    }
+                let mut handles = Vec::new();
+                for inv in invocations {
+                    let ws = ws.clone();
+                    let agent_id = agent_id.clone();
+                    let session_id = session_id.clone();
+                    handles.push(tokio::spawn(async move {
+                        execute_tool(&inv, &ws, &agent_id, &session_id).await
+                    }));
                 }
-                ProviderResponse::MultiFunctionCall(ref calls) => {
-                    // Build tool_calls entries and generate ids where needed.
-                    let call_entries: Vec<(String, String, String, String)> = calls
-                        .iter()
-                        .map(|c| {
-                            let cid = if c.id.is_empty() {
-                                format!("call_{}", uuid_like_id())
-                            } else {
-                                c.id.clone()
-                            };
-                            (
-                                cid,
-                                c.name.clone(),
-                                c.arguments.clone(),
-                                c.arguments.clone(),
-                            )
-                        })
-                        .collect();
 
-                    // Push the assistant message with all tool_calls up-front.
-                    let tc_json: Vec<serde_json::Value> = call_entries
-                        .iter()
-                        .map(|(cid, name, args, _)| {
-                            serde_json::json!({
-                                "id": cid,
-                                "type": "function",
-                                "function": {
-                                    "name": name,
-                                    "arguments": args,
-                                }
-                            })
-                        })
-                        .collect();
-                    messages.push(ChatMessage {
-                        role: "assistant".into(),
-                        content: String::new(),
-                        tool_calls: Some(tc_json),
-                        tool_call_id: None,
-                    });
-
-                    // Execute all tool calls concurrently.
-                    let ws = self.workspace.clone();
-                    let agent_id = self.id.clone();
-                    let session_id = self.current_session.clone();
-
-                    let mut handles = Vec::new();
-                    for (cid, name, args_str, _) in call_entries.iter() {
-                        let name = name.clone();
-                        let args_str = args_str.clone();
-                        let cid = cid.clone();
-                        let ws = ws.clone();
-                        let agent_id = agent_id.clone();
-                        let session_id = session_id.clone();
-
-                        handles.push(tokio::spawn(async move {
-                            let args: serde_json::Value =
-                                serde_json::from_str(&args_str).unwrap_or(serde_json::json!({}));
-                            let args_summary = crate::utils::truncate_str(&args_str, 200);
-
-                            crate::gateway::publish_event_json(&serde_json::json!({
-                                "type": "tool_start",
-                                "agent": agent_id,
-                                    "session": session_id,
-                                "tool": name,
-                            }));
-
-                            let timer = std::time::Instant::now();
-                            let result = tools::call_skill(&name, args, &ws).await;
-                            let elapsed = timer.elapsed().as_millis() as u64;
-
-                            let (result_json, failed, error) = match result {
-                                Ok(v) => {
-                                    (serde_json::to_string(&v).unwrap_or_default(), false, None)
-                                }
-                                Err(e) => {
-                                    let err_msg = format!("{e}");
-                                    crate::gateway::publish_event_json(&serde_json::json!({
-                                        "type": "tool_error",
-                                        "agent": agent_id,
-                                            "session": session_id,
-                                        "tool": name,
-                                        "error": err_msg,
-                                    }));
-                                    (
-                                        serde_json::to_string(
-                                            &serde_json::json!({"error": &err_msg}),
-                                        )
-                                        .unwrap_or_default(),
-                                        true,
-                                        Some(err_msg),
-                                    )
-                                }
-                            };
-
-                            crate::gateway::publish_event_json(&serde_json::json!({
-                                "type": "tool_end",
-                                "agent": agent_id,
-                                    "session": session_id,
-                                "tool": name,
-                            }));
-
-                            (cid, name, args_summary, result_json, failed, error, elapsed)
-                        }));
-                    }
-
-                    // Collect results.
-                    for handle in handles {
-                        match handle.await {
-                            Ok((cid, name, args_summary, result_json, failed, error, elapsed)) => {
-                                receipt_tool_calls.push(ToolCallRecord {
-                                    tool: name.clone(),
-                                    args_summary,
-                                    success: !failed,
-                                    duration_ms: elapsed,
-                                    error,
-                                });
-
-                                // Append tool result with matching tool_call_id.
-                                messages.push(ChatMessage {
-                                    role: "tool".into(),
-                                    content: truncate_tool_result(result_json),
-                                    tool_calls: None,
-                                    tool_call_id: Some(cid),
-                                });
-                            }
-                            Err(join_err) => {
-                                warn!("tool task panicked: {join_err}");
-                                // Find the call_id for this position so the message sequence stays intact.
-                                // We can't recover the exact id, but we must emit *something* for every
-                                // tool_call in the assistant message to avoid an API error.
-                            }
+                // Collect results.
+                for handle in handles {
+                    match handle.await {
+                        Ok(tr) => {
+                            messages.push(ChatMessage {
+                                role: "tool".into(),
+                                content: truncate_tool_result(tr.result_json),
+                                tool_calls: None,
+                                tool_call_id: Some(tr.call_id),
+                            });
+                            receipt_tool_calls.push(tr.record);
+                        }
+                        Err(join_err) => {
+                            warn!("tool task panicked: {join_err}");
                         }
                     }
-                    // Re-query provider with all tool results.
-                    let (new_resp, loop_usage) = manager
-                        .send_chat_with_functions(&messages, &function_defs)
-                        .await
-                        .context("model call failed (multi-function-call loop)")?;
-                    response = new_resp;
-                    receipt_model_calls += 1;
-                    if let Some(ref u) = loop_usage {
-                        receipt_tokens.accumulate(u);
-                        crate::gateway::publish_event_json(&serde_json::json!({
-                            "type": "token_usage",
-                            "agent": self.id,
-                            "prompt_tokens": u.prompt_tokens,
-                            "completion_tokens": u.completion_tokens,
-                            "total_tokens": u.total_tokens,
-                        }));
-                    }
                 }
+
+                response = requery_provider(
+                    manager,
+                    &messages,
+                    &function_defs,
+                    &self.id,
+                    self.current_session.as_deref(),
+                    &mut receipt_tokens,
+                    &mut receipt_model_calls,
+                )
+                .await?;
+                continue;
             }
+
+            // Not a tool call — nothing more to do.
+            break;
         }
 
         let final_reply = match response {
@@ -1718,8 +1820,6 @@ mod tests {
         let reply = agent.run_turn(msg).await.unwrap();
         assert!(!reply.is_empty());
 
-        // There should be exactly one .jsonl session file in workspace/sessions/
-        // (plus one .receipts.jsonl for the turn receipt).
         let sessions = dir.path().join("workspace").join("sessions");
         let mut entries: Vec<_> = std::fs::read_dir(&sessions)
             .unwrap()
