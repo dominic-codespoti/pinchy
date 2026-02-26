@@ -213,10 +213,10 @@ fn handle_unknown_tool(
             .is_some_and(|e| e.contains("unknown tool"))
     {
         *consecutive_unknown_tool += 1;
-        messages.push(ChatMessage::new(
-            "system",
-            unknown_tool_corrective(&result.name, function_defs),
-        ));
+        messages.push(ChatMessage::system(unknown_tool_corrective(
+            &result.name,
+            function_defs,
+        )));
         if *consecutive_unknown_tool >= 3 {
             warn!("3 consecutive unknown-tool calls — breaking loop");
             return true;
@@ -432,17 +432,6 @@ pub async fn drain_in_flight(timeout: std::time::Duration) {
         }
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     }
-}
-
-/// Resolve the configured `default_channel` to a connector-ready channel
-/// string (e.g. `"dm:12345"` or a numeric channel id).  Returns `None`
-/// when no default channel is set.
-async fn resolve_default_channel() -> Option<String> {
-    let config_path = crate::pinchy_home().join("config.yaml");
-    let cfg = crate::config::Config::load(&config_path).await.ok()?;
-    cfg.channels
-        .default_channel
-        .map(|dc| dc.to_channel_string())
 }
 
 // ---------------------------------------------------------------------------
@@ -728,23 +717,18 @@ impl Agent {
                                                 })
                                                 .await;
                                             if send_result.is_err() {
-                                                // If the channel is a cron job or heartbeat, use the default channel.
+                                                // If the channel is a cron job or heartbeat,
+                                                // broadcast the reply via the gateway so it
+                                                // appears in the web UI session view instead
+                                                // of falling back to a Discord channel.
                                                 if channel.starts_with("cron:") || channel == "heartbeat" {
-                                                    let fallback = resolve_default_channel().await;
-                                                    if let Some(fb) = fallback {
-                                                        let fb2 = fb.clone();
-                                                        let rp2 = reply_clone.clone();
-                                                        let send_fb = crate::discord::CURRENT_REPLY_CONTEXT
-                                                            .scope(ctx, async move {
-                                                                crate::comm::send_reply(&fb2, &rp2).await
-                                                            })
-                                                            .await;
-                                                        if let Err(e) = send_fb {
-                                                            warn!(error = %e, channel = %fb, "failed to send reply to default channel");
-                                                        }
-                                                    } else {
-                                                        debug!(channel = %channel, "no default_channel configured, reply dropped");
-                                                    }
+                                                    crate::gateway::publish_event_json(&serde_json::json!({
+                                                        "type": "agent_reply",
+                                                        "agent": ctx.agent_id,
+                                                        "session": ctx.session_id,
+                                                        "channel": channel,
+                                                        "text": reply_clone,
+                                                    }));
                                                 } else {
                                                     warn!(channel = %channel, "failed to send reply (no matching connector)");
                                                 }
@@ -779,10 +763,10 @@ impl Agent {
     /// Read optional markdown files from the agent workspace and
     /// concatenate their contents into a single system bootstrap string.
     ///
-    /// Files checked: `SOUL.md`, `TOOLS.md`, `HEARTBEAT.md`.  Missing
+    /// Files checked: `SOUL.md`, `TOOLS.md`,  Missing
     /// files are silently skipped.
     pub async fn load_bootstrap(&self) -> anyhow::Result<String> {
-        let names = ["SOUL.md", "TOOLS.md", "HEARTBEAT.md"];
+        let names = ["SOUL.md", "TOOLS.md"];
         let mut parts: Vec<String> = Vec::new();
 
         for name in &names {
@@ -997,7 +981,7 @@ impl Agent {
         let mut messages: Vec<ChatMessage> = Vec::new();
 
         if !bootstrap.is_empty() {
-            messages.push(ChatMessage::new("system", bootstrap));
+            messages.push(ChatMessage::system(bootstrap));
         }
 
         // Inject current date/time with timezone context.
@@ -1011,13 +995,13 @@ impl Agent {
                 now.format("%A, %B %-d, %Y %H:%M %Z"),
                 tz,
             );
-            messages.push(ChatMessage::new("system", time_ctx));
+            messages.push(ChatMessage::system(time_ctx));
         }
 
         // Inject skill instructions from the unified tool registry.
         let skill_prompt = crate::tools::prompt_instructions(self.enabled_skills.as_deref());
         if !skill_prompt.is_empty() {
-            messages.push(ChatMessage::new("system", skill_prompt));
+            messages.push(ChatMessage::system(skill_prompt));
         }
 
         // Inject tools metadata so the model knows which skills are available.
@@ -1030,19 +1014,10 @@ impl Agent {
         if !tool_metas.is_empty() && !manager.supports_functions {
             let tools_json =
                 serde_json::to_string_pretty(&tool_metas).unwrap_or_else(|_| "[]".to_string());
-            messages.push(ChatMessage::new(
-                "system",
+            messages.push(ChatMessage::system(
                 format!(
                     "The following tools are available. Use TOOL_CALL with the correct name and args.\n\n\
-                     ```tools_metadata\n{tools_json}\n```\n\n\
-                     IMPORTANT — Tool usage:\n\
-                     • Additional specialised tools (cron, agents, sessions, skills, MCP, browser, \
-                     messaging) are automatically made available when your task requires them.\n\
-                     • ALWAYS prefer specialised tools over `exec_shell`.\n\
-                     • When calling tools, provide EXACT argument types matching the schema. \
-                     Don't wrap strings in extra quotes or nest objects unnecessarily.\n\
-                     • Tool results are returned automatically — read them and act on errors \
-                     rather than assuming success.",
+                     ```tools_metadata\n{tools_json}\n```",
                 ),
             ));
         }
@@ -1059,7 +1034,7 @@ impl Agent {
         let history = self.load_history(history_limit).await.unwrap_or_default();
         messages.extend(history);
 
-        messages.push(ChatMessage::new("user", msg.content.clone()));
+        messages.push(ChatMessage::user(msg.content.clone()));
 
         // 2b. Context window management: prune old tool results and
         //     compact if over budget.
@@ -1096,17 +1071,12 @@ impl Agent {
         {
             let mut pluck_text = msg.content.clone();
             // Scan last 5 user messages.
-            for m in messages.iter().rev().filter(|m| m.role == "user").take(5) {
+            for m in messages.iter().rev().filter(|m| m.is_user()).take(5) {
                 pluck_text.push(' ');
                 pluck_text.push_str(&m.content);
             }
             // Scan last 3 assistant messages (contain tool names / results).
-            for m in messages
-                .iter()
-                .rev()
-                .filter(|m| m.role == "assistant")
-                .take(3)
-            {
+            for m in messages.iter().rev().filter(|m| m.is_assistant()).take(3) {
                 pluck_text.push(' ');
                 pluck_text.push_str(&m.content);
                 // Also extract tool names from tool_calls metadata.
@@ -1124,7 +1094,7 @@ impl Agent {
                 }
             }
             // Scan last 3 tool-role messages (contain tool result content).
-            for m in messages.iter().rev().filter(|m| m.role == "tool").take(3) {
+            for m in messages.iter().rev().filter(|m| m.is_tool()).take(3) {
                 pluck_text.push(' ');
                 pluck_text.push_str(&m.content);
             }
@@ -1205,7 +1175,7 @@ impl Agent {
                      save_memory for remembering facts) over generic ones (write_file, exec_shell).",
                     available_tool_names.join(", ")
                 );
-                messages.push(ChatMessage::new("system", corrective));
+                messages.push(ChatMessage::system(corrective));
                 emit_model_request_debug(
                     &self.id,
                     self.current_session.as_deref(),
@@ -1273,31 +1243,18 @@ impl Agent {
                 let tr = execute_tool(&inv, &self.workspace, &self.id, &self.current_session).await;
 
                 // Echo the assistant's tool-call block.
-                messages.push(ChatMessage {
-                    role: "assistant".into(),
-                    content: text.clone(),
-                    tool_calls: None,
-                    tool_call_id: None,
-                });
+                messages.push(ChatMessage::assistant(text.clone()));
 
                 // Feed the tool result back so the model can see what happened.
-                messages.push(ChatMessage::new(
-                    "user",
-                    format!(
-                        "[Tool Result for {}]: {}",
-                        tr.name,
-                        truncate_tool_result(tr.result_json.clone())
-                    ),
-                ));
+                messages.push(ChatMessage::user(format!(
+                    "[Tool Result for {}]: {}",
+                    tr.name,
+                    truncate_tool_result(tr.result_json.clone())
+                )));
 
                 // If there was remaining assistant text, preserve it.
                 if !remaining.is_empty() {
-                    messages.push(ChatMessage {
-                        role: "assistant".into(),
-                        content: remaining,
-                        tool_calls: None,
-                        tool_call_id: None,
-                    });
+                    messages.push(ChatMessage::assistant(remaining));
                 }
 
                 if handle_unknown_tool(

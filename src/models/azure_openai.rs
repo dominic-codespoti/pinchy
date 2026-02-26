@@ -116,19 +116,7 @@ impl AzureOpenAIProvider {
         });
 
         if !functions.is_empty() {
-            let tools: Vec<serde_json::Value> = functions
-                .iter()
-                .map(|f| {
-                    if f.get("type").and_then(|t| t.as_str()) == Some("function") {
-                        f.clone()
-                    } else {
-                        json!({
-                            "type": "function",
-                            "function": f,
-                        })
-                    }
-                })
-                .collect();
+            let tools = super::wrap_in_function_tools(functions);
             body["tools"] = serde_json::Value::Array(tools);
             body["tool_choice"] = json!("auto");
         }
@@ -150,17 +138,14 @@ impl AzureOpenAIProvider {
         let json: serde_json::Value = resp.json().await?;
         let usage = super::parse_token_usage(&json);
 
-        // Check for tool_calls / function_call in the response.
         if let Some(pr) = super::parse_tool_calls(&json) {
             return Ok((pr, usage));
         }
 
-        let content = json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-
-        Ok((ProviderResponse::Final(content), usage))
+        Ok((
+            ProviderResponse::Final(super::extract_content(&json)),
+            usage,
+        ))
     }
 
     /// Send chat messages and return a stream of content deltas via SSE.
@@ -224,12 +209,8 @@ impl ModelProvider for AzureOpenAIProvider {
         }
 
         let json: serde_json::Value = resp.json().await?;
-        let content = json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
 
-        Ok(content)
+        Ok(super::extract_content(&json))
     }
 
     async fn send_chat_with_functions(

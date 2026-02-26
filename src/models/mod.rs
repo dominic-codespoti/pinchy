@@ -49,6 +49,34 @@ impl ChatMessage {
             tool_call_id: None,
         }
     }
+
+    pub fn is_system(&self) -> bool {
+        self.role == "system"
+    }
+
+    pub fn is_user(&self) -> bool {
+        self.role == "user"
+    }
+
+    pub fn is_assistant(&self) -> bool {
+        self.role == "assistant"
+    }
+
+    pub fn is_tool(&self) -> bool {
+        self.role == "tool"
+    }
+
+    pub fn system(content: impl Into<String>) -> Self {
+        Self::new("system", content)
+    }
+
+    pub fn user(content: impl Into<String>) -> Self {
+        Self::new("user", content)
+    }
+
+    pub fn assistant(content: impl Into<String>) -> Self {
+        Self::new("assistant", content)
+    }
 }
 
 /// Serialise a slice of [`ChatMessage`]s into the OpenAI-compatible
@@ -212,6 +240,38 @@ pub fn parse_tool_calls(json: &serde_json::Value) -> Option<ProviderResponse> {
     None
 }
 
+/// Normalise function definitions into the OpenAI `tools` format.
+///
+/// Accepts both bare format (`{name, description, parameters}`) and
+/// already-wrapped format (`{type: "function", function: {...}}`).
+/// Used by all OpenAI-compatible providers so the wrapping logic lives
+/// in one place.
+pub fn wrap_in_function_tools(functions: &[serde_json::Value]) -> Vec<serde_json::Value> {
+    functions
+        .iter()
+        .map(|f| {
+            if f.get("type").and_then(|t| t.as_str()) == Some("function") {
+                f.clone()
+            } else {
+                serde_json::json!({
+                    "type": "function",
+                    "function": f,
+                })
+            }
+        })
+        .collect()
+}
+
+/// Extract assistant content text from an OpenAI-style chat completion response.
+///
+/// Returns the content string from `choices[0].message.content`.
+pub fn extract_content(json: &serde_json::Value) -> String {
+    json["choices"][0]["message"]["content"]
+        .as_str()
+        .unwrap_or("")
+        .to_string()
+}
+
 // ---------------------------------------------------------------------------
 // ProviderManager – retry / fallback wrapper
 // ---------------------------------------------------------------------------
@@ -369,7 +429,7 @@ impl ProviderManager {
                         "role": m.role,
                         "len": m.content.len(),
                     });
-                    if m.content.len() <= 500 || m.role == "system" {
+                    if m.content.len() <= 500 || m.is_system() {
                         entry["content"] = serde_json::json!(content_preview);
                     } else {
                         entry["preview"] = serde_json::json!(content_preview);
@@ -632,7 +692,7 @@ pub async fn send_chat_messages(messages: &[ChatMessage]) -> anyhow::Result<Stri
         let last_user = messages
             .iter()
             .rev()
-            .find(|m| m.role == "user")
+            .find(|m| m.is_user())
             .map(|m| m.content.clone())
             .unwrap_or_default();
         Ok(format!("[stub] echo: {last_user}"))

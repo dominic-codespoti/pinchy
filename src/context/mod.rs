@@ -95,13 +95,13 @@ impl Default for ContextBudget {
 
 /// Count leading system messages (these are pinned and never touched).
 fn leading_system_count(messages: &[ChatMessage]) -> usize {
-    messages.iter().take_while(|m| m.role == "system").count()
+    messages.iter().take_while(|m| m.is_system()).count()
 }
 
 /// Count conversation turns (each user message starts a new turn).
 /// Only counts non-system messages.
 fn count_turns(messages: &[ChatMessage]) -> usize {
-    messages.iter().filter(|m| m.role == "user").count()
+    messages.iter().filter(|m| m.is_user()).count()
 }
 
 // ---------------------------------------------------------------------------
@@ -121,19 +121,19 @@ pub fn prune_tool_results(messages: &mut [ChatMessage], keep_recent: usize) {
 
     for msg in messages[..cutoff].iter_mut() {
         // PINNED: never touch system messages.
-        if msg.role == "system" {
+        if msg.is_system() {
             continue;
         }
 
         // Prune role:"tool" messages (function-calling path).
-        if msg.role == "tool" && msg.content.len() > 300 {
+        if msg.is_tool() && msg.content.len() > 300 {
             msg.content = format!("[tool result pruned — {} chars]", msg.content.len());
             pruned_count += 1;
             continue;
         }
 
         // Prune [Tool Result for ...] in role:"user" messages (fenced path).
-        if msg.role == "user" {
+        if msg.is_user() {
             if let Some(pos) = msg.content.find("[Tool Result for ") {
                 let after = pos + "[Tool Result for ".len();
                 let payload_start = msg.content[after..].find("]: ").map(|i| after + i + 3);
@@ -231,10 +231,10 @@ pub async fn compact_if_needed(
     let mut keep_turns_seen = 0usize;
     let mut tail_start = messages.len();
     for (i, m) in messages.iter().enumerate().rev() {
-        if m.role == "system" {
+        if m.is_system() {
             continue;
         }
-        if m.role == "user" {
+        if m.is_user() {
             keep_turns_seen += 1;
             if keep_turns_seen >= budget.compact_keep_recent_turns {
                 tail_start = i;
@@ -256,7 +256,7 @@ pub async fn compact_if_needed(
     let mut mid_system_messages: Vec<ChatMessage> = Vec::new();
 
     for m in &messages[pinned_count..tail_start] {
-        if m.role == "system" {
+        if m.is_system() {
             mid_system_messages.push(m.clone());
         } else {
             to_summarise.push(format!(
@@ -278,7 +278,7 @@ pub async fn compact_if_needed(
         to_summarise.join("\n")
     );
 
-    let summary_messages = vec![ChatMessage::new("user", summary_prompt)];
+    let summary_messages = vec![ChatMessage::user(summary_prompt)];
 
     let summary = match provider.send_chat(&summary_messages).await {
         Ok(s) => s,
@@ -293,10 +293,9 @@ pub async fn compact_if_needed(
     //   [compaction summary] + [tail messages]
     let mut compacted: Vec<ChatMessage> = messages[..pinned_count].to_vec();
     compacted.extend(mid_system_messages);
-    compacted.push(ChatMessage::new(
-        "system",
-        format!("<compacted_history>\n{summary}\n</compacted_history>"),
-    ));
+    compacted.push(ChatMessage::system(format!(
+        "<compacted_history>\n{summary}\n</compacted_history>"
+    )));
     compacted.extend_from_slice(&messages[tail_start..]);
 
     let old_len = messages.len();

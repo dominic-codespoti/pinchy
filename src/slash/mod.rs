@@ -707,7 +707,7 @@ pub fn register_builtin_commands(registry: &Registry) {
                         SlashError::Handler("no model provider available".to_string())
                     })?;
 
-                let msgs = vec![crate::models::ChatMessage::new("user", summary_prompt)];
+                let msgs = vec![crate::models::ChatMessage::user(summary_prompt)];
                 let summary: String = pm
                     .send_chat(&msgs)
                     .await

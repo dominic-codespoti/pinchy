@@ -159,19 +159,7 @@ impl OpenAIProvider {
         });
 
         if !functions.is_empty() {
-            let tools: Vec<serde_json::Value> = functions
-                .iter()
-                .map(|f| {
-                    if f.get("type").and_then(|t| t.as_str()) == Some("function") {
-                        f.clone()
-                    } else {
-                        json!({
-                            "type": "function",
-                            "function": f,
-                        })
-                    }
-                })
-                .collect();
+            let tools = super::wrap_in_function_tools(functions);
             body["tools"] = serde_json::Value::Array(tools);
             body["tool_choice"] = json!("auto");
         }
@@ -197,12 +185,10 @@ impl OpenAIProvider {
             return Ok((pr, usage));
         }
 
-        let content = json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-
-        Ok((ProviderResponse::Final(content), usage))
+        Ok((
+            ProviderResponse::Final(super::extract_content(&json)),
+            usage,
+        ))
     }
 }
 
@@ -213,7 +199,6 @@ impl ModelProvider for OpenAIProvider {
     ///
     /// Messages are forwarded with their original roles.
     async fn send_chat(&self, messages: &[ChatMessage]) -> Result<String, anyhow::Error> {
-        // Build the messages array expected by the API.
         let api_messages: Vec<serde_json::Value> = super::serialize_messages(messages);
 
         let body = json!({
@@ -237,13 +222,7 @@ impl ModelProvider for OpenAIProvider {
 
         let json: serde_json::Value = resp.json().await?;
 
-        // Extract the assistant reply from the first choice.
-        let content = json["choices"][0]["message"]["content"]
-            .as_str()
-            .unwrap_or("")
-            .to_string();
-
-        Ok(content)
+        Ok(super::extract_content(&json))
     }
 
     async fn send_chat_with_functions(

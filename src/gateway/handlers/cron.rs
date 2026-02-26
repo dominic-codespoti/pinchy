@@ -484,8 +484,8 @@ pub(crate) async fn api_ai_enhance_prompt(
         Return ONLY the improved prompt text, nothing else.";
 
     let messages = vec![
-        crate::models::ChatMessage::new("system", system),
-        crate::models::ChatMessage::new("user", &prompt),
+        crate::models::ChatMessage::system(system),
+        crate::models::ChatMessage::user(&prompt),
     ];
 
     match crate::models::send_chat_messages(&messages).await {
