@@ -134,6 +134,26 @@ impl Agent {
         let config_path = crate::pinchy_home().join("config.yaml");
         let turn_cfg = crate::config::Config::load(&config_path).await.ok();
 
+        // Refresh agent settings from config if available.
+        if let Some(ref c) = turn_cfg {
+            if let Some(ac) = c.agents.iter().find(|a| a.id == self.id) {
+                if let Some(mti) = ac.max_tool_iterations {
+                    self.max_tool_iterations = mti;
+                }
+                if let Some(ref mid) = ac.model {
+                    if let Some(mc) = c.models.iter().find(|m| m.id == *mid) {
+                        self.provider = mc.provider.clone();
+                        self.model_id = mc.model.clone().unwrap_or_else(|| mc.id.clone());
+                        self.model_config_ref = Some(mid.clone());
+                    }
+                }
+                if let Some(ref skills) = ac.enabled_skills {
+                    self.enabled_skills = Some(skills.clone());
+                }
+                self.fallback_models = ac.fallback_models.clone();
+            }
+        }
+
         let manager = self.build_provider_manager(turn_cfg.as_ref());
         crate::models::set_global_providers(std::sync::Arc::new(
             self.build_provider_manager(turn_cfg.as_ref()),
