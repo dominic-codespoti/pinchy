@@ -19,6 +19,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str) -> Config {
             api_version: None,
             embedding_deployment: None,
             embedding_model: None,
+            headers: None,
         }],
         channels: ChannelsConfig {
             discord: None,

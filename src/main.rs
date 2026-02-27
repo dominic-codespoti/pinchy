@@ -347,7 +347,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Initialize modules
     discord::init(&cfg);
-    agent::Agent::init(&cfg, bus.clone(), cancel.clone());
+    agent::init(&cfg, bus.clone(), cancel.clone());
     models::init();
     tools::init();
 

@@ -51,7 +51,7 @@ async fn ws_open_send_stays_alive() {
         "target_agent": "default"
     });
     ws.send(tokio_tungstenite::tungstenite::Message::Text(
-        cmd.to_string().into(),
+        cmd.to_string(),
     ))
     .await
     .unwrap();

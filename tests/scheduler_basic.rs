@@ -16,6 +16,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str, heartbeat_secs: u64)
             api_version: None,
             embedding_deployment: None,
             embedding_model: None,
+            headers: None,
         }],
         channels: ChannelsConfig {
             discord: None,
@@ -170,6 +171,7 @@ async fn cron_merge_persisted_jobs_on_startup() {
             api_version: None,
             embedding_deployment: None,
             embedding_model: None,
+            headers: None,
         }],
         channels: ChannelsConfig {
             discord: None,

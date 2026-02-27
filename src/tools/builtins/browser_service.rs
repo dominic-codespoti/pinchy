@@ -86,6 +86,13 @@ mod impl_playwright {
                 launch_opts = launch_opts.executable_path(path);
             }
 
+            // Suppress "Unknown protocol type: Worker" errors by disabling workers
+            // since playwright-rs (0.8.x) does not yet support them.
+            launch_opts = launch_opts.args(vec![
+                "--disable-service-workers".to_string(),
+                "--disable-shared-workers".to_string(),
+            ]);
+
             let browser = playwright
                 .chromium()
                 .launch_with_options(launch_opts)

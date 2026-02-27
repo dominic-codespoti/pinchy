@@ -336,6 +336,7 @@ pub fn interactive_onboard_tui(
                             api_version: None,
                             embedding_deployment: None,
                             embedding_model: None,
+                            headers: None,
                         });
                         new_id
                     };
@@ -516,6 +517,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                             api_version: None,
                             embedding_deployment: None,
                             embedding_model: None,
+                            headers: None,
                         });
                     }
                     // Update agent model reference if it doesn't match any model
@@ -575,6 +577,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                         api_version: Some("2024-10-21".into()),
                         embedding_deployment: embed,
                         embedding_model: None,
+                        headers: None,
                     });
                     let yaml_out = serde_yaml_ng::to_string(&cfg).unwrap_or_default();
                     sync_backup_file(config_path).ok();
@@ -623,6 +626,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                                 api_version: None,
                                 embedding_deployment: None,
                                 embedding_model: None,
+                                headers: None,
                             });
                         }
                         // Update agent model reference if it doesn't match any model

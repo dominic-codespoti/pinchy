@@ -710,7 +710,7 @@ pub async fn send_chat_messages(messages: &[ChatMessage]) -> anyhow::Result<Stri
 ///   `OPENAI_API_KEY` is set, otherwise [`FallbackProvider`].
 /// * Anything else → [`FallbackProvider`] (auto-selects best available).
 pub fn build_provider(provider_id: &str, model_id: &str) -> Box<dyn ModelProvider> {
-    build_provider_with_config_fields(provider_id, model_id, None, None, None, None)
+    build_provider_with_config_fields(provider_id, model_id, None, None, None, None, None)
 }
 
 /// Build a provider with optional config fields.
@@ -721,9 +721,10 @@ pub fn build_provider_with_config_fields(
     api_version: Option<&str>,
     embedding_deployment: Option<&str>,
     api_key: Option<&str>,
+    headers: Option<&std::collections::HashMap<String, String>>,
 ) -> Box<dyn ModelProvider> {
     if provider_id.contains("copilot") {
-        Box::new(CopilotProvider::new())
+        Box::new(CopilotProvider::new_with_headers(headers.cloned()))
     } else if matches!(provider_id, "azure-openai" | "azure_openai" | "azure") {
         let ep = endpoint
             .map(String::from)
@@ -828,6 +829,7 @@ pub fn build_provider_manager_from_config(
             mc.api_version.as_deref(),
             mc.embedding_deployment.as_deref(),
             mc.api_key.as_deref(),
+            mc.headers.as_ref(),
         );
         if mc.provider.contains("openai")
             || mc.provider.contains("copilot")
@@ -852,6 +854,7 @@ pub fn build_provider_manager_from_config(
                 mc.api_version.as_deref(),
                 mc.embedding_deployment.as_deref(),
                 mc.api_key.as_deref(),
+                mc.headers.as_ref(),
             );
             if mc.provider.contains("openai")
                 || mc.provider.contains("copilot")
@@ -1027,7 +1030,6 @@ mod tests {
 
     #[test]
     fn compat_provider_requires_endpoint() {
-        // Without endpoint, should fall back to FallbackProvider.
         let p = build_provider_with_config_fields(
             "openai-compat",
             "test-model",
@@ -1035,8 +1037,8 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
-        // FallbackProvider is the only non-specific provider.
         assert!(p.as_any().downcast_ref::<FallbackProvider>().is_some());
     }
 
@@ -1046,6 +1048,7 @@ mod tests {
             "openai-compat",
             "llama3",
             Some("http://localhost:11434/v1/chat/completions"),
+            None,
             None,
             None,
             None,
@@ -1074,6 +1077,7 @@ mod tests {
                 alias,
                 "model",
                 Some("http://localhost:8080/v1/chat/completions"),
+                None,
                 None,
                 None,
                 None,

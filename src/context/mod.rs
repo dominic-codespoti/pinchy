@@ -426,7 +426,10 @@ mod tests {
     #[test]
     fn estimate_tokens_basic() {
         let t = estimate_tokens("hello");
-        assert!(t >= 1 && t <= 3, "expected 1–3 tokens for 'hello', got {t}");
+        assert!(
+            (1..=3).contains(&t),
+            "expected 1–3 tokens for 'hello', got {t}"
+        );
         let t0 = estimate_tokens("");
         assert!(t0 <= 1, "expected 0–1 tokens for empty string, got {t0}");
     }
@@ -520,7 +523,7 @@ mod tests {
 
         // Should still have at least 1 non-system message (the tail).
         let non_system: Vec<_> = msgs.iter().filter(|m| m.role != "system").collect();
-        assert!(non_system.len() >= 1);
+        assert!(!non_system.is_empty());
     }
 
     #[test]

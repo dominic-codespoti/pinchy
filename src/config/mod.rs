@@ -165,6 +165,9 @@ pub struct ModelConfig {
     /// If unset, the provider's default embedding model is used.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub embedding_model: Option<String>,
+    /// Extra HTTP headers to send with every request to this provider.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headers: Option<std::collections::HashMap<String, String>>,
 }
 
 /// Channel connector settings.

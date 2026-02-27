@@ -391,6 +391,52 @@ export function ConfigRoute() {
     }));
   };
 
+  const getModelHeaders = (model: Record<string, unknown>): [string, string][] => {
+    const h = model.headers;
+    if (h && typeof h === "object" && !Array.isArray(h)) {
+      return Object.entries(h as Record<string, unknown>).map(([k, v]) => [k, String(v ?? "")]);
+    }
+    return [];
+  };
+
+  const addModelHeader = (modelIndex: number) => {
+    const updated = formModels.map((m, i) => {
+      if (i !== modelIndex) return m;
+      const existing = (m.headers && typeof m.headers === "object" && !Array.isArray(m.headers))
+        ? { ...(m.headers as Record<string, string>) }
+        : {};
+      existing[""] = "";
+      return { ...m, headers: existing };
+    });
+    setValues((prev) => ({ ...prev, models: updated }));
+  };
+
+  const updateModelHeader = (modelIndex: number, oldKey: string, newKey: string, newValue: string) => {
+    const updated = formModels.map((m, i) => {
+      if (i !== modelIndex) return m;
+      const existing = (m.headers && typeof m.headers === "object" && !Array.isArray(m.headers))
+        ? { ...(m.headers as Record<string, string>) }
+        : {};
+      if (oldKey !== newKey) delete existing[oldKey];
+      existing[newKey] = newValue;
+      return { ...m, headers: existing };
+    });
+    setValues((prev) => ({ ...prev, models: updated }));
+  };
+
+  const removeModelHeader = (modelIndex: number, key: string) => {
+    const updated = formModels.map((m, i) => {
+      if (i !== modelIndex) return m;
+      const existing = (m.headers && typeof m.headers === "object" && !Array.isArray(m.headers))
+        ? { ...(m.headers as Record<string, string>) }
+        : {};
+      delete existing[key];
+      const clean = Object.keys(existing).length > 0 ? existing : undefined;
+      return { ...m, headers: clean };
+    });
+    setValues((prev) => ({ ...prev, models: updated }));
+  };
+
   // ── Channel helpers ──
 
   const channels = useMemo(() => asRecord(values.channels), [values]);
@@ -518,6 +564,46 @@ export function ConfigRoute() {
                               {field.replace(/_/g, " ")}
                             </label>
                             <Input value={String(model[field] ?? "")} onChange={(e) => updateModel(index, field, e.target.value)} placeholder={field === "api_key" ? "sk-…" : field === "endpoint" ? "https://…" : field.replace(/_/g, " ")} />
+                          </div>
+                        ))}
+                      </div>
+                      {/* ── Headers (key-value rows) ── */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[9px] uppercase tracking-widest text-slate-600">Headers</label>
+                          <button
+                            type="button"
+                            onClick={() => addModelHeader(index)}
+                            className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+                          >
+                            <Plus className="h-2.5 w-2.5" /> Add Row
+                          </button>
+                        </div>
+                        {getModelHeaders(model).map(([hKey, hVal], hIdx) => (
+                          <div key={`header-${hIdx}`} className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto] items-end">
+                            <div className="space-y-1">
+                              <label className="text-[9px] uppercase tracking-widest text-slate-600 block">Name</label>
+                              <Input
+                                value={hKey}
+                                onChange={(e) => updateModelHeader(index, hKey, e.target.value, hVal)}
+                                placeholder="X-Custom-Header"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[9px] uppercase tracking-widest text-slate-600 block">Value</label>
+                              <Input
+                                value={hVal}
+                                onChange={(e) => updateModelHeader(index, hKey, hKey, e.target.value)}
+                                placeholder="value"
+                              />
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeModelHeader(index, hKey)}
+                              className="mb-2 text-rose-400/50 hover:text-rose-300 transition-colors shrink-0"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         ))}
                       </div>

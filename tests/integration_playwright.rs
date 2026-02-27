@@ -54,7 +54,7 @@ async fn playwright_browser_roundtrip() {
 
     // (e) Take a screenshot and verify it's non-empty.
     let png = svc.screenshot(&session).await.expect("screenshot failed");
-    assert!(png.len() > 0, "screenshot should be non-empty");
+    assert!(!png.is_empty(), "screenshot should be non-empty");
 
     // (f) Tear down the session.
     svc.close(&session).await.expect("close failed");

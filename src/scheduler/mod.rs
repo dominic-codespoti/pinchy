@@ -851,6 +851,68 @@ pub async fn run_persisted_job_tick(workspace: &Path, job: &PersistedCronJob) {
     }
 }
 
+/// Record completion for a cron job that was previously marked as RUNNING.
+///
+/// This is called by the agent turn completion logic to update the history
+/// with real duration and output.
+pub async fn complete_cron_run(
+    workspace: &Path,
+    job_id: &String,
+    timestamp: u64,
+    success: bool,
+    duration_ms: u64,
+    output_preview: Option<String>,
+    error_msg: Option<String>,
+) -> anyhow::Result<()> {
+    // Reconstruct the same ID used by `run_persisted_job_tick`.
+    let run_id = format!("{}-{}", job_id, timestamp);
+
+    let run = JobRun {
+        id: run_id,
+        job_id: job_id.clone(),
+        scheduled_at: timestamp,
+        executed_at: Some(timestamp),
+        completed_at: Some(now_secs()),
+        status: if success {
+            JobStatus::SUCCESS
+        } else {
+            JobStatus::FAILED(
+                error_msg
+                    .clone()
+                    .unwrap_or_else(|| "unknown agent error".into()),
+            )
+        },
+        output_preview,
+        error: error_msg,
+        duration_ms: Some(duration_ms),
+    };
+
+    // By appending to the JSONL, it will supersede the RUNNING record
+    // in the `load_cron_runs` deduplication.
+    persist_cron_run(workspace, &run).await?;
+
+    // Also update the `last_status` on the job config itself.
+    let path = workspace.join("cron_jobs.json");
+    let mut jobs = load_persisted_cron_jobs(workspace).await;
+
+    for job in &mut jobs {
+        let full_id = format!("{}@{}", job.name, job.agent_id);
+        if full_id == *job_id {
+            job.last_status = Some(if success {
+                "SUCCESS".to_string()
+            } else {
+                "FAILED".to_string()
+            });
+        }
+    }
+
+    if let Ok(json) = serde_json::to_string_pretty(&jobs) {
+        let _ = tokio::fs::write(&path, json).await;
+    }
+
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Janitor — periodic housekeeping
 // ---------------------------------------------------------------------------

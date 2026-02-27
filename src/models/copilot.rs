@@ -35,6 +35,8 @@ pub struct CopilotProvider {
     /// Wrapped in `Mutex` for interior mutability (token refresh).
     copilot_token: Arc<Mutex<Option<copilot_token::CopilotToken>>>,
     client: Arc<Mutex<Option<copilot_sdk::CopilotClient>>>,
+    /// Optional header overrides from config.
+    header_overrides: Option<std::collections::HashMap<String, String>>,
 }
 
 impl Default for CopilotProvider {
@@ -51,6 +53,12 @@ impl CopilotProvider {
     /// the CLI process is only spawned on first use).  When the variable
     /// is absent the provider operates in stub mode.
     pub fn new() -> Self {
+        Self::new_with_headers(None)
+    }
+
+    pub fn new_with_headers(
+        header_overrides: Option<std::collections::HashMap<String, String>>,
+    ) -> Self {
         // --- 1. Try to load a cached Copilot session token ----------------
         let cached_ct: Option<copilot_token::CopilotToken> =
             match copilot_token::retrieve_cached_copilot_token() {
@@ -110,6 +118,7 @@ impl CopilotProvider {
             token,
             copilot_token: Arc::new(Mutex::new(cached_ct)),
             client: Arc::new(Mutex::new(client)),
+            header_overrides,
         }
     }
 
@@ -134,7 +143,7 @@ impl CopilotProvider {
             "messages": super::serialize_messages(messages),
         });
 
-        let headers = copilot_headers(bearer);
+        let headers = copilot_headers(bearer, self.header_overrides.as_ref());
         let paths = proxy_paths();
         let base = proxy_ep.trim_end_matches('/');
         let mut last_err: Option<String> = None;
@@ -236,7 +245,7 @@ impl CopilotProvider {
             }
         }
 
-        let headers = copilot_headers(bearer);
+        let headers = copilot_headers(bearer, self.header_overrides.as_ref());
         let paths = proxy_paths();
         let base = proxy_ep.trim_end_matches('/');
         let mut last_err: Option<String> = None;
@@ -360,6 +369,7 @@ impl CopilotProvider {
             token: None,
             copilot_token: Arc::new(Mutex::new(Some(ct))),
             client: Arc::new(Mutex::new(None)),
+            header_overrides: None,
         }
     }
 }
@@ -392,8 +402,11 @@ fn is_retryable_request_error(e: &reqwest::Error) -> bool {
     e.is_timeout() || e.is_connect() || e.is_request()
 }
 
-/// Standard Copilot proxy headers.
-fn copilot_headers(bearer: &str) -> reqwest::header::HeaderMap {
+/// Standard Copilot proxy headers, with optional overrides merged on top.
+fn copilot_headers(
+    bearer: &str,
+    overrides: Option<&std::collections::HashMap<String, String>>,
+) -> reqwest::header::HeaderMap {
     let mut h = reqwest::header::HeaderMap::new();
     h.insert("Authorization", format!("Bearer {bearer}").parse().unwrap());
     h.insert("User-Agent", "GitHubCopilotChat/0.26.7".parse().unwrap());
@@ -405,6 +418,20 @@ fn copilot_headers(bearer: &str) -> reqwest::header::HeaderMap {
     );
     h.insert("Copilot-Integration-Id", "vscode-chat".parse().unwrap());
     h.insert("Openai-Intent", "conversation-panel".parse().unwrap());
+
+    if let Some(overrides) = overrides {
+        for (key, value) in overrides {
+            if let (Ok(name), Ok(val)) = (
+                reqwest::header::HeaderName::from_bytes(key.as_bytes()),
+                reqwest::header::HeaderValue::from_str(value),
+            ) {
+                h.insert(name, val);
+            } else {
+                warn!(header = %key, "copilot: skipping invalid header override");
+            }
+        }
+    }
+
     h
 }
 
@@ -776,6 +803,7 @@ mod tests {
             token: None,
             copilot_token: Arc::new(Mutex::new(None)),
             client: Arc::new(Mutex::new(None)),
+            header_overrides: None,
         }
     }
 
@@ -793,9 +821,8 @@ mod tests {
         std::env::remove_var("COPILOT_PROXY_ENDPOINTS");
         let paths = proxy_paths();
         // Restore
-        match old {
-            Some(v) => std::env::set_var("COPILOT_PROXY_ENDPOINTS", v),
-            None => {}
+        if let Some(v) = old {
+            std::env::set_var("COPILOT_PROXY_ENDPOINTS", v);
         }
         assert_eq!(paths.len(), 1);
         assert_eq!(paths[0], "/chat/completions");
@@ -848,9 +875,8 @@ mod tests {
         assert_eq!(result.unwrap(), "Hello! How can I help?");
 
         // Restore env
-        match old {
-            Some(v) => std::env::set_var("COPILOT_PROXY_ENDPOINTS", v),
-            None => {}
+        if let Some(v) = old {
+            std::env::set_var("COPILOT_PROXY_ENDPOINTS", v);
         }
     }
 
@@ -956,10 +982,8 @@ mod tests {
             .send_chat_with_functions(&sample_messages(), &functions)
             .await;
 
-        // Restore env
-        match old {
-            Some(v) => std::env::set_var("COPILOT_PROXY_ENDPOINTS", v),
-            None => {}
+        if let Some(v) = old {
+            std::env::set_var("COPILOT_PROXY_ENDPOINTS", v);
         }
 
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
@@ -1022,10 +1046,8 @@ mod tests {
             .send_chat_with_functions(&sample_messages(), &functions)
             .await;
 
-        // Restore env
-        match old {
-            Some(v) => std::env::set_var("COPILOT_PROXY_ENDPOINTS", v),
-            None => {}
+        if let Some(v) = old {
+            std::env::set_var("COPILOT_PROXY_ENDPOINTS", v);
         }
 
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
@@ -1066,9 +1088,8 @@ mod tests {
             .send_chat_with_functions(&sample_messages(), &functions)
             .await;
 
-        match old {
-            Some(v) => std::env::set_var("COPILOT_PROXY_ENDPOINTS", v),
-            None => {}
+        if let Some(v) = old {
+            std::env::set_var("COPILOT_PROXY_ENDPOINTS", v);
         }
 
         assert!(result.is_ok(), "expected Ok, got: {result:?}");
@@ -1133,9 +1154,8 @@ mod tests {
             .send_chat_with_functions(&sample_messages(), &functions)
             .await;
 
-        match old {
-            Some(v) => std::env::set_var("COPILOT_PROXY_ENDPOINTS", v),
-            None => {}
+        if let Some(v) = old {
+            std::env::set_var("COPILOT_PROXY_ENDPOINTS", v);
         }
 
         assert!(result.is_ok(), "expected Ok, got: {result:?}");

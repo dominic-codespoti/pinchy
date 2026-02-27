@@ -40,9 +40,8 @@ async fn slash_new_creates_session_and_updates_index() {
     let resp = result.expect("/new should succeed");
 
     // Extract returned session id from "new session started: <uuid>"
-    let text = match resp {
-        SlashResponse::Text(t) => t,
-    };
+    let SlashResponse::Text(text) = resp;
+
     assert!(
         text.starts_with("new session started: "),
         "unexpected response: {text}"

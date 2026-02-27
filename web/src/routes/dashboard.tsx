@@ -685,6 +685,8 @@ function ModelRequestDetail({
   const msgCount = typeof payload.message_count === "number" ? payload.message_count : messages.length;
   const fnCount = typeof payload.function_count === "number" ? payload.function_count : functions.length;
   const estTokens = typeof payload.estimated_tokens === "number" ? payload.estimated_tokens : null;
+  const provider = typeof source.provider === "string" ? source.provider : null;
+  const model = typeof source.model === "string" ? source.model : null;
   const [showFunctions, setShowFunctions] = useState(false);
 
   return (
@@ -695,6 +697,13 @@ function ModelRequestDetail({
           <Bug className="h-3 w-3 text-amber-400/60" />
           <span className="font-medium text-amber-300">Model Request Debug</span>
         </span>
+        {(provider || model) && (
+          <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900/50 border border-slate-800/50 text-[9px] font-mono whitespace-nowrap">
+            {provider && <span className="text-slate-500">{provider}</span>}
+            {provider && model && <span className="text-slate-700">/</span>}
+            {model && <span className="text-slate-400">{model}</span>}
+          </span>
+        )}
         <span className="text-slate-500">
           {msgCount} messages · {fnCount} tools
           {estTokens !== null && <> · ~{estTokens.toLocaleString()} tokens</>}
