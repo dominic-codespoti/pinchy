@@ -71,6 +71,8 @@ pub struct HeartbeatStatus {
     pub next_tick: Option<u64>,
     pub interval_secs: Option<u64>,
     pub message_preview: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latest_session: Option<String>,
 }
 
 /// A single persisted cron job run record.
@@ -524,6 +526,8 @@ async fn run_heartbeat(agent_id: &str, workspace: &Path, interval_secs: u64) {
         }
 
         // --- Persist heartbeat_status.json for API consumers ------------
+        let agent_workspace = workspace.join("workspace");
+        let latest_session = crate::session::SessionStore::resolve_latest(&agent_workspace).await;
         let status = HeartbeatStatus {
             agent_id: agent_id.to_string(),
             enabled: true,
@@ -532,6 +536,7 @@ async fn run_heartbeat(agent_id: &str, workspace: &Path, interval_secs: u64) {
             next_tick: Some(now + interval_secs),
             interval_secs: Some(interval_secs),
             message_preview: Some(preview.clone()),
+            latest_session,
         };
         let status_path = workspace.join("heartbeat_status.json");
         if let Err(e) = tokio::fs::write(
@@ -663,6 +668,7 @@ pub async fn load_heartbeat_status(ws: &Path) -> Option<HeartbeatStatus> {
         next_tick: None,
         interval_secs: None,
         message_preview: preview,
+        latest_session: crate::session::SessionStore::resolve_latest(&ws.join("workspace")).await,
     })
 }
 

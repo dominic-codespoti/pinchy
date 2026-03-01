@@ -17,6 +17,8 @@ const agentSchema = z.object({
   cron_jobs_count: z.number().optional(),
   cron_job_count: z.number().optional(),
   history_messages: z.number().nullable().optional(),
+  max_turns: z.number().nullable().optional(),
+  compact_keep_recent_turns: z.number().nullable().optional(),
   timezone: z.string().nullable().optional(),
 });
 
@@ -132,6 +134,9 @@ export interface UpdateAgentPayload {
   model?: string;
   heartbeat_secs?: number;
   max_tool_iterations?: number;
+  max_turns?: number;
+  compact_keep_recent_turns?: number;
+  history_messages?: number;
   enabled_skills?: string[] | null;
   soul?: string;
   tools?: string;

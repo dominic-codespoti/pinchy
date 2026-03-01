@@ -1,7 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::LazyLock;
 
-use tracing::warn;
+use tracing::debug;
 
 use crate::models::ChatMessage;
 
@@ -69,13 +69,13 @@ pub fn emit_model_request_debug(
     provider: &str,
     model: &str,
 ) {
-    warn!(
+    debug!(
         agent = agent_id,
         provider = provider,
         model = model,
         msgs = messages.len(),
         fns = function_defs.len(),
-        "emit_model_request_debug: broadcasting model_request event"
+        "broadcasting model_request debug event"
     );
     let request_id = format!("dbg_{}", super::types::epoch_nanos());
 

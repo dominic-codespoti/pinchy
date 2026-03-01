@@ -104,23 +104,23 @@ fn fallback_path() -> anyhow::Result<PathBuf> {
 
 /// Store a token in the OS keyring; fall back to a file if keyring fails.
 pub fn store_token(token: &str) -> anyhow::Result<()> {
-    // Try keyring first.
+    // Try keyring (best-effort, don't rely on it exclusively).
     match keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
         Ok(entry) => match entry.set_password(token) {
             Ok(()) => {
                 debug!("token stored in OS keyring");
-                return Ok(());
             }
             Err(e) => {
-                warn!("keyring store failed ({e}), falling back to file");
+                warn!("keyring store failed ({e})");
             }
         },
         Err(e) => {
-            warn!("keyring entry creation failed ({e}), falling back to file");
+            warn!("keyring entry creation failed ({e})");
         }
     }
 
-    // File fallback.
+    // Always write the file fallback — the keyring is unreliable across
+    // processes on some platforms.
     let path = fallback_path()?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;

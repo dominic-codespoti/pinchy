@@ -168,27 +168,20 @@ pub(crate) async fn api_session_update(
 }
 
 /// `GET /api/agents/:id/session/current` — return the current active session id.
+///
+/// Prefers the explicit `CURRENT_SESSION` file; falls back to the most
+/// recently modified session so the UI always lands on the right one.
 pub(crate) async fn api_session_current(Path(agent_id): Path<String>) -> impl IntoResponse {
     if let Err(e) = validate_path_segment(&agent_id) {
         return e.into_response();
     }
-    let path = crate::pinchy_home()
-        .join("agents")
-        .join(&agent_id)
-        .join("workspace")
-        .join("CURRENT_SESSION");
-    match tokio::fs::read_to_string(&path).await {
-        Ok(content) => {
-            let sid = content.trim().to_string();
-            let sid_val = if sid.is_empty() {
-                serde_json::Value::Null
-            } else {
-                serde_json::Value::String(sid)
-            };
-            Json(serde_json::json!({ "session_id": sid_val })).into_response()
-        }
-        Err(_) => Json(serde_json::json!({ "session_id": null })).into_response(),
-    }
+    let workspace = crate::utils::agent_workspace(&agent_id);
+    let sid = crate::session::SessionStore::resolve_latest(&workspace).await;
+    let sid_val = match sid {
+        Some(s) => serde_json::Value::String(s),
+        None => serde_json::Value::Null,
+    };
+    Json(serde_json::json!({ "session_id": sid_val })).into_response()
 }
 
 /// `DELETE /api/agents/:id/sessions/:file` — delete a session file.

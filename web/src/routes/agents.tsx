@@ -340,6 +340,9 @@ export function AgentDetailRoute() {
   const [model, setModel] = useState("");
   const [heartbeatSecs, setHeartbeatSecs] = useState(300);
   const [maxToolIterations, setMaxToolIterations] = useState(15);
+  const [maxTurns, setMaxTurns] = useState(20);
+  const [compactKeepRecentTurns, setCompactKeepRecentTurns] = useState(8);
+  const [historyMessages, setHistoryMessages] = useState(40);
   const [enabledSkills, setEnabledSkills] = useState<string[]>([]);
   const [allSkillsMode, setAllSkillsMode] = useState(true);
   const [formInitialized, setFormInitialized] = useState(false);
@@ -362,6 +365,9 @@ export function AgentDetailRoute() {
       model?: string;
       heartbeat_secs?: number;
       max_tool_iterations?: number;
+      max_turns?: number;
+      compact_keep_recent_turns?: number;
+      history_messages?: number;
       enabled_skills?: string[] | null;
     }) => updateAgent(agentId, payload),
     onSuccess: () => {
@@ -395,6 +401,9 @@ export function AgentDetailRoute() {
     setModel(data.model ?? "");
     setHeartbeatSecs(data.heartbeat_secs ?? 300);
     setMaxToolIterations(data.max_tool_iterations ?? 15);
+    setMaxTurns(data.max_turns ?? 20);
+    setCompactKeepRecentTurns(data.compact_keep_recent_turns ?? 8);
+    setHistoryMessages(data.history_messages ?? 40);
     const isAllSkills = data.enabled_skills == null || data.enabled_skills === undefined;
     setAllSkillsMode(isAllSkills);
     setEnabledSkills(isAllSkills ? [] : data.enabled_skills!);
@@ -406,6 +415,9 @@ export function AgentDetailRoute() {
       model: model.trim() || undefined,
       heartbeat_secs: heartbeatSecs,
       max_tool_iterations: maxToolIterations,
+      max_turns: maxTurns,
+      compact_keep_recent_turns: compactKeepRecentTurns,
+      history_messages: historyMessages,
     });
   };
 
@@ -554,6 +566,18 @@ export function AgentDetailRoute() {
                 <div>
                   <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">Max Tool Iterations</label>
                   <Input type="number" value={maxToolIterations} onChange={(event) => setMaxToolIterations(parseInt(event.target.value, 10) || 0)} />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">Max Turns Before Compaction</label>
+                  <Input type="number" value={maxTurns} onChange={(event) => setMaxTurns(parseInt(event.target.value, 10) || 0)} />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">Recent Turns to Keep After Compaction</label>
+                  <Input type="number" value={compactKeepRecentTurns} onChange={(event) => setCompactKeepRecentTurns(parseInt(event.target.value, 10) || 0)} />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">History Messages</label>
+                  <Input type="number" value={historyMessages} onChange={(event) => setHistoryMessages(parseInt(event.target.value, 10) || 0)} />
                 </div>
                 <button
                   type="button"

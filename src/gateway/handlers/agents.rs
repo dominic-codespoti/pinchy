@@ -59,6 +59,11 @@ pub(crate) async fn api_agents_list() -> impl IntoResponse {
                         "history_messages".into(),
                         serde_json::json!(ac.history_messages),
                     );
+                    m.insert("max_turns".into(), serde_json::json!(ac.max_turns));
+                    m.insert(
+                        "compact_keep_recent_turns".into(),
+                        serde_json::json!(ac.compact_keep_recent_turns),
+                    );
                     m.insert(
                         "timezone".into(),
                         serde_json::json!(cfg.resolve_timezone(&id).to_string()),
@@ -131,6 +136,11 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
             m.insert(
                 "history_messages".into(),
                 serde_json::json!(ac.history_messages),
+            );
+            m.insert("max_turns".into(), serde_json::json!(ac.max_turns));
+            m.insert(
+                "compact_keep_recent_turns".into(),
+                serde_json::json!(ac.compact_keep_recent_turns),
             );
             m.insert(
                 "timezone".into(),
@@ -254,6 +264,7 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
                         extra_exec_commands: Vec::new(),
                         history_messages: None,
                         max_turns: None,
+                        compact_keep_recent_turns: None,
                         timezone: None,
                     });
                     if let Err(e) = cfg.save(&config_path).await {
@@ -296,6 +307,12 @@ pub(crate) struct UpdateAgentRequest {
     max_tool_iterations: Option<usize>,
     #[serde(default)]
     enabled_skills: Option<Vec<String>>,
+    #[serde(default)]
+    max_turns: Option<usize>,
+    #[serde(default)]
+    compact_keep_recent_turns: Option<usize>,
+    #[serde(default)]
+    history_messages: Option<usize>,
 }
 
 /// `PUT /api/agents/:id` — update agent workspace files.
@@ -375,6 +392,9 @@ pub(crate) async fn api_agent_update(
         || body.heartbeat_secs.is_some()
         || body.max_tool_iterations.is_some()
         || body.enabled_skills.is_some()
+        || body.max_turns.is_some()
+        || body.compact_keep_recent_turns.is_some()
+        || body.history_messages.is_some()
     {
         let config_path = crate::pinchy_home().join("config.yaml");
         let _guard = crate::config::config_lock().await;
@@ -400,6 +420,18 @@ pub(crate) async fn api_agent_update(
                             Some(skills)
                         };
                         updated.push("enabled_skills");
+                    }
+                    if let Some(mt) = body.max_turns {
+                        ac.max_turns = Some(mt);
+                        updated.push("max_turns");
+                    }
+                    if let Some(ckrt) = body.compact_keep_recent_turns {
+                        ac.compact_keep_recent_turns = Some(ckrt);
+                        updated.push("compact_keep_recent_turns");
+                    }
+                    if let Some(hm) = body.history_messages {
+                        ac.history_messages = Some(hm);
+                        updated.push("history_messages");
                     }
                     if let Err(e) = cfg.save(&config_path).await {
                         return (

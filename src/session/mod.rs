@@ -23,13 +23,19 @@ use tracing::debug;
 pub struct Exchange {
     /// Unix-epoch timestamp in milliseconds.
     pub timestamp: u64,
-    /// Message role: `"user"`, `"assistant"`, `"system"`.
+    /// Message role: `"user"`, `"assistant"`, `"system"`, `"tool"`.
     pub role: String,
     /// Message content / text.
     pub content: String,
     /// Optional extra metadata (author, channel, tool results …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<serde_json::Value>,
+    /// For assistant messages: the raw `tool_calls` array (OpenAI format).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<serde_json::Value>>,
+    /// For `role: "tool"` messages: the id of the originating tool call.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
 }
 
 // ── Session ──────────────────────────────────────────────────
@@ -184,6 +190,60 @@ impl SessionStore {
         Session::new(id, workspace)
     }
 
+    /// Resolve the "latest" session for an agent workspace.
+    ///
+    /// Prefers `CURRENT_SESSION` when it points to a file that actually
+    /// exists; otherwise falls back to the most-recently-modified
+    /// `sessions/*.jsonl` file (ignoring `.receipts.jsonl` files).
+    ///
+    /// Returns `None` when no session files exist at all.
+    pub async fn resolve_latest(workspace: &Path) -> Option<String> {
+        // 1. Try CURRENT_SESSION if the backing file exists.
+        if let Some(id) = Self::load_current_async(workspace).await {
+            let path = workspace.join("sessions").join(format!("{id}.jsonl"));
+            if fs::try_exists(&path).await.unwrap_or(false) {
+                return Some(id);
+            }
+        }
+
+        // 2. Fall back to the most recently modified .jsonl.
+        Self::most_recently_modified(workspace).await
+    }
+
+    /// Return the session id of the most recently modified `.jsonl` in
+    /// `workspace/sessions/`, skipping `.receipts.jsonl` files.
+    pub async fn most_recently_modified(workspace: &Path) -> Option<String> {
+        let sessions_dir = workspace.join("sessions");
+        let mut rd = fs::read_dir(&sessions_dir).await.ok()?;
+        let mut best: Option<(std::time::SystemTime, String)> = None;
+
+        while let Ok(Some(entry)) = rd.next_entry().await {
+            let path = entry.path();
+            let is_jsonl = path.extension().map(|e| e == "jsonl").unwrap_or(false);
+            if !is_jsonl {
+                continue;
+            }
+            if path
+                .to_str()
+                .map(|s| s.contains(".receipts."))
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            if let Ok(meta) = fs::metadata(&path).await {
+                if let Ok(modified) = meta.modified() {
+                    if best.as_ref().is_none_or(|(t, _)| modified > *t) {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            best = Some((modified, stem.to_string()));
+                        }
+                    }
+                }
+            }
+        }
+
+        best.map(|(_, id)| id)
+    }
+
     /// Delete session files older than `max_age`.
     ///
     /// Scans `workspace/sessions/*.jsonl` and removes files whose last
@@ -306,6 +366,8 @@ mod tests {
                 role: "user".into(),
                 content: "hello".into(),
                 metadata: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
         )
         .await
@@ -319,6 +381,8 @@ mod tests {
                 role: "assistant".into(),
                 content: "hi there".into(),
                 metadata: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
         )
         .await
@@ -348,6 +412,8 @@ mod tests {
                     role: "user".into(),
                     content: format!("msg-{i}"),
                     metadata: None,
+                    tool_calls: None,
+                    tool_call_id: None,
                 },
             )
             .await

@@ -1,16 +1,41 @@
-use anyhow::Context as _;
 use tokio::fs;
 use tracing::{debug, warn};
 
 use crate::comm::IncomingMessage;
+use crate::models::ChatMessage;
 use crate::session::{Exchange, SessionStore};
 
-use super::types::{epoch_millis, epoch_secs, Agent, TurnReceipt};
+use super::types::{epoch_millis, Agent, TurnReceipt};
 
 impl Agent {
-    pub async fn persist_exchange(&self, msg: &IncomingMessage, reply: &str) -> anyhow::Result<()> {
+    /// Persist a batch of tool-loop messages (assistant tool_calls +
+    /// tool results) so they survive in session history.
+    pub async fn persist_tool_messages(&self, messages: &[ChatMessage]) {
+        let Some(ref session_id) = self.current_session else {
+            return;
+        };
         let ts_ms = epoch_millis();
-        let ts = epoch_secs();
+        for m in messages {
+            if !(m.is_tool() || m.is_assistant() && m.tool_calls.is_some()) {
+                continue;
+            }
+            let exchange = Exchange {
+                timestamp: ts_ms,
+                role: m.role.clone(),
+                content: m.content.clone(),
+                metadata: None,
+                tool_calls: m.tool_calls.clone(),
+                tool_call_id: m.tool_call_id.clone(),
+            };
+            if let Err(e) = SessionStore::append(&self.workspace, session_id, &exchange).await {
+                warn!(error = %e, role = %m.role, "failed to persist tool message");
+            }
+        }
+    }
+    /// Persist just the user message to the session JSONL.
+    /// Called at the start of a turn, before tool loop execution.
+    pub async fn persist_user_message(&self, msg: &IncomingMessage) -> anyhow::Result<()> {
+        let ts_ms = epoch_millis();
 
         let user_exchange = Exchange {
             timestamp: ts_ms,
@@ -20,41 +45,12 @@ impl Agent {
                 "author": msg.author,
                 "channel": msg.channel,
             })),
-        };
-        let assistant_exchange = Exchange {
-            timestamp: ts_ms,
-            role: "assistant".into(),
-            content: reply.to_string(),
-            metadata: None,
+            tool_calls: None,
+            tool_call_id: None,
         };
 
         if let Some(ref session_id) = self.current_session {
             SessionStore::append(&self.workspace, session_id, &user_exchange).await?;
-            SessionStore::append(&self.workspace, session_id, &assistant_exchange).await?;
-        } else {
-            let sessions_dir = self.workspace.join("sessions");
-            fs::create_dir_all(&sessions_dir)
-                .await
-                .context("create sessions dir")?;
-
-            let path = sessions_dir.join(format!("{ts}.jsonl"));
-            let user_line = serde_json::to_string(&user_exchange)?;
-            let assistant_line = serde_json::to_string(&assistant_exchange)?;
-
-            use tokio::io::AsyncWriteExt;
-            let mut file = fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-                .await
-                .with_context(|| format!("open session file {}", path.display()))?;
-
-            file.write_all(user_line.as_bytes()).await?;
-            file.write_all(b"\n").await?;
-            file.write_all(assistant_line.as_bytes()).await?;
-            file.write_all(b"\n").await?;
-
-            debug!(path = %path.display(), "session exchange persisted");
         }
 
         crate::gateway::publish_event_json(&serde_json::json!({
@@ -65,6 +61,30 @@ impl Agent {
             "content": msg.content,
             "timestamp": ts_ms
         }));
+
+        Ok(())
+    }
+
+    /// Persist just the final assistant reply to the session JSONL.
+    /// Called after the tool loop completes.
+    pub async fn persist_assistant_reply(&self, reply: &str) -> anyhow::Result<()> {
+        let ts_ms = epoch_millis();
+
+        let assistant_exchange = Exchange {
+            timestamp: ts_ms,
+            role: "assistant".into(),
+            content: reply.to_string(),
+            metadata: None,
+            tool_calls: None,
+            tool_call_id: None,
+        };
+
+        if let Some(ref session_id) = self.current_session {
+            SessionStore::append(&self.workspace, session_id, &assistant_exchange).await?;
+        } else {
+            warn!("persist_assistant_reply called with no current session — skipping");
+        }
+
         crate::gateway::publish_event_json(&serde_json::json!({
             "type": "session_message",
             "agent": self.id,

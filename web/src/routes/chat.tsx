@@ -645,7 +645,7 @@ export function ChatRoute() {
   const sendMessage = () => {
     const content = draft.trim();
     if (!content || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    wsRef.current.send(JSON.stringify({ type: "client_command", command: content, target_agent: selectedAgent }));
+    wsRef.current.send(JSON.stringify({ type: "client_command", command: content, target_agent: selectedAgent, session_id: selectedSession || undefined }));
     const key = messageKey("user", content, undefined);
     const baseKey = messageBaseKey("user", content);
     seenKeysRef.current.add(key);

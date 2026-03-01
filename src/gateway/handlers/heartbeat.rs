@@ -59,5 +59,6 @@ pub(crate) fn heartbeat_status_to_json(s: &crate::scheduler::HeartbeatStatus) ->
         "next_tick": s.next_tick,
         "interval_secs": s.interval_secs,
         "message_preview": s.message_preview,
+        "latest_session": s.latest_session,
     })
 }

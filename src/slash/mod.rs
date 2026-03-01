@@ -731,4 +731,99 @@ pub fn register_builtin_commands(registry: &Registry) {
             })
         }),
     );
+
+    // /gh-login — trigger GitHub OAuth device flow to (re-)authenticate Copilot
+    registry.register(
+        cmd(
+            "gh-login",
+            "Authenticate with GitHub for Copilot access",
+            "/gh-login",
+        ),
+        Arc::new(|_ctx, _args| {
+            Box::pin(async move {
+                let client_id = crate::auth::github_device::DEFAULT_CLIENT_ID;
+                let http = reqwest::Client::new();
+
+                // Request a device code from GitHub.
+                let resp: serde_json::Value = http
+                    .post("https://github.com/login/device/code")
+                    .header("Accept", "application/json")
+                    .form(&[("client_id", client_id), ("scope", "read:user")])
+                    .send()
+                    .await
+                    .map_err(|e| SlashError::Handler(format!("network error: {e}")))?
+                    .json()
+                    .await
+                    .map_err(|e| SlashError::Handler(format!("json error: {e}")))?;
+
+                let device_code = resp["device_code"]
+                    .as_str()
+                    .ok_or_else(|| SlashError::Handler("missing device_code".into()))?
+                    .to_string();
+                let user_code = resp["user_code"].as_str().unwrap_or("???").to_string();
+                let uri = resp["verification_uri"]
+                    .as_str()
+                    .unwrap_or("https://github.com/login/device")
+                    .to_string();
+                let interval = resp["interval"].as_u64().unwrap_or(5);
+
+                // Poll in the background until the user authorises.
+                tokio::spawn(async move {
+                    let poll_dur = std::time::Duration::from_secs(interval);
+                    loop {
+                        tokio::time::sleep(poll_dur).await;
+
+                        let poll: serde_json::Value = match http
+                            .post("https://github.com/login/oauth/access_token")
+                            .header("Accept", "application/json")
+                            .form(&[
+                                ("client_id", client_id),
+                                ("device_code", device_code.as_str()),
+                                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+                            ])
+                            .send()
+                            .await
+                        {
+                            Ok(r) => r.json().await.unwrap_or_default(),
+                            Err(e) => {
+                                tracing::warn!("gh-login: poll error: {e}");
+                                continue;
+                            }
+                        };
+
+                        if let Some(tok) = poll["access_token"].as_str() {
+                            match crate::auth::github_device::store_token(tok) {
+                                Ok(()) => tracing::info!("gh-login: token stored"),
+                                Err(e) => tracing::error!("gh-login: store failed: {e}"),
+                            }
+                            break;
+                        }
+
+                        match poll["error"].as_str() {
+                            Some("authorization_pending") => continue,
+                            Some("slow_down") => {
+                                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                            }
+                            Some(other) => {
+                                tracing::error!("gh-login: device flow error: {other}");
+                                break;
+                            }
+                            None => {
+                                tracing::warn!("gh-login: unexpected response: {poll}");
+                                break;
+                            }
+                        }
+                    }
+                });
+
+                Ok(SlashResponse::Text(format!(
+                    "🔐 **GitHub Authentication**\n\n\
+                     1. Open: **{uri}**\n\
+                     2. Enter code: **{user_code}**\n\n\
+                     Polling in the background — you can start using Copilot \
+                     as soon as you authorise."
+                )))
+            })
+        }),
+    );
 }

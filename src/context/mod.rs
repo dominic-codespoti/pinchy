@@ -243,6 +243,33 @@ pub async fn compact_if_needed(
         }
     }
 
+    // Guarantee: the kept tail must contain at least one complete tool
+    // interaction (assistant with tool_calls + tool result) so the LLM
+    // retains "muscle memory" for JSON tool syntax.  If the current
+    // tail doesn't have one, extend it backward until it does.
+    let tail_has_tool_example = messages[tail_start..]
+        .iter()
+        .any(|m| (m.is_assistant() && m.tool_calls.is_some()) || m.is_tool());
+    if !tail_has_tool_example {
+        // Walk backward from tail_start to find the nearest tool
+        // interaction and include it.
+        for i in (pinned_count..tail_start).rev() {
+            let m = &messages[i];
+            if m.is_tool() || (m.is_assistant() && m.tool_calls.is_some()) {
+                // Include from the user message that initiated this tool turn.
+                let mut new_start = i;
+                for j in (pinned_count..i).rev() {
+                    if messages[j].is_user() {
+                        new_start = j;
+                        break;
+                    }
+                }
+                tail_start = new_start;
+                break;
+            }
+        }
+    }
+
     // Ensure we don't try to compact pinned system messages.
     if tail_start <= pinned_count {
         return false;

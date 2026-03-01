@@ -164,11 +164,20 @@ impl Agent {
     }
 
     pub async fn start_session(&mut self) -> String {
-        let id = crate::utils::generate_nonce();
+        let id = crate::session::index::new_session_id();
         let _ = tokio::fs::create_dir_all(&self.workspace).await;
         let path = self.workspace.join("CURRENT_SESSION");
         let _ = tokio::fs::write(&path, &id).await;
         self.current_session = Some(id.clone());
+
+        // Register in the global session index so auto-created sessions
+        // are visible alongside /new-created ones.
+        let home = crate::pinchy_home();
+        if let Err(e) = crate::session::index::append_global_index(&home, &id, &self.id, None).await
+        {
+            tracing::warn!(error = %e, "failed to append auto-created session to global index");
+        }
+
         id
     }
 }

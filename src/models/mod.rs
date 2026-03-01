@@ -487,6 +487,7 @@ impl ProviderManager {
         if self.supports_functions && !functions.is_empty() {
             let attempts = self.max_retries.max(1);
             let mut last_err = anyhow::anyhow!("no providers configured");
+            let mut auth_err: Option<anyhow::Error> = None;
 
             for (idx, provider) in self.providers.iter().enumerate() {
                 for attempt in 0..attempts {
@@ -502,7 +503,14 @@ impl ProviderManager {
                                 error = %e,
                                 "function-calling provider call failed"
                             );
-                            last_err = e;
+
+                            // Preserve the first auth error so it isn't
+                            // overwritten by later non-auth failures.
+                            if auth_err.is_none() && crate::auth::is_auth_error(&e) {
+                                auth_err = Some(e);
+                            } else {
+                                last_err = e;
+                            }
 
                             if is_permanent {
                                 break;
@@ -521,7 +529,8 @@ impl ProviderManager {
                 );
             }
 
-            return Err(last_err.context("all providers exhausted (function-calling)"));
+            let final_err = auth_err.unwrap_or(last_err);
+            return Err(final_err.context("all providers exhausted (function-calling)"));
         }
         // Fallback: plain send_chat
         let reply = self.send_chat(messages).await?;

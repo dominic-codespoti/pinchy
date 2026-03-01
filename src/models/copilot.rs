@@ -30,7 +30,7 @@ const DEFAULT_COPILOT_API_BASE: &str = "https://api.githubcopilot.com";
 /// token in the `COPILOT_TOKEN` environment variable.
 pub struct CopilotProvider {
     /// The GitHub access token (used to build the SDK client).
-    token: Option<String>,
+    token: Arc<Mutex<Option<String>>>,
     /// A cached Copilot session token obtained via token exchange.
     /// Wrapped in `Mutex` for interior mutability (token refresh).
     copilot_token: Arc<Mutex<Option<copilot_token::CopilotToken>>>,
@@ -115,11 +115,95 @@ impl CopilotProvider {
         }
 
         Self {
-            token,
+            token: Arc::new(Mutex::new(token)),
             copilot_token: Arc::new(Mutex::new(cached_ct)),
             client: Arc::new(Mutex::new(client)),
             header_overrides,
         }
+    }
+
+    /// Build a provider for testing with a pre-injected Copilot session
+    /// token pointing at a custom proxy endpoint (e.g. a wiremock server).
+    #[doc(hidden)]
+    pub fn with_test_token(proxy_url: &str, bearer: &str) -> Self {
+        let ct = copilot_token::CopilotToken {
+            token: bearer.to_string(),
+            expires_at: Some(chrono::Utc::now() + chrono::Duration::seconds(3600)),
+            proxy_ep: Some(proxy_url.to_string()),
+        };
+        Self {
+            token: Arc::new(Mutex::new(Some("test-gh-token".to_string()))),
+            copilot_token: Arc::new(Mutex::new(Some(ct))),
+            client: Arc::new(Mutex::new(None)),
+            header_overrides: None,
+        }
+    }
+
+    /// Inherent method for sending chat with functions, used by the trait
+    /// implementation to avoid async recursion and provide a direct path
+    /// for the provider manager.
+    pub async fn send_chat_with_functions_inner(
+        &self,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> Result<(ProviderResponse, Option<super::TokenUsage>), anyhow::Error> {
+        // -----------------------------------------------------------------
+        // Fast path: proxy HTTP with tools
+        // -----------------------------------------------------------------
+        {
+            let mut ct_guard = self.copilot_token.lock().await;
+
+            // Refresh token if needed.
+            let should_exchange = match &*ct_guard {
+                None => true,
+                Some(ct) => ct.is_expired(),
+            };
+
+            if should_exchange {
+                if let Some(gh_token) = resolve_gh_token(&self.token).await {
+                    debug!(
+                        "CopilotProvider: exchanging/refreshing Copilot session token (fn-call)…"
+                    );
+                    match copilot_token::exchange_github_for_copilot_token(&gh_token).await {
+                        Ok(new_ct) => {
+                            let _ = copilot_token::cache_copilot_token(&new_ct);
+                            debug!("CopilotProvider: token refresh succeeded");
+                            *ct_guard = Some(new_ct);
+                        }
+                        Err(e) => {
+                            warn!("CopilotProvider: token refresh failed: {e:#}");
+                        }
+                    }
+                }
+            }
+
+            // Try proxy if we have a valid (non-expired) token.
+            if let Some(ref ct) = *ct_guard {
+                if !ct.is_expired() {
+                    let ep = ct
+                        .proxy_ep
+                        .as_deref()
+                        .filter(|s| !s.is_empty())
+                        .unwrap_or(DEFAULT_COPILOT_API_BASE);
+                    match self
+                        .try_proxy_http_with_tools(ep, &ct.token, messages, functions)
+                        .await
+                    {
+                        Ok((resp, usage)) => return Ok((resp, usage)),
+                        Err(e) => {
+                            warn!("CopilotProvider: proxy (fn-call) failed ({e:#}), falling back");
+                        }
+                    }
+                }
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // Fallback: plain send_chat (SDK path will not get tools metadata
+        // natively, but the agent runtime's enforcement retry still works).
+        // -----------------------------------------------------------------
+        let reply = self.send_chat(messages).await?;
+        Ok((ProviderResponse::Final(reply), None))
     }
 
     /// Attempt a direct HTTP POST to the Copilot proxy endpoint.
@@ -283,39 +367,50 @@ impl CopilotProvider {
             last_err.unwrap_or_else(|| "unknown".into())
         );
     }
+}
 
-    /// Send chat messages with function definitions via the proxy path.
-    ///
-    /// Tries the proxy HTTP path (with `tools` + `tool_choice`) first,
-    /// then falls back to the SDK/CLI path (best-effort tools metadata
-    /// appended to prompt).  Returns [`ProviderResponse::Final`] wrapping
-    /// the assistant text, which may contain a fenced TOOL_CALL that the
-    /// agent runtime can parse.
-    pub async fn send_chat_with_functions(
-        &self,
-        messages: &[ChatMessage],
-        functions: &[serde_json::Value],
-    ) -> Result<(ProviderResponse, Option<super::TokenUsage>), anyhow::Error> {
+// ---------------------------------------------------------------------------
+// Token resolution helper
+// ---------------------------------------------------------------------------
+
+/// Attempt to resolve a GitHub token from the `Arc<Mutex>` field,
+/// lazy-loading from persistent storage if not yet present.
+async fn resolve_gh_token(token: &Mutex<Option<String>>) -> Option<String> {
+    let mut guard = token.lock().await;
+    if let Some(ref t) = *guard {
+        return Some(t.clone());
+    }
+    // Lazy-load from keyring/file.
+    match github_device::retrieve_token() {
+        Ok(Some(t)) => {
+            *guard = Some(t.clone());
+            Some(t)
+        }
+        _ => None,
+    }
+}
+
+#[async_trait]
+impl ModelProvider for CopilotProvider {
+    async fn send_chat(&self, messages: &[ChatMessage]) -> anyhow::Result<String> {
         // -----------------------------------------------------------------
-        // Fast path: proxy HTTP with tools
+        // Fast path: direct HTTP proxy with token-refresh on expiry.
         // -----------------------------------------------------------------
         {
             let mut ct_guard = self.copilot_token.lock().await;
 
-            // Refresh token if needed.
             let should_exchange = match &*ct_guard {
-                None => self.token.is_some(),
-                Some(ct) => ct.is_expired() && self.token.is_some(),
+                None => true,
+                Some(ct) => ct.is_expired(),
             };
 
             if should_exchange {
-                if let Some(ref gh_token) = self.token {
-                    debug!(
-                        "CopilotProvider: exchanging/refreshing Copilot session token (fn-call)…"
-                    );
-                    match copilot_token::exchange_github_for_copilot_token(gh_token).await {
+                if let Some(gh_token) = resolve_gh_token(&self.token).await {
+                    debug!("CopilotProvider: exchanging/refreshing Copilot session token…");
+                    match copilot_token::exchange_github_for_copilot_token(&gh_token).await {
                         Ok(new_ct) => {
                             let _ = copilot_token::cache_copilot_token(&new_ct);
+                            debug!("CopilotProvider: token refresh succeeded");
                             *ct_guard = Some(new_ct);
                         }
                         Err(e) => {
@@ -332,13 +427,10 @@ impl CopilotProvider {
                         .as_deref()
                         .filter(|s| !s.is_empty())
                         .unwrap_or(DEFAULT_COPILOT_API_BASE);
-                    match self
-                        .try_proxy_http_with_tools(ep, &ct.token, messages, functions)
-                        .await
-                    {
-                        Ok((resp, usage)) => return Ok((resp, usage)),
+                    match self.try_proxy_http(ep, &ct.token, messages).await {
+                        Ok(text) => return Ok(text),
                         Err(e) => {
-                            warn!("CopilotProvider: proxy (fn-call) failed ({e:#}), falling back");
+                            warn!("CopilotProvider: proxy failed ({e:#}), falling back to SDK");
                         }
                     }
                 }
@@ -346,31 +438,101 @@ impl CopilotProvider {
         }
 
         // -----------------------------------------------------------------
-        // Fallback: plain send_chat (SDK path will not get tools metadata
-        // natively, but the agent runtime's enforcement retry still works).
+        // CLI availability gate.
         // -----------------------------------------------------------------
-        let reply = self.send_chat(messages).await?;
-        Ok((ProviderResponse::Final(reply), None))
+        if !copilot_cli_available() {
+            return Err(crate::auth::AuthError {
+                provider: "GitHub Copilot".into(),
+                hint: "your token may have expired or is invalid — run `/gh-login` to re-authorise"
+                    .into(),
+            }
+            .into());
+        }
+
+        // -----------------------------------------------------------------
+        // SDK/CLI path.
+        // -----------------------------------------------------------------
+        let mut guard = self.client.lock().await;
+
+        if guard.is_none() {
+            if let Some(gh_token) = resolve_gh_token(&self.token).await {
+                *guard = Some(copilot_sdk::CopilotClient::new(
+                    copilot_sdk::CopilotClientOptions {
+                        github_token: Some(gh_token),
+                        ..Default::default()
+                    },
+                ));
+            } else {
+                return Err(crate::auth::AuthError {
+                    provider: "GitHub Copilot".into(),
+                    hint: "no token available — run `/gh-login` to authenticate".into(),
+                }
+                .into());
+            }
+        }
+
+        let client = guard.as_ref().unwrap();
+
+        if let Err(e) = client.start().await {
+            return Ok(format!("[copilot stub] start failed: {e}"));
+        }
+
+        let prompt: String = messages
+            .iter()
+            .map(|m| format!("[{}]: {}", m.role, m.content))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let config = copilot_sdk::SessionConfig::default();
+        match client.create_session(config).await {
+            Ok(session) => {
+                let result = session
+                    .send_and_wait(
+                        copilot_sdk::MessageOptions {
+                            prompt: prompt.to_string(),
+                            attachments: None,
+                            mode: None,
+                        },
+                        None,
+                    )
+                    .await;
+                let _ = session.destroy().await;
+                match result {
+                    Ok(Some(event)) => Ok(event
+                        .assistant_message_content()
+                        .unwrap_or("[copilot stub] no content in response")
+                        .to_string()),
+                    Ok(None) => anyhow::bail!("[copilot] no response event from SDK session"),
+                    Err(e) => anyhow::bail!("[copilot] SDK send failed: {e}"),
+                }
+            }
+            Err(e) => anyhow::bail!("[copilot] SDK session creation failed: {e}"),
+        }
     }
 
-    /// Build a provider for testing with a pre-injected Copilot token
-    /// pointing at a custom proxy endpoint (e.g. a wiremock server).
-    ///
-    /// The SDK/CLI paths are not available in this mode.
-    #[doc(hidden)]
-    pub fn with_test_token(proxy_url: &str, bearer: &str) -> Self {
-        use chrono::{Duration as CDuration, Utc};
-        let ct = copilot_token::CopilotToken {
-            token: bearer.to_string(),
-            expires_at: Some(Utc::now() + CDuration::hours(1)),
-            proxy_ep: Some(proxy_url.to_string()),
-        };
-        Self {
-            token: None,
-            copilot_token: Arc::new(Mutex::new(Some(ct))),
-            client: Arc::new(Mutex::new(None)),
-            header_overrides: None,
-        }
+    async fn send_chat_with_functions(
+        &self,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> Result<(ProviderResponse, Option<super::TokenUsage>), anyhow::Error> {
+        self.send_chat_with_functions_inner(messages, functions)
+            .await
+    }
+
+    fn send_chat_stream<'a>(
+        &'a self,
+        messages: &'a [ChatMessage],
+    ) -> std::pin::Pin<
+        Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>,
+    > {
+        Box::pin(async_stream::try_stream! {
+            let reply = ModelProvider::send_chat(self, messages).await?;
+            yield reply;
+        })
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 }
 
@@ -450,8 +612,6 @@ async fn post_with_retry(
     let mut attempt: u32 = 0;
 
     loop {
-        debug!(request_body = %body, "copilot: full proxy request body");
-
         let resp = client
             .post(url)
             .headers(headers.clone())
@@ -467,9 +627,7 @@ async fn post_with_retry(
                 if attempt < MAX_RETRIES && is_retryable_request_error(&e) {
                     attempt += 1;
                     let delay = Duration::from_millis(500 * u64::from(attempt));
-                    warn!(
-                        "CopilotProvider: retrying {url} (attempt {attempt}/{MAX_RETRIES}) after {delay:?}"
-                    );
+                    warn!("CopilotProvider: retrying {url} (attempt {attempt}/{MAX_RETRIES}) after {delay:?}");
                     tokio::time::sleep(delay).await;
                     continue;
                 }
@@ -489,11 +647,9 @@ async fn post_with_retry(
             return Ok(json_val);
         }
 
-        // Non-2xx — log the full response body for debugging.
         let resp_body = resp.text().await.unwrap_or_default();
         warn!("CopilotProvider: {url} returned HTTP {status}; body: {resp_body}");
 
-        // Retry on 5xx (transient server errors).
         if status.is_server_error() && attempt < MAX_RETRIES {
             attempt += 1;
             let delay = Duration::from_millis(500 * u64::from(attempt));
@@ -504,34 +660,14 @@ async fn post_with_retry(
             continue;
         }
 
-        // 4xx or exhausted retries — record and give up.
         return Err(Some(format!("{url}: HTTP {status}: {resp_body}")));
     }
 }
 
-/// Check whether the Copilot CLI / language-server binary is on `PATH`.
-fn copilot_cli_available() -> bool {
-    std::process::Command::new("copilot-language-server")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok()
-}
-
-// ---------------------------------------------------------------------------
-// Response extraction heuristics
-// ---------------------------------------------------------------------------
-
-/// Extract a `tool_calls` entry from an OpenAI-style chat completion response.
+/// Extract the assistant message text from an OpenAI-compatible response JSON.
 ///
-/// Looks at `choices[0].message.tool_calls[0]` for a function call and
-/// returns `ProviderResponse::FunctionCall` when found.
-fn extract_tool_call(v: &Value) -> Option<ProviderResponse> {
-    super::parse_tool_calls(v)
-}
-
-/// Try several common JSON shapes to pull out the assistant's reply text.
+/// Tries several common shapes: OpenAI chat completions, completions,
+/// `output_text`, and `result`.
 fn extract_assistant_text(v: &Value) -> Option<String> {
     // choices[0].message.content  (OpenAI chat completions)
     if let Some(s) = v
@@ -546,7 +682,6 @@ fn extract_assistant_text(v: &Value) -> Option<String> {
             return Some(s.to_string());
         }
     }
-
     // choices[0].text  (OpenAI completions)
     if let Some(s) = v
         .get("choices")
@@ -559,15 +694,13 @@ fn extract_assistant_text(v: &Value) -> Option<String> {
             return Some(s.to_string());
         }
     }
-
-    // output_text  (some newer APIs)
+    // output_text
     if let Some(s) = v.get("output_text").and_then(|t| t.as_str()) {
         let s = s.trim();
         if !s.is_empty() {
             return Some(s.to_string());
         }
     }
-
     // result
     if let Some(s) = v.get("result").and_then(|t| t.as_str()) {
         let s = s.trim();
@@ -575,181 +708,22 @@ fn extract_assistant_text(v: &Value) -> Option<String> {
             return Some(s.to_string());
         }
     }
-
-    // output[0].content
-    if let Some(s) = v
-        .get("output")
-        .and_then(|o| o.get(0))
-        .and_then(|o| o.get("content"))
-        .and_then(|c| c.as_str())
-    {
-        let s = s.trim();
-        if !s.is_empty() {
-            return Some(s.to_string());
-        }
-    }
-
     None
 }
 
-// ---------------------------------------------------------------------------
-// ModelProvider implementation
-// ---------------------------------------------------------------------------
+/// Extract a tool call from an OpenAI-compatible response JSON.
+fn extract_tool_call(json: &Value) -> Option<ProviderResponse> {
+    crate::models::parse_tool_calls(json)
+}
 
-#[async_trait]
-impl ModelProvider for CopilotProvider {
-    /// Send chat messages through the Copilot SDK.
-    ///
-    /// Messages are flattened into a single prompt string
-    /// (`[role]: content`) and sent via `session.send_and_collect`.
-    /// If anything goes wrong the method returns a stub response
-    /// prefixed with `[copilot stub]` rather than propagating an
-    /// error, so the caller always gets *something* back.
-    async fn send_chat(&self, messages: &[ChatMessage]) -> Result<String, anyhow::Error> {
-        // -----------------------------------------------------------------
-        // Fast path: direct HTTP proxy with token-refresh on expiry.
-        // -----------------------------------------------------------------
-        {
-            let mut ct_guard = self.copilot_token.lock().await;
-
-            // If token is missing or expired, attempt exchange / refresh.
-            let should_exchange = match &*ct_guard {
-                None => self.token.is_some(),
-                Some(ct) => ct.is_expired() && self.token.is_some(),
-            };
-
-            if should_exchange {
-                if let Some(ref gh_token) = self.token {
-                    debug!("CopilotProvider: exchanging/refreshing Copilot session token…");
-                    match copilot_token::exchange_github_for_copilot_token(gh_token).await {
-                        Ok(new_ct) => {
-                            let _ = copilot_token::cache_copilot_token(&new_ct);
-                            debug!("CopilotProvider: token refresh succeeded");
-                            *ct_guard = Some(new_ct);
-                        }
-                        Err(e) => {
-                            warn!("CopilotProvider: token refresh failed: {e:#}");
-                        }
-                    }
-                }
-            }
-
-            // Try proxy if we have a valid (non-expired) token.
-            if let Some(ref ct) = *ct_guard {
-                if !ct.is_expired() {
-                    let ep = ct
-                        .proxy_ep
-                        .as_deref()
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or(DEFAULT_COPILOT_API_BASE);
-                    match self.try_proxy_http(ep, &ct.token, messages).await {
-                        Ok(text) => return Ok(text),
-                        Err(e) => {
-                            warn!("CopilotProvider: proxy endpoints failed ({e:#}), falling back to SDK");
-                        }
-                    }
-                }
-            }
-        }
-
-        // -----------------------------------------------------------------
-        // CLI availability gate — skip the SDK if the CLI is absent.
-        // -----------------------------------------------------------------
-        if !copilot_cli_available() {
-            anyhow::bail!(
-                "CopilotProvider: proxy failed and Copilot CLI not found on PATH; \
-                 set COPILOT_TOKEN or run device-flow auth"
-            );
-        }
-
-        // -----------------------------------------------------------------
-        // Standard path: use the copilot-sdk CLI client.
-        // -----------------------------------------------------------------
-        let mut guard: tokio::sync::MutexGuard<'_, Option<copilot_sdk::CopilotClient>> =
-            self.client.lock().await;
-
-        // Lazy-build the client when we have a token but no client yet.
-        if guard.is_none() {
-            if let Some(ref t) = self.token {
-                *guard = Some(copilot_sdk::CopilotClient::new(
-                    copilot_sdk::CopilotClientOptions {
-                        github_token: Some(t.clone()),
-                        ..Default::default()
-                    },
-                ));
-            } else {
-                anyhow::bail!("CopilotProvider: not configured — set COPILOT_TOKEN");
-            }
-        }
-
-        let client = guard.as_ref().unwrap();
-
-        // Ensure the CLI connection is running.  `start()` is a
-        // no-op if the client is already connected.
-        if let Err(e) = client.start().await {
-            return Ok(format!("[copilot stub] start failed: {e}"));
-        }
-
-        // Flatten messages into a single prompt.
-        let prompt: String = messages
-            .iter()
-            .map(|m| format!("[{}]: {}", m.role, m.content))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        // Create a session, send the prompt, collect the reply.
-        let config = copilot_sdk::SessionConfig::default();
-        match client.create_session(config).await {
-            Ok(session) => {
-                let result = session
-                    .send_and_wait(
-                        copilot_sdk::MessageOptions {
-                            prompt: prompt.to_string(),
-                            attachments: None,
-                            mode: None,
-                        },
-                        None,
-                    )
-                    .await;
-                // Best-effort cleanup; ignore errors.
-                let _ = session.destroy().await;
-                match result {
-                    Ok(Some(event)) => Ok(event
-                        .assistant_message_content()
-                        .unwrap_or("[copilot stub] no content in response")
-                        .to_string()),
-                    Ok(None) => anyhow::bail!("[copilot] no response event from SDK session"),
-                    Err(e) => anyhow::bail!("[copilot] SDK send failed: {e}"),
-                }
-            }
-            Err(e) => anyhow::bail!("[copilot] SDK session creation failed: {e}"),
-        }
-    }
-
-    async fn send_chat_with_functions(
-        &self,
-        messages: &[ChatMessage],
-        functions: &[serde_json::Value],
-    ) -> Result<(ProviderResponse, Option<super::TokenUsage>), anyhow::Error> {
-        // Delegate to the inherent method.
-        CopilotProvider::send_chat_with_functions(self, messages, functions).await
-    }
-
-    fn send_chat_stream<'a>(
-        &'a self,
-        messages: &'a [ChatMessage],
-    ) -> std::pin::Pin<
-        Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>,
-    > {
-        Box::pin(async_stream::try_stream! {
-            let reply = ModelProvider::send_chat(self, messages).await?;
-            yield reply;
-        })
-    }
-
-    fn as_any(&self) -> &dyn std::any::Any {
-        self
-    }
+/// Check whether the Copilot CLI / language-server binary is on `PATH`.
+fn copilot_cli_available() -> bool {
+    std::process::Command::new("copilot-language-server")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -800,8 +774,24 @@ mod tests {
 
     fn test_provider() -> CopilotProvider {
         CopilotProvider {
-            token: None,
+            token: Arc::new(Mutex::new(None)),
             copilot_token: Arc::new(Mutex::new(None)),
+            client: Arc::new(Mutex::new(None)),
+            header_overrides: None,
+        }
+    }
+
+    /// Build a test-only provider with a pre-set Copilot session token
+    /// pointing at a wiremock server.
+    fn with_test_token(base_url: &str, bearer: &str) -> CopilotProvider {
+        let ct = crate::auth::copilot_token::CopilotToken {
+            token: bearer.to_string(),
+            expires_at: Some(chrono::Utc::now() + chrono::Duration::seconds(3600)),
+            proxy_ep: Some(base_url.to_string()),
+        };
+        CopilotProvider {
+            token: Arc::new(Mutex::new(Some("test-gh-token".to_string()))),
+            copilot_token: Arc::new(Mutex::new(Some(ct))),
             client: Arc::new(Mutex::new(None)),
             header_overrides: None,
         }
@@ -961,7 +951,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let provider = CopilotProvider::with_test_token(&mock_server.uri(), "test-bearer");
+        let provider = with_test_token(&mock_server.uri(), "test-bearer");
 
         let functions = vec![json!({
             "type": "function",
@@ -1033,7 +1023,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let provider = CopilotProvider::with_test_token(&mock_server.uri(), "test-bearer");
+        let provider = with_test_token(&mock_server.uri(), "test-bearer");
 
         // Bare format (as produced by the agent runtime).
         let functions = vec![json!({
@@ -1075,7 +1065,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let provider = CopilotProvider::with_test_token(&mock_server.uri(), "test-bearer");
+        let provider = with_test_token(&mock_server.uri(), "test-bearer");
 
         // Function with empty name should be skipped.
         let functions = vec![json!({
@@ -1136,7 +1126,7 @@ mod tests {
             .mount(&mock_server)
             .await;
 
-        let provider = CopilotProvider::with_test_token(&mock_server.uri(), "test-bearer");
+        let provider = with_test_token(&mock_server.uri(), "test-bearer");
 
         // Call through the trait interface (dyn ModelProvider).
         let provider_ref: &dyn super::ModelProvider = &provider;

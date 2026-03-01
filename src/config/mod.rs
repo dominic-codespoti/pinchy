@@ -319,6 +319,10 @@ pub struct AgentConfig {
     /// Defaults to 20 if unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_turns: Option<usize>,
+    /// Number of recent turns to keep intact during compaction.
+    /// Defaults to 8 if unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub compact_keep_recent_turns: Option<usize>,
     /// Per-agent IANA timezone override (e.g. "Europe/London").
     /// Falls back to the global `timezone` if unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]

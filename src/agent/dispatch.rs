@@ -167,6 +167,42 @@ fn spawn_turn(agent_mut: Arc<Mutex<Agent>>, msg: IncomingMessage) {
             }
             Err(e) => {
                 warn!(error = %e, duration, "agent turn failed");
+
+                let error_msg = if let Some(auth) = crate::auth::find_auth_error(&e) {
+                    format!(
+                        "🚨 **{} authentication failed**\n{}",
+                        auth.provider, auth.hint
+                    )
+                } else {
+                    format!("⚠️ Sorry, something went wrong: {e}")
+                };
+
+                let session_id = guard.current_session.clone();
+                let channel = msg.channel.clone();
+                drop(guard);
+
+                // Emit events directly with agent metadata so the web UI
+                // can match them (it filters on agent/session fields).
+                crate::gateway::publish_event_json(&serde_json::json!({
+                    "type": "typing_stop",
+                    "agent": &agent_id,
+                    "session": &session_id,
+                }));
+                crate::gateway::publish_event_json(&serde_json::json!({
+                    "type": "session_message",
+                    "agent": &agent_id,
+                    "session": &session_id,
+                    "role": "assistant",
+                    "content": &error_msg,
+                    "timestamp": std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64,
+                }));
+
+                // Also send through the normal channel path for
+                // Discord and other connectors.
+                send_reply(agent_id, session_id, channel, error_msg);
             }
         }
     });
@@ -174,6 +210,19 @@ fn spawn_turn(agent_mut: Arc<Mutex<Agent>>, msg: IncomingMessage) {
 
 fn send_reply(agent_id: String, session_id: Option<String>, channel: String, reply: String) {
     tokio::spawn(async move {
+        // Internal channels (heartbeat, cron) have no connector — publish
+        // directly to the gateway instead of going through comm.
+        if channel.starts_with("cron:") || channel == "heartbeat" {
+            crate::gateway::publish_event_json(&serde_json::json!({
+                "type": "agent_reply",
+                "agent": agent_id,
+                "session": session_id,
+                "channel": channel,
+                "text": reply,
+            }));
+            return;
+        }
+
         let ctx = crate::discord::ReplyContext {
             agent_id: agent_id.clone(),
             session_id: session_id.clone(),
@@ -187,17 +236,7 @@ fn send_reply(agent_id: String, session_id: Option<String>, channel: String, rep
             .await;
 
         if send_result.is_err() {
-            if channel.starts_with("cron:") || channel == "heartbeat" {
-                crate::gateway::publish_event_json(&serde_json::json!({
-                    "type": "agent_reply",
-                    "agent": agent_id,
-                    "session": session_id,
-                    "channel": channel,
-                    "text": reply,
-                }));
-            } else {
-                warn!(channel = %channel, "failed to send reply (no matching connector)");
-            }
+            warn!(channel = %channel, "failed to send reply (no matching connector)");
         }
     });
 }

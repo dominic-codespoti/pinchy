@@ -73,10 +73,15 @@ impl crate::comm::ChannelConnector for GatewayConnector {
         channel.starts_with("gateway:")
     }
     async fn send(&self, _channel: &str, text: &str) -> anyhow::Result<()> {
+        // Emit typing_stop so the UI clears any "Thinking…" spinner.
         publish_event_json(&serde_json::json!({
-            "type": "agent_reply",
-            "text": text,
+            "type": "typing_stop",
         }));
+        // NOTE: We intentionally do NOT emit a session_message here.
+        // persist_exchange() already publishes session_message events
+        // with full agent/session metadata.  Publishing a second one
+        // from the connector would double-deliver and lack those fields.
+        let _ = text;
         Ok(())
     }
     async fn send_rich(&self, _channel: &str, msg: crate::comm::RichMessage) -> anyhow::Result<()> {
@@ -470,7 +475,7 @@ pub fn spawn_command_forwarder(mut commands_rx: mpsc::Receiver<String>) {
         debug!("gateway command forwarder started");
         while let Some(text) = commands_rx.recv().await {
             // Try to parse as JSON payload from the web client.
-            let (command, target_agent) =
+            let (command, target_agent, session_id) =
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
                     let cmd = parsed
                         .get("command")
@@ -482,9 +487,14 @@ pub fn spawn_command_forwarder(mut commands_rx: mpsc::Receiver<String>) {
                         .and_then(|v| v.as_str())
                         .unwrap_or("default")
                         .to_string();
-                    (cmd, agent)
+                    let session = parsed
+                        .get("session_id")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                        .map(|s| s.to_string());
+                    (cmd, agent, session)
                 } else {
-                    (text.clone(), "default".to_string())
+                    (text.clone(), "default".to_string(), None)
                 };
 
             // Intercept slash commands — dispatch via registry.
@@ -530,7 +540,7 @@ pub fn spawn_command_forwarder(mut commands_rx: mpsc::Receiver<String>) {
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap_or_default()
                     .as_secs() as i64,
-                session_id: None,
+                session_id,
             };
             let content = msg.content.clone();
             let agent = target_agent;

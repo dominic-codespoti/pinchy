@@ -358,6 +358,7 @@ pub fn interactive_onboard_tui(
                             extra_exec_commands: Vec::new(),
                             history_messages: None,
                             max_turns: None,
+                            compact_keep_recent_turns: None,
                             timezone: None,
                         });
                     }

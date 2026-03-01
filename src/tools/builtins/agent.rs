@@ -244,6 +244,7 @@ pub async fn create_agent(_workspace: &Path, args: Value) -> anyhow::Result<Valu
                 extra_exec_commands: Vec::new(),
                 history_messages: None,
                 max_turns: None,
+                compact_keep_recent_turns: None,
                 timezone: None,
             });
             if let Err(e) = cfg.save(&config_path).await {

@@ -1,5 +1,4 @@
 use std::collections::HashSet;
-use std::path::PathBuf;
 use std::time::SystemTime;
 
 use anyhow::Context as _;
@@ -45,53 +44,21 @@ impl Agent {
                 SessionStore::load_history(&self.workspace, session_id, max_messages).await?;
             return Ok(exchanges
                 .into_iter()
-                .filter(|ex| ex.role == "user" || ex.role == "assistant")
-                .map(|ex| ChatMessage::new(ex.role, ex.content))
+                .filter(|ex| ex.role == "user" || ex.role == "assistant" || ex.role == "tool")
+                .map(|ex| ChatMessage {
+                    role: ex.role,
+                    content: ex.content,
+                    tool_calls: ex.tool_calls,
+                    tool_call_id: ex.tool_call_id,
+                })
                 .collect());
         }
 
-        // Legacy: load all session files.
-        let sessions_dir = self.workspace.join("sessions");
-        let mut entries: Vec<PathBuf> = Vec::new();
-
-        let mut rd = match tokio::fs::read_dir(&sessions_dir).await {
-            Ok(rd) => rd,
-            Err(_) => return Ok(Vec::new()),
-        };
-
-        while let Some(entry) = rd.next_entry().await? {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                entries.push(path);
-            }
-        }
-        entries.sort();
-
-        let mut all: Vec<ChatMessage> = Vec::new();
-        for path in &entries {
-            let content = match tokio::fs::read_to_string(path).await {
-                Ok(c) => c,
-                Err(_) => continue,
-            };
-            for line in content.lines() {
-                let line = line.trim();
-                if line.is_empty() {
-                    continue;
-                }
-                if let Ok(v) = serde_json::from_str::<serde_json::Value>(line) {
-                    let role = v["role"].as_str().unwrap_or("user").to_string();
-                    let content = v["content"].as_str().unwrap_or_default().to_string();
-                    if role == "user" || role == "assistant" {
-                        all.push(ChatMessage::new(role, content));
-                    }
-                }
-            }
-        }
-
-        if all.len() > max_messages {
-            all = all.split_off(all.len() - max_messages);
-        }
-        Ok(all)
+        // run_turn always ensures a session exists before reaching here,
+        // so this path should not be hit.  Return empty history rather
+        // than trying the old read-all-jsonl-files fallback.
+        warn!("load_history called with no current session");
+        Ok(Vec::new())
     }
 
     // -- turn execution -----------------------------------------------------
@@ -188,6 +155,7 @@ impl Agent {
                 extra_exec_commands: Vec::new(),
                 history_messages: None,
                 max_turns: None,
+                compact_keep_recent_turns: None,
                 timezone: None,
             };
             match cfg {
@@ -218,13 +186,15 @@ impl Agent {
 
         // -- Context window management --
         let mut budget = crate::context::ContextBudget::default();
-        if let Some(max_turns) = turn_cfg.and_then(|cfg| {
-            cfg.agents
-                .iter()
-                .find(|a| a.id == self.id)
-                .and_then(|a| a.max_turns)
-        }) {
-            budget.max_turns = max_turns;
+        if let Some(agent_cfg) =
+            turn_cfg.and_then(|cfg| cfg.agents.iter().find(|a| a.id == self.id))
+        {
+            if let Some(mt) = agent_cfg.max_turns {
+                budget.max_turns = mt;
+            }
+            if let Some(ckrt) = agent_cfg.compact_keep_recent_turns {
+                budget.compact_keep_recent_turns = ckrt;
+            }
         }
         crate::context::manage_context(&mut messages, &budget, manager).await;
 
@@ -267,6 +237,11 @@ impl Agent {
         .await;
 
         // -- Tool loop --
+        // Persist the user message BEFORE the tool loop so the JSONL
+        // ordering is: user → assistant+tool_calls → tool result → …
+        self.persist_user_message(&msg).await?;
+
+        let pre_tool_msg_count = messages.len();
         let receipt_tool_calls = run_tool_loop(
             &mut response,
             &mut messages,
@@ -283,11 +258,18 @@ impl Agent {
         )
         .await;
 
+        // Persist tool-loop messages (assistant tool_calls + tool results)
+        // so they survive in session history for future turns.
+        if messages.len() > pre_tool_msg_count {
+            self.persist_tool_messages(&messages[pre_tool_msg_count..])
+                .await;
+        }
+
         // -- Extract final reply --
         let final_reply = self.extract_final_reply(response).await;
 
-        // -- Persist --
-        self.persist_exchange(&msg, &final_reply).await?;
+        // -- Persist final assistant reply --
+        self.persist_assistant_reply(&final_reply).await?;
 
         let turn_duration = turn_start.elapsed().unwrap_or_default().as_millis() as u64;
         let receipt = TurnReceipt {
@@ -608,6 +590,29 @@ fn is_conversational(msg: &str) -> bool {
     let lower = msg.trim().to_lowercase();
     let word_count = lower.split_whitespace().count();
     if word_count <= 3 {
+        // Short phrases that imply the user wants the agent to *do*
+        // something (confirm a pending action) are NOT conversational.
+        const ACTION_CONFIRMATIONS: &[&str] = &[
+            "yes please",
+            "yes do it",
+            "yes go ahead",
+            "do it",
+            "go ahead",
+            "go for it",
+            "please do",
+            "yep do it",
+            "sure do it",
+            "ok do it",
+            "send it",
+            "run it",
+            "try it",
+            "yes run",
+            "yes send",
+        ];
+        if ACTION_CONFIRMATIONS.iter().any(|s| lower.starts_with(s)) {
+            return false;
+        }
+
         const STARTERS: &[&str] = &[
             "hi",
             "hello",

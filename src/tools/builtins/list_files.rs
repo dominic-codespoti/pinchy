@@ -95,7 +95,24 @@ pub async fn list_files(workspace: &Path, args: Value) -> anyhow::Result<Value> 
     }
 }
 
-/// Recursively collect directory entries.
+/// Directories to skip during recursive traversal — these are typically
+/// large dependency or build-output trees that drown out real results.
+const SKIP_DIRS: &[&str] = &[
+    "node_modules",
+    "venv",
+    ".venv",
+    "__pycache__",
+    ".git",
+    "site-packages",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    "dist",
+    ".egg-info",
+];
+
+/// Recursively collect directory entries using breadth-first traversal so
+/// that sibling files are discovered before recursing into subdirectories.
 async fn collect_entries(
     dir: &Path,
     workspace: &Path,
@@ -109,9 +126,13 @@ async fn collect_entries(
         .await
         .map_err(|e| anyhow::anyhow!("list_files: cannot read {}: {e}", dir.display()))?;
 
+    // Phase 1: read all immediate children, collecting files/dirs and
+    //          deferring subdirectories for recursion.
+    let mut subdirs: Vec<std::path::PathBuf> = Vec::new();
+
     while let Ok(Some(entry)) = rd.next_entry().await {
         if entries.len() >= max {
-            break;
+            return Ok(());
         }
 
         let name = entry.file_name().to_string_lossy().to_string();
@@ -125,14 +146,11 @@ async fn collect_entries(
         let is_dir = ft.as_ref().map(|f| f.is_dir()).unwrap_or(false);
         let entry_type = if is_dir { "directory" } else { "file" };
 
-        // Apply glob pattern (simple wildcard matching).
+        // Apply glob pattern — skip non-matching *files*.
+        // Directories are never skipped by the pattern so we can recurse into them.
         if let Some(pat) = pattern {
             if !is_dir && !glob_match(pat, &name) {
-                if recursive && is_dir {
-                    // Still recurse into directories even if they don't match.
-                } else if !is_dir {
-                    continue;
-                }
+                continue;
             }
         }
 
@@ -160,31 +178,39 @@ async fn collect_entries(
             }
         }
 
-        // For directories, don't add to results if pattern is set and not matching
-        // (we still recurse into them).
-        let should_add = if let Some(pat) = pattern {
-            is_dir || glob_match(pat, &name)
-        } else {
-            true
-        };
+        // When a pattern is active, only include matching *files* in results.
+        // Directories are never included — they're just traversal nodes.
+        let should_add = if pattern.is_some() { !is_dir } else { true };
 
         if should_add {
             entries.push(obj);
         }
 
-        // Recurse into subdirectories.
-        if recursive && is_dir && entries.len() < max {
-            Box::pin(collect_entries(
-                &entry.path(),
-                workspace,
-                pattern,
-                recursive,
-                include_metadata,
-                entries,
-                max,
-            ))
-            .await?;
+        // Queue subdirectory for breadth-first recursion (skip noise dirs
+        // and Python virtualenvs detected by pyvenv.cfg).
+        if recursive && is_dir && !SKIP_DIRS.contains(&name.as_str()) {
+            let path = entry.path();
+            if !path.join("pyvenv.cfg").exists() {
+                subdirs.push(path);
+            }
         }
+    }
+
+    // Phase 2: recurse into subdirectories (breadth-first).
+    for subdir in subdirs {
+        if entries.len() >= max {
+            break;
+        }
+        Box::pin(collect_entries(
+            &subdir,
+            workspace,
+            pattern,
+            recursive,
+            include_metadata,
+            entries,
+            max,
+        ))
+        .await?;
     }
 
     Ok(())

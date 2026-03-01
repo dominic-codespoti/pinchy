@@ -60,6 +60,8 @@ async fn append_creates_file_and_loads_back() {
             role: "user".into(),
             content: "ping".into(),
             metadata: None,
+            tool_calls: None,
+            tool_call_id: None,
         },
     )
     .await
@@ -73,6 +75,8 @@ async fn append_creates_file_and_loads_back() {
             role: "assistant".into(),
             content: "pong".into(),
             metadata: None,
+            tool_calls: None,
+            tool_call_id: None,
         },
     )
     .await
@@ -103,6 +107,8 @@ async fn load_history_respects_limit() {
                 role: if i % 2 == 0 { "user" } else { "assistant" }.into(),
                 content: format!("msg-{i}"),
                 metadata: None,
+                tool_calls: None,
+                tool_call_id: None,
             },
         )
         .await
@@ -140,6 +146,8 @@ async fn metadata_round_trips() {
             role: "user".into(),
             content: "hi".into(),
             metadata: Some(serde_json::json!({"author": "tester", "channel": "tui"})),
+            tool_calls: None,
+            tool_call_id: None,
         },
     )
     .await

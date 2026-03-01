@@ -62,6 +62,7 @@ async fn run_tool_loop_inner(
 ) -> anyhow::Result<Vec<ToolCallRecord>> {
     let mut tool_calls = Vec::new();
     let mut consecutive_unknown_tool: u32 = 0;
+    let mut consecutive_failures: u32 = 0;
 
     for _iter in 0..max_iters {
         match response {
@@ -86,6 +87,21 @@ async fn run_tool_loop_inner(
                     messages,
                     function_defs,
                 );
+                if tr.failed {
+                    consecutive_failures += 1;
+                    if consecutive_failures >= 3 {
+                        messages.push(ChatMessage::system(
+                            "CORRECTIVE: Multiple consecutive tool calls have failed. \
+                             STOP trying your current approach. \
+                             Re-read the original user request and try a simpler, \
+                             more direct approach. If you cannot fulfil the request \
+                             with the tools available, say so plainly."
+                                .to_string(),
+                        ));
+                    }
+                } else {
+                    consecutive_failures = 0;
+                }
                 tool_calls.push(tr.record);
                 if should_break {
                     break;
@@ -127,9 +143,13 @@ async fn run_tool_loop_inner(
                     }));
                 }
 
+                let mut any_failed = false;
                 for handle in handles {
                     match handle.await {
                         Ok(tr) => {
+                            if tr.failed {
+                                any_failed = true;
+                            }
                             messages.push(ChatMessage {
                                 role: "tool".into(),
                                 content: truncate_tool_result(tr.result_json),
@@ -150,6 +170,21 @@ async fn run_tool_loop_inner(
                             });
                         }
                     }
+                }
+                if any_failed {
+                    consecutive_failures += 1;
+                    if consecutive_failures >= 3 {
+                        messages.push(ChatMessage::system(
+                            "CORRECTIVE: Multiple consecutive tool calls have failed. \
+                             STOP trying to fix the environment or infrastructure. \
+                             Re-read the original user request and try a simpler, \
+                             more direct approach. If you cannot fulfil the request \
+                             with the tools available, say so plainly."
+                                .to_string(),
+                        ));
+                    }
+                } else {
+                    consecutive_failures = 0;
                 }
             }
         }

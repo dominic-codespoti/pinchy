@@ -38,6 +38,7 @@ fn test_config(workspace: &std::path::Path, agent_id: &str) -> Config {
             extra_exec_commands: Vec::new(),
             history_messages: None,
             max_turns: None,
+            compact_keep_recent_turns: None,
             timezone: None,
         }],
         secrets: None,

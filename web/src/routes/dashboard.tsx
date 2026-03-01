@@ -64,6 +64,7 @@ export function DashboardRoute() {
   const [forcingHeartbeatFor, setForcingHeartbeatFor] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [debugExpandedMsgs, setDebugExpandedMsgs] = useState<Set<number>>(new Set());
+  const [debugFullPayload, setDebugFullPayload] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     const ws = new WebSocket(wsUrl());
@@ -458,7 +459,7 @@ export function DashboardRoute() {
                       ? "bg-emerald-400/[0.08] border border-emerald-400/20"
                       : "border border-transparent hover:bg-white/[0.03]"
                   }`}
-                  onClick={() => { setSelectedEventId(event.id); setDebugExpandedMsgs(new Set()); }}
+                  onClick={() => { setSelectedEventId(event.id); setDebugExpandedMsgs(new Set()); setDebugFullPayload(null); }}
                 >
                   <span className="text-slate-600 tabular-nums">{new Date(event.ts).toLocaleTimeString()}</span>
                   <span><TypeChip type={event.type} /></span>
@@ -486,8 +487,11 @@ export function DashboardRoute() {
                     <button
                       type="button"
                       onClick={() => {
+                        const copyData = (selectedEvent.type === "model_request" && debugFullPayload)
+                          ? debugFullPayload
+                          : selectedEvent.payload;
                         void navigator.clipboard
-                          .writeText(JSON.stringify(selectedEvent.payload, null, 2))
+                          .writeText(JSON.stringify(copyData, null, 2))
                           .then(() => toast.success("Copied"))
                           .catch(() => toast.error("Failed to copy"));
                       }}
@@ -507,6 +511,7 @@ export function DashboardRoute() {
                 {selectedEvent.type === "model_request" ? (
                   <ModelRequestDetail
                     payload={selectedEvent.payload}
+                    onFullPayload={setDebugFullPayload}
                     expandedMsgs={debugExpandedMsgs}
                     onToggleMsg={(i) =>
                       setDebugExpandedMsgs((prev) => {
@@ -655,10 +660,12 @@ const ROLE_COLORS: Record<string, string> = {
 
 function ModelRequestDetail({
   payload,
+  onFullPayload,
   expandedMsgs,
   onToggleMsg,
 }: {
   payload: Record<string, unknown>;
+  onFullPayload?: (p: Record<string, unknown> | null) => void;
   expandedMsgs: Set<number>;
   onToggleMsg: (i: number) => void;
 }) {
@@ -673,7 +680,11 @@ function ModelRequestDetail({
     setLoading(true);
     setFetchError(null);
     getDebugModelRequest(requestId)
-      .then((data) => setFullPayload(data as Record<string, unknown>))
+      .then((data) => {
+        const d = data as Record<string, unknown>;
+        setFullPayload(d);
+        onFullPayload?.(d);
+      })
       .catch((e) => setFetchError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
   }, [requestId]);

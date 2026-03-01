@@ -9,6 +9,7 @@ use tracing::warn;
 
 use super::handlers::agents::collect_agent_ids;
 use super::AppState;
+use crate::session::SessionStore;
 
 /// `GET /ws` — upgrade to WebSocket.
 pub(crate) async fn ws_handler(
@@ -61,44 +62,6 @@ async fn handle_ws_logs(mut socket: WebSocket) {
     }
 }
 
-/// Load all lines from the most recently modified `.jsonl` file in `dir`.
-async fn load_most_recent_session_lines(dir: &std::path::Path) -> Option<Vec<String>> {
-    let mut rd = tokio::fs::read_dir(dir).await.ok()?;
-    let mut best: Option<(std::time::SystemTime, std::path::PathBuf)> = None;
-
-    while let Ok(Some(entry)) = rd.next_entry().await {
-        let path = entry.path();
-        let is_jsonl = path.extension().map(|e| e == "jsonl").unwrap_or(false);
-        if !is_jsonl {
-            continue;
-        }
-        // Skip receipt files — they are not session messages.
-        if path
-            .to_str()
-            .map(|s| s.contains(".receipts."))
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        if let Ok(meta) = tokio::fs::metadata(&path).await {
-            if let Ok(modified) = meta.modified() {
-                if best.as_ref().is_none_or(|(t, _)| modified > *t) {
-                    best = Some((modified, path));
-                }
-            }
-        }
-    }
-
-    let (_, path) = best?;
-    let contents = tokio::fs::read_to_string(&path).await.ok()?;
-    let lines: Vec<String> = contents
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| l.to_string())
-        .collect();
-    Some(lines)
-}
-
 /// Per-connection WebSocket logic.
 async fn handle_ws(mut socket: WebSocket, state: AppState) {
     let mut events_rx = state.events_tx.subscribe();
@@ -113,38 +76,26 @@ async fn handle_ws(mut socket: WebSocket, state: AppState) {
             let _ = socket.send(Message::Text(json)).await;
         }
 
-        // For each agent, send the most recent session's messages.
+        // For each agent, send the latest session's messages.
         for agent_id in &agent_ids {
-            let sessions_dir = crate::utils::agent_workspace(agent_id).join("sessions");
+            let workspace = crate::utils::agent_workspace(agent_id);
+            let session_id = SessionStore::resolve_latest(&workspace).await;
 
-            if let Some(lines) = load_most_recent_session_lines(&sessions_dir).await {
-                for line in lines {
-                    let evt = match serde_json::from_str::<serde_json::Value>(&line) {
-                        Ok(parsed)
-                            if parsed.get("role").and_then(|v| v.as_str()).is_some()
-                                && parsed.get("content").is_some() =>
-                        {
-                            let ts = parsed.get("timestamp").and_then(|v| v.as_u64());
-                            serde_json::json!({
-                                "type": "session_message",
-                                "agent": agent_id,
-                                "role": parsed["role"],
-                                "content": parsed["content"],
-                                "timestamp": ts,
-                            })
-                        }
-                        _ => {
-                            // Unparseable or missing role/content — send raw line
-                            serde_json::json!({
-                                "type": "session_message",
-                                "agent": agent_id,
-                                "content": line,
-                            })
-                        }
-                    };
-                    if let Ok(json) = serde_json::to_string(&evt) {
-                        if socket.send(Message::Text(json)).await.is_err() {
-                            return; // client disconnected
+            if let Some(ref sid) = session_id {
+                if let Ok(exchanges) = SessionStore::load_history(&workspace, sid, 200).await {
+                    for ex in &exchanges {
+                        let evt = serde_json::json!({
+                            "type": "session_message",
+                            "agent": agent_id,
+                            "session": sid,
+                            "role": ex.role,
+                            "content": ex.content,
+                            "timestamp": ex.timestamp,
+                        });
+                        if let Ok(json) = serde_json::to_string(&evt) {
+                            if socket.send(Message::Text(json)).await.is_err() {
+                                return; // client disconnected
+                            }
                         }
                     }
                 }
@@ -154,6 +105,11 @@ async fn handle_ws(mut socket: WebSocket, state: AppState) {
 
     // (Debug events are fetched via REST /api/debug/model-requests on
     // dashboard mount — no need to replay them over WS too.)
+
+    // ── Keepalive: ping every 30 s, close if no pong within 10 s ──
+    let mut ping_interval = tokio::time::interval(std::time::Duration::from_secs(30));
+    ping_interval.tick().await; // consume the immediate first tick
+    let mut awaiting_pong = false;
 
     loop {
         tokio::select! {
@@ -177,13 +133,28 @@ async fn handle_ws(mut socket: WebSocket, state: AppState) {
                             warn!("commands channel closed");
                         }
                     }
+                    Some(Ok(Message::Pong(_))) => {
+                        awaiting_pong = false;
+                    }
                     Some(Ok(Message::Close(_))) | None => break,
                     Some(Err(e)) => {
                         warn!("ws recv error: {e}");
                         break;
                     }
-                    _ => {} // ping/pong/binary — ignore
+                    _ => {} // binary — ignore
                 }
+            }
+            // Periodic ping for keepalive
+            _ = ping_interval.tick() => {
+                if awaiting_pong {
+                    // Previous ping was not answered — assume dead connection.
+                    warn!("ws client did not respond to ping, closing");
+                    break;
+                }
+                if socket.send(Message::Ping(vec![])).await.is_err() {
+                    break;
+                }
+                awaiting_pong = true;
             }
         }
     }
