@@ -360,6 +360,8 @@ pub fn interactive_onboard_tui(
                             max_turns: None,
                             compact_keep_recent_turns: None,
                             timezone: None,
+                            watch_paths: Vec::new(),
+                            reasoning_effort: None,
                         });
                     }
 
@@ -1395,6 +1397,7 @@ pub async fn debug_run_turn(
         channel: "cli:debug".to_string(),
         timestamp: 0,
         session_id: None,
+        images: Vec::new(),
     };
     let reply = ag.run_turn(msg).await?;
 

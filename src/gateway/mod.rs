@@ -267,6 +267,8 @@ pub async fn start_gateway_with_config(
             "/slash/commands",
             get(handlers::slash_cmds::api_slash_commands),
         )
+        // Usage / cost tracking
+        .route("/usage", get(handlers::usage::api_usage))
         // Debug
         .route(
             "/debug/model-requests",
@@ -475,7 +477,7 @@ pub fn spawn_command_forwarder(mut commands_rx: mpsc::Receiver<String>) {
         debug!("gateway command forwarder started");
         while let Some(text) = commands_rx.recv().await {
             // Try to parse as JSON payload from the web client.
-            let (command, target_agent, session_id) =
+            let (command, target_agent, session_id, images) =
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
                     let cmd = parsed
                         .get("command")
@@ -492,9 +494,18 @@ pub fn spawn_command_forwarder(mut commands_rx: mpsc::Receiver<String>) {
                         .and_then(|v| v.as_str())
                         .filter(|s| !s.is_empty())
                         .map(|s| s.to_string());
-                    (cmd, agent, session)
+                    let imgs: Vec<String> = parsed
+                        .get("images")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    (cmd, agent, session, imgs)
                 } else {
-                    (text.clone(), "default".to_string(), None)
+                    (text.clone(), "default".to_string(), None, Vec::new())
                 };
 
             // Intercept slash commands — dispatch via registry.
@@ -541,6 +552,7 @@ pub fn spawn_command_forwarder(mut commands_rx: mpsc::Receiver<String>) {
                     .unwrap_or_default()
                     .as_secs() as i64,
                 session_id,
+                images,
             };
             let content = msg.content.clone();
             let agent = target_agent;

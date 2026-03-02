@@ -14,6 +14,8 @@ pub(crate) struct MemoryQuery {
     pub q: Option<String>,
     pub tag: Option<String>,
     pub limit: Option<usize>,
+    /// Search mode: "keyword" (FTS), "semantic" (vector), "hybrid" (RRF fusion).
+    pub mode: Option<String>,
 }
 
 /// `GET /api/agents/:agent_id/memory`
@@ -40,8 +42,14 @@ pub(crate) async fn api_memory_list(
     let query = params.q.unwrap_or_default();
     let limit = params.limit.unwrap_or(100);
     let tag = params.tag;
+    let mode = params.mode.unwrap_or_default();
 
-    match tokio::task::spawn_blocking(move || store.search(&query, tag.as_deref(), limit)).await {
+    match tokio::task::spawn_blocking(move || match mode.as_str() {
+        "semantic" | "hybrid" => store.search_hybrid(&query, tag.as_deref(), limit),
+        _ => store.search(&query, tag.as_deref(), limit),
+    })
+    .await
+    {
         Ok(Ok(entries)) => Json(serde_json::json!({ "entries": entries })).into_response(),
         Ok(Err(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,

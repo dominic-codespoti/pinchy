@@ -327,6 +327,13 @@ pub struct AgentConfig {
     /// Falls back to the global `timezone` if unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timezone: Option<String>,
+    /// Directories to watch for automatic memory ingest.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub watch_paths: Vec<String>,
+    /// Reasoning effort level: "low", "medium", or "high".
+    /// Controls extended thinking budget for Claude and reasoning effort for OpenAI.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
 }
 
 /// A cron job definition attached to an agent.

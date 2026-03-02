@@ -246,6 +246,8 @@ pub async fn create_agent(_workspace: &Path, args: Value) -> anyhow::Result<Valu
                 max_turns: None,
                 compact_keep_recent_turns: None,
                 timezone: None,
+                watch_paths: Vec::new(),
+                reasoning_effort: None,
             });
             if let Err(e) = cfg.save(&config_path).await {
                 tracing::warn!(error = %e, "failed to save config after agent creation");

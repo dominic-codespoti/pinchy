@@ -82,6 +82,7 @@ async fn slash_heartbeat_status_returns_table() {
         interval_secs: Some(300),
         health: HeartbeatHealth::OK,
         message_preview: Some("all good".to_string()),
+        latest_session: None,
     };
     write_heartbeat_status(&agent_ws, &status);
 
@@ -113,6 +114,7 @@ async fn slash_heartbeat_check_returns_details() {
         interval_secs: Some(300),
         health: HeartbeatHealth::OK,
         message_preview: Some("heartbeat ok".to_string()),
+        latest_session: None,
     };
     write_heartbeat_status(&agent_ws, &status);
 

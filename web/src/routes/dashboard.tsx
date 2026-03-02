@@ -15,6 +15,7 @@ import {
   ChevronDown,
   ChevronRight,
   Bug,
+  DollarSign,
 } from "lucide-react";
 import { wsUrl, sendOneShot } from "@/lib/ws";
 
@@ -23,6 +24,7 @@ import {
   getReceipts,
   getHeartbeatStatus,
   getStatus,
+  getUsage,
   listAgents,
   listCronJobs,
   listReceipts,
@@ -30,6 +32,7 @@ import {
   listDebugModelRequests,
   queryKeys,
 } from "@/api/client";
+import type { UsageBucket } from "@/api/client";
 import { Badge, Button, Separator, Skeleton } from "@/components/ui";
 
 type TimelineEvent = {
@@ -65,6 +68,15 @@ export function DashboardRoute() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [debugExpandedMsgs, setDebugExpandedMsgs] = useState<Set<number>>(new Set());
   const [debugFullPayload, setDebugFullPayload] = useState<Record<string, unknown> | null>(null);
+
+  const usageQuery = useQuery({
+    queryKey: queryKeys.usage(),
+    queryFn: () => getUsage(),
+    refetchInterval: 60_000,
+  });
+
+  const totalCost = usageQuery.data?.total_cost_usd ?? 0;
+  const usageBuckets = usageQuery.data?.usage ?? [];
 
   useEffect(() => {
     const ws = new WebSocket(wsUrl());
@@ -286,6 +298,7 @@ export function DashboardRoute() {
             <StatCard label="Agents" value={String(stats.agentCount)} loading={agentsQuery.isLoading} icon={Bot} />
             <StatCard label="Cron Jobs" value={String(stats.cronCount)} loading={cronQuery.isLoading} icon={Clock} />
             <StatCard label="Tokens" value={tokenCount.toLocaleString()} loading={agentsQuery.isLoading} icon={Coins} />
+            <StatCard label="Est. Cost" value={totalCost > 0 ? `$${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)}` : "$0"} loading={usageQuery.isLoading} icon={DollarSign} />
             <StatCard label="Heartbeat OK" value={`${stats.healthy}/${stats.heartbeatCount}`} loading={heartbeatQuery.isLoading} icon={Heart} />
           </div>
 
@@ -330,32 +343,15 @@ export function DashboardRoute() {
             <article className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <Coins className="h-3.5 w-3.5 text-emerald-400/60" />
-                  <span className="text-xs font-medium text-slate-300">Token Distribution</span>
+                  <DollarSign className="h-3.5 w-3.5 text-amber-400/60" />
+                  <span className="text-xs font-medium text-slate-300">Cost by Model</span>
                 </div>
-                <span className="text-[10px] tabular-nums text-slate-500">{tokenCount.toLocaleString()} total</span>
+                <span className="text-[10px] tabular-nums text-slate-500">${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)} total</span>
               </div>
-              {tokenHistory.length > 0 ? (
-                <div className="flex items-end gap-1 h-16">
-                  {tokenHistory.map((val, i) => {
-                    const max = Math.max(...tokenHistory, 1);
-                    const pct = Math.max(4, (val / max) * 100);
-                    return (
-                      <div
-                        key={i}
-                        className="flex-1 rounded-t bg-emerald-400/30 hover:bg-emerald-400/50 transition-colors relative group"
-                        style={{ height: `${pct}%` }}
-                        title={`${val.toLocaleString()} tokens`}
-                      >
-                        <span className="absolute -top-5 left-1/2 -translate-x-1/2 text-[9px] text-emerald-300 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                          {val.toLocaleString()}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
+              {usageBuckets.length > 0 ? (
+                <CostByModelChart buckets={usageBuckets} />
               ) : (
-                <div className="flex items-center justify-center h-16 text-xs text-slate-600">No token data yet</div>
+                <div className="flex items-center justify-center h-16 text-xs text-slate-600">No cost data yet</div>
               )}
             </article>
           </div>
@@ -851,6 +847,48 @@ function ModelRequestDetail({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+const MODEL_COLORS = [
+  "bg-emerald-400/40", "bg-sky-400/40", "bg-amber-400/40", "bg-violet-400/40",
+  "bg-rose-400/40", "bg-teal-400/40", "bg-orange-400/40", "bg-indigo-400/40",
+];
+
+function CostByModelChart({ buckets }: { buckets: UsageBucket[] }) {
+  const byModel = new Map<string, { cost: number; tokens: number }>();
+  for (const b of buckets) {
+    const prev = byModel.get(b.model) ?? { cost: 0, tokens: 0 };
+    prev.cost += b.estimated_cost_usd;
+    prev.tokens += b.total_tokens;
+    byModel.set(b.model, prev);
+  }
+  const sorted = [...byModel.entries()].sort((a, b) => b[1].cost - a[1].cost);
+  const maxCost = Math.max(...sorted.map(([, v]) => v.cost), 0.0001);
+
+  return (
+    <div className="space-y-1.5">
+      {sorted.slice(0, 6).map(([model, data], i) => {
+        const pct = Math.max(4, (data.cost / maxCost) * 100);
+        return (
+          <div key={model} className="flex items-center gap-2 text-[10px]">
+            <span className="text-slate-400 font-mono truncate w-28 shrink-0">{model}</span>
+            <div className="flex-1 h-4 rounded-sm bg-white/[0.03] overflow-hidden relative group">
+              <div
+                className={`h-full rounded-sm ${MODEL_COLORS[i % MODEL_COLORS.length]} transition-all`}
+                style={{ width: `${pct}%` }}
+              />
+              <span className="absolute inset-0 flex items-center px-1.5 text-[9px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
+                ${data.cost < 0.01 ? data.cost.toFixed(4) : data.cost.toFixed(2)} · {data.tokens.toLocaleString()} tok
+              </span>
+            </div>
+            <span className="text-amber-300/70 tabular-nums w-14 text-right shrink-0">
+              ${data.cost < 0.01 ? data.cost.toFixed(4) : data.cost.toFixed(2)}
+            </span>
+          </div>
+        );
+      })}
     </div>
   );
 }

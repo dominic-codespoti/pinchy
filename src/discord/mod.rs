@@ -174,6 +174,7 @@ impl EventHandler for Handler {
             content: msg.content.clone(),
             timestamp: msg.timestamp.unix_timestamp(),
             session_id: reply_meta.as_ref().and_then(|r| r.session_id.clone()),
+            images: Vec::new(),
         };
 
         if reply_meta.is_some() {

@@ -5,9 +5,11 @@
 //! client) also live here alongside the tools that use them.
 
 pub mod agent;
+pub mod apply_patch;
 pub mod browser;
 pub mod browser_service;
 pub mod cron;
+pub mod delegate;
 pub mod edit_file;
 pub mod exec_shell;
 pub mod list_files;

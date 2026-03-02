@@ -8,10 +8,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use anyhow::Context as _;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
-use tracing::{debug, warn};
+use tracing::{debug, info, trace, warn};
 
 use super::{ChatMessage, ModelProvider, ProviderResponse};
 use crate::auth::copilot_token;
@@ -37,6 +38,10 @@ pub struct CopilotProvider {
     client: Arc<Mutex<Option<copilot_sdk::CopilotClient>>>,
     /// Optional header overrides from config.
     header_overrides: Option<std::collections::HashMap<String, String>>,
+    /// Model identifier sent in the request body (e.g. "claude-sonnet-4").
+    model_id: String,
+    /// Reasoning effort level: "low", "medium", or "high".
+    reasoning_effort: Option<String>,
 }
 
 impl Default for CopilotProvider {
@@ -53,11 +58,26 @@ impl CopilotProvider {
     /// the CLI process is only spawned on first use).  When the variable
     /// is absent the provider operates in stub mode.
     pub fn new() -> Self {
-        Self::new_with_headers(None)
+        Self::with_model_and_headers("gpt-4o", None)
     }
 
     pub fn new_with_headers(
         header_overrides: Option<std::collections::HashMap<String, String>>,
+    ) -> Self {
+        Self::with_model_and_headers("gpt-4o", header_overrides)
+    }
+
+    pub fn with_model_and_headers(
+        model_id: &str,
+        header_overrides: Option<std::collections::HashMap<String, String>>,
+    ) -> Self {
+        Self::with_model_headers_and_effort(model_id, header_overrides, None)
+    }
+
+    pub fn with_model_headers_and_effort(
+        model_id: &str,
+        header_overrides: Option<std::collections::HashMap<String, String>>,
+        reasoning_effort: Option<String>,
     ) -> Self {
         // --- 1. Try to load a cached Copilot session token ----------------
         let cached_ct: Option<copilot_token::CopilotToken> =
@@ -119,6 +139,8 @@ impl CopilotProvider {
             copilot_token: Arc::new(Mutex::new(cached_ct)),
             client: Arc::new(Mutex::new(client)),
             header_overrides,
+            model_id: model_id.to_string(),
+            reasoning_effort,
         }
     }
 
@@ -136,6 +158,8 @@ impl CopilotProvider {
             copilot_token: Arc::new(Mutex::new(Some(ct))),
             client: Arc::new(Mutex::new(None)),
             header_overrides: None,
+            model_id: "gpt-4o".to_string(),
+            reasoning_effort: None,
         }
     }
 
@@ -185,10 +209,14 @@ impl CopilotProvider {
                         .as_deref()
                         .filter(|s| !s.is_empty())
                         .unwrap_or(DEFAULT_COPILOT_API_BASE);
-                    match self
-                        .try_proxy_http_with_tools(ep, &ct.token, messages, functions)
-                        .await
-                    {
+                    let result = if is_anthropic_model(&self.model_id) {
+                        self.try_anthropic_http_with_tools(ep, &ct.token, messages, functions)
+                            .await
+                    } else {
+                        self.try_proxy_http_with_tools(ep, &ct.token, messages, functions)
+                            .await
+                    };
+                    match result {
                         Ok((resp, usage)) => return Ok((resp, usage)),
                         Err(e) => {
                             warn!("CopilotProvider: proxy (fn-call) failed ({e:#}), falling back");
@@ -223,7 +251,7 @@ impl CopilotProvider {
         let http = super::get_shared_http_client();
 
         let body = json!({
-            "model": "gpt-4o",
+            "model": &self.model_id,
             "messages": super::serialize_messages(messages),
         });
 
@@ -234,7 +262,7 @@ impl CopilotProvider {
 
         for path in &paths {
             let url = format!("{base}{path}");
-            debug!("CopilotProvider: trying proxy endpoint {url}");
+            debug!(model = %self.model_id, "CopilotProvider: trying proxy endpoint {url}");
 
             match post_with_retry(&http, &url, &headers, &body).await {
                 Ok(json_val) => {
@@ -274,9 +302,14 @@ impl CopilotProvider {
         let http = super::get_shared_http_client();
 
         let mut body = json!({
-            "model": "gpt-4o",
+            "model": &self.model_id,
             "messages": super::serialize_messages(messages),
         });
+
+        // Inject reasoning effort for OpenAI models (o-series).
+        if let Some(ref effort) = self.reasoning_effort {
+            body["reasoning"] = json!({"effort": effort});
+        }
 
         if !functions.is_empty() {
             // Convert each function definition into the Copilot proxy
@@ -367,6 +400,127 @@ impl CopilotProvider {
             last_err.unwrap_or_else(|| "unknown".into())
         );
     }
+
+    // -- Anthropic Messages API paths (Claude models) ---------------------
+
+    /// POST to `/v1/messages` with Anthropic Messages format, parse SSE.
+    async fn try_anthropic_http(
+        &self,
+        proxy_ep: &str,
+        bearer: &str,
+        messages: &[ChatMessage],
+    ) -> anyhow::Result<String> {
+        let (resp, _usage) = self
+            .try_anthropic_http_with_tools(proxy_ep, bearer, messages, &[])
+            .await?;
+        match resp {
+            super::ProviderResponse::Final(text) => Ok(text),
+            other => Ok(format!("{other:?}")),
+        }
+    }
+
+    /// POST to `/v1/messages` with tools, parse SSE, return
+    /// `(ProviderResponse, Option<TokenUsage>)`.
+    async fn try_anthropic_http_with_tools(
+        &self,
+        proxy_ep: &str,
+        bearer: &str,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> anyhow::Result<(super::ProviderResponse, Option<super::TokenUsage>)> {
+        let http = super::get_shared_http_client();
+        let base = proxy_ep.trim_end_matches('/');
+        let url = format!("{base}/v1/messages");
+
+        let (system, api_msgs) = serialize_anthropic_messages(messages);
+        let mut body = json!({
+            "model": &self.model_id,
+            "messages": api_msgs,
+            "max_tokens": 16384,
+            "stream": true,
+        });
+        if let Some(sys) = &system {
+            body["system"] = json!(sys);
+        }
+
+        // Inject extended thinking based on reasoning_effort.
+        if let Some(ref effort) = self.reasoning_effort {
+            if self.model_id.contains("claude-opus-4") {
+                // Opus uses adaptive thinking with effort level.
+                body["thinking"] = json!({
+                    "type": "adaptive",
+                    "effort": effort,
+                });
+            } else {
+                // Other Claude models use enabled + budget_tokens.
+                let budget: u32 = match effort.as_str() {
+                    "low" => 1024,
+                    "medium" => 8192,
+                    "high" => 16384,
+                    _ => 8192,
+                };
+                body["thinking"] = json!({
+                    "type": "enabled",
+                    "budget_tokens": budget,
+                });
+            }
+        }
+
+        if !functions.is_empty() {
+            let tools: Vec<Value> = functions.iter().filter_map(to_anthropic_tool).collect();
+            if !tools.is_empty() {
+                body["tools"] = Value::Array(tools);
+                body["tool_choice"] = json!({"type": "auto"});
+            }
+        }
+
+        let mut headers = copilot_headers(bearer, self.header_overrides.as_ref());
+        // Anthropic-specific headers for the Copilot proxy.
+        headers.insert(
+            "anthropic-beta",
+            "interleaved-thinking-2025-05-14".parse().unwrap(),
+        );
+
+        let tool_count = body
+            .get("tools")
+            .and_then(|t| t.as_array())
+            .map(|a| a.len())
+            .unwrap_or(0);
+        debug!(model = %self.model_id, url = %url, body = %body, "CopilotProvider: trying Anthropic Messages endpoint");
+        info!(
+            model = %self.model_id,
+            url = %url,
+            msg_count = api_msgs.len(),
+            has_system = system.is_some(),
+            tool_count,
+            "Anthropic: sending request"
+        );
+
+        let resp = http
+            .post(&url)
+            .headers(headers)
+            .json(&body)
+            .send()
+            .await
+            .context("Anthropic proxy request failed")?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body_text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Anthropic proxy HTTP {status}: {body_text}");
+        }
+
+        let parsed = parse_anthropic_sse(resp).await?;
+        info!(
+            text_len = parsed.text.len(),
+            tool_uses = parsed.tool_uses.len(),
+            input_tokens = parsed.input_tokens,
+            output_tokens = parsed.output_tokens,
+            model = %parsed.model,
+            "Anthropic: SSE parse result"
+        );
+        Ok(anthropic_result_to_response(parsed))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -427,7 +581,12 @@ impl ModelProvider for CopilotProvider {
                         .as_deref()
                         .filter(|s| !s.is_empty())
                         .unwrap_or(DEFAULT_COPILOT_API_BASE);
-                    match self.try_proxy_http(ep, &ct.token, messages).await {
+                    let result = if is_anthropic_model(&self.model_id) {
+                        self.try_anthropic_http(ep, &ct.token, messages).await
+                    } else {
+                        self.try_proxy_http(ep, &ct.token, messages).await
+                    };
+                    match result {
                         Ok(text) => return Ok(text),
                         Err(e) => {
                             warn!("CopilotProvider: proxy failed ({e:#}), falling back to SDK");
@@ -561,7 +720,10 @@ fn proxy_paths() -> Vec<String> {
 
 /// Whether a [`reqwest::Error`] is transient and worth retrying.
 fn is_retryable_request_error(e: &reqwest::Error) -> bool {
-    e.is_timeout() || e.is_connect() || e.is_request()
+    e.is_timeout()
+        || e.is_connect()
+        || e.is_request()
+        || e.status() == Some(reqwest::StatusCode::TOO_MANY_REQUESTS)
 }
 
 /// Standard Copilot proxy headers, with optional overrides merged on top.
@@ -650,7 +812,9 @@ async fn post_with_retry(
         let resp_body = resp.text().await.unwrap_or_default();
         warn!("CopilotProvider: {url} returned HTTP {status}; body: {resp_body}");
 
-        if status.is_server_error() && attempt < MAX_RETRIES {
+        if (status.is_server_error() || status == reqwest::StatusCode::TOO_MANY_REQUESTS)
+            && attempt < MAX_RETRIES
+        {
             attempt += 1;
             let delay = Duration::from_millis(500 * u64::from(attempt));
             warn!(
@@ -675,6 +839,20 @@ fn extract_assistant_text(v: &Value) -> Option<String> {
         .and_then(|c| c.get(0))
         .and_then(|c| c.get("message"))
         .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+    {
+        let s = s.trim();
+        if !s.is_empty() {
+            return Some(s.to_string());
+        }
+    }
+    // choices[0].message.reasoning_text  (Gemini / reasoning models with
+    // content: null but reasoning_text populated)
+    if let Some(s) = v
+        .get("choices")
+        .and_then(|c| c.get(0))
+        .and_then(|c| c.get("message"))
+        .and_then(|m| m.get("reasoning_text"))
         .and_then(|c| c.as_str())
     {
         let s = s.trim();
@@ -724,6 +902,466 @@ fn copilot_cli_available() -> bool {
         .stderr(std::process::Stdio::null())
         .status()
         .is_ok()
+}
+
+// ---------------------------------------------------------------------------
+// Anthropic Messages API support (for Claude models via Copilot proxy)
+// ---------------------------------------------------------------------------
+
+/// Returns `true` when the model identifier refers to a Claude / Anthropic
+/// model that must be routed through the `/v1/messages` SSE endpoint
+/// rather than the OpenAI-compatible `/chat/completions` path.
+fn is_anthropic_model(model_id: &str) -> bool {
+    let m = model_id.to_ascii_lowercase();
+    m.starts_with("claude")
+}
+
+/// Convert an OpenAI-style function definition into the Anthropic tool format.
+///
+/// OpenAI: `{"type": "function", "function": {"name", "description", "parameters"}}`
+/// or bare: `{"name", "description", "parameters"}`
+///
+/// Anthropic: `{"name", "description", "input_schema"}`
+fn to_anthropic_tool(f: &Value) -> Option<Value> {
+    let func_obj = if f.get("type").and_then(|t| t.as_str()) == Some("function")
+        && f.get("function").is_some()
+    {
+        f.get("function").unwrap()
+    } else {
+        f
+    };
+    let name = func_obj.get("name").and_then(|n| n.as_str())?;
+    if name.is_empty() {
+        return None;
+    }
+    let mut schema = func_obj
+        .get("parameters")
+        .cloned()
+        .unwrap_or_else(|| json!({"type": "object"}));
+    // Anthropic requires input_schema to be a valid JSON Schema object.
+    // Ensure it always has "type": "object" at the top level.
+    if schema.is_null() || !schema.is_object() {
+        schema = json!({"type": "object"});
+    }
+    if schema.get("type").is_none() {
+        schema["type"] = json!("object");
+    }
+    Some(json!({
+        "name": name,
+        "description": func_obj.get("description")
+            .and_then(|d| d.as_str())
+            .unwrap_or(""),
+        "input_schema": schema,
+    }))
+}
+
+/// Serialise Pinchy `ChatMessage`s into the Anthropic Messages API format.
+///
+/// Returns `(system, messages)` where `system` is the extracted system
+/// prompt (if any) and `messages` is the array for the request body.
+///
+/// Key transformations:
+/// - `role: "system"` → extracted to the top-level `system` param
+/// - `role: "tool"` with `tool_call_id` → `role: "user"` with a
+///   `tool_result` content block (Anthropic format)
+/// - `role: "assistant"` with `tool_calls` → `role: "assistant"` with
+///   `tool_use` content blocks
+/// - Adjacent messages with the same role are merged (Anthropic requires
+///   strict user/assistant alternation)
+fn serialize_anthropic_messages(messages: &[super::ChatMessage]) -> (Option<String>, Vec<Value>) {
+    let mut system_parts: Vec<String> = Vec::new();
+    let mut out: Vec<Value> = Vec::new();
+
+    for m in messages {
+        // ── System messages → top-level param ────────────────────────
+        if m.is_system() {
+            system_parts.push(m.content.clone());
+            continue;
+        }
+
+        // ── Tool result messages → user role with tool_result block ──
+        if m.is_tool() {
+            let block = if let Some(ref tcid) = m.tool_call_id {
+                json!({
+                    "type": "tool_result",
+                    "tool_use_id": tcid,
+                    "content": m.content,
+                })
+            } else {
+                json!({"type": "text", "text": m.content})
+            };
+            // Merge into previous user message if possible, otherwise
+            // create a new user message.
+            if let Some(last) = out.last_mut() {
+                if last.get("role").and_then(|r| r.as_str()) == Some("user") {
+                    if let Some(arr) = last.get_mut("content").and_then(|c| c.as_array_mut()) {
+                        arr.push(block);
+                        continue;
+                    }
+                }
+            }
+            out.push(json!({"role": "user", "content": [block]}));
+            continue;
+        }
+
+        // ── Assistant with tool_calls → tool_use content blocks ──────
+        if m.is_assistant() && m.tool_calls.is_some() {
+            let mut blocks: Vec<Value> = Vec::new();
+            if !m.content.is_empty() {
+                blocks.push(json!({"type": "text", "text": m.content}));
+            }
+            if let Some(ref tcs) = m.tool_calls {
+                for tc in tcs {
+                    let func = tc.get("function").unwrap_or(tc);
+                    let name = func.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                    let id = tc.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                    let input: Value = func
+                        .get("arguments")
+                        .and_then(|a| a.as_str())
+                        .and_then(|s| serde_json::from_str(s).ok())
+                        .unwrap_or(json!({}));
+                    blocks.push(json!({
+                        "type": "tool_use",
+                        "id": id,
+                        "name": name,
+                        "input": input,
+                    }));
+                }
+            }
+            // Merge into previous assistant if possible
+            if let Some(last) = out.last_mut() {
+                if last.get("role").and_then(|r| r.as_str()) == Some("assistant") {
+                    if let Some(arr) = last.get_mut("content").and_then(|c| c.as_array_mut()) {
+                        arr.extend(blocks);
+                        continue;
+                    }
+                }
+            }
+            out.push(json!({"role": "assistant", "content": blocks}));
+            continue;
+        }
+
+        // ── Regular user / assistant messages ────────────────────────
+        let role = &m.role;
+        let mut blocks: Vec<Value> = Vec::new();
+
+        if !m.content.is_empty() {
+            blocks.push(json!({"type": "text", "text": m.content}));
+        }
+
+        // Image attachments (base64 data URIs)
+        for img in &m.images {
+            if let Some(rest) = img.strip_prefix("data:") {
+                // data:image/png;base64,iVBOR...
+                if let Some((mime_and_enc, data)) = rest.split_once(',') {
+                    let media_type = mime_and_enc.split(';').next().unwrap_or("image/png");
+                    blocks.push(json!({
+                        "type": "image",
+                        "source": {
+                            "type": "base64",
+                            "media_type": media_type,
+                            "data": data,
+                        }
+                    }));
+                }
+            } else {
+                // Plain URL
+                blocks.push(json!({
+                    "type": "image",
+                    "source": {"type": "url", "url": img}
+                }));
+            }
+        }
+
+        if blocks.is_empty() {
+            blocks.push(json!({"type": "text", "text": ""}));
+        }
+
+        // Merge into previous message with the same role (Anthropic
+        // requires strict alternation).
+        if let Some(last) = out.last_mut() {
+            if last.get("role").and_then(|r| r.as_str()) == Some(role.as_str()) {
+                if let Some(arr) = last.get_mut("content").and_then(|c| c.as_array_mut()) {
+                    arr.extend(blocks);
+                    continue;
+                }
+            }
+        }
+        out.push(json!({"role": role, "content": blocks}));
+    }
+
+    let system = if system_parts.is_empty() {
+        None
+    } else {
+        Some(system_parts.join("\n\n"))
+    };
+
+    // ── Strip orphaned tool_result blocks ────────────────────────────
+    // Anthropic requires every tool_result to reference a tool_use in
+    // a preceding assistant message.  When history is truncated by the
+    // context-window pruner, the first messages may contain tool_results
+    // whose matching tool_use was pruned.  We collect all seen tool_use
+    // IDs, then remove any tool_result blocks that reference unknown IDs.
+    let mut seen_tool_use_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // First pass: collect all tool_use IDs from assistant messages.
+    for msg in &out {
+        if msg.get("role").and_then(|r| r.as_str()) != Some("assistant") {
+            continue;
+        }
+        if let Some(blocks) = msg.get("content").and_then(|c| c.as_array()) {
+            for b in blocks {
+                if b.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                    if let Some(id) = b.get("id").and_then(|i| i.as_str()) {
+                        seen_tool_use_ids.insert(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+    // Second pass: filter out orphaned tool_result blocks and empty messages.
+    let out: Vec<Value> = out
+        .into_iter()
+        .filter_map(|mut msg| {
+            if let Some(blocks) = msg.get("content").and_then(|c| c.as_array()) {
+                let has_tool_result = blocks
+                    .iter()
+                    .any(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_result"));
+                if has_tool_result {
+                    let filtered: Vec<Value> = blocks
+                        .iter()
+                        .filter(|b| {
+                            if b.get("type").and_then(|t| t.as_str()) == Some("tool_result") {
+                                b.get("tool_use_id")
+                                    .and_then(|id| id.as_str())
+                                    .is_some_and(|id| seen_tool_use_ids.contains(id))
+                            } else {
+                                true
+                            }
+                        })
+                        .cloned()
+                        .collect();
+                    if filtered.is_empty() {
+                        return None; // Drop entirely empty message
+                    }
+                    msg["content"] = Value::Array(filtered);
+                }
+            }
+            Some(msg)
+        })
+        .collect();
+
+    (system, out)
+}
+
+// ── Anthropic SSE parsing ────────────────────────────────────────────────
+
+/// Accumulated result from parsing an Anthropic Messages SSE stream.
+struct AnthropicResult {
+    text: String,
+    tool_uses: Vec<AnthropicToolUse>,
+    input_tokens: u64,
+    output_tokens: u64,
+    model: String,
+}
+
+struct AnthropicToolUse {
+    id: String,
+    name: String,
+    input_json: String,
+}
+
+/// Parse a full Anthropic SSE stream from the response body into an
+/// [`AnthropicResult`].
+///
+/// Processes events: `message_start`, `content_block_start`,
+/// `content_block_delta`, `content_block_stop`, `message_delta`.
+/// Thinking blocks are silently discarded.
+async fn parse_anthropic_sse(resp: reqwest::Response) -> anyhow::Result<AnthropicResult> {
+    use tokio_stream::StreamExt;
+
+    let mut result = AnthropicResult {
+        text: String::new(),
+        tool_uses: Vec::new(),
+        input_tokens: 0,
+        output_tokens: 0,
+        model: String::new(),
+    };
+
+    // Per-block accumulators indexed by content block index.
+    let mut block_types: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
+    let mut tool_ids: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
+    let mut tool_names: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
+    let mut json_accum: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
+
+    // Read the byte stream and process SSE lines.
+    let mut stream = resp.bytes_stream();
+    let mut buffer = String::new();
+
+    while let Some(chunk) = StreamExt::next(&mut stream).await {
+        let chunk = chunk.map_err(|e| anyhow::anyhow!("SSE read error: {e}"))?;
+        buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+        // Process complete lines from the buffer.
+        while let Some(newline_pos) = buffer.find('\n') {
+            let line = buffer[..newline_pos].trim_end_matches('\r').to_string();
+            buffer = buffer[newline_pos + 1..].to_string();
+
+            if line.is_empty() || line.starts_with(':') || line == "event: ping" {
+                continue;
+            }
+
+            // We only care about `data:` lines.
+            let data = if let Some(d) = line.strip_prefix("data: ") {
+                d
+            } else if let Some(d) = line.strip_prefix("data:") {
+                d
+            } else {
+                // event: lines etc — skip
+                trace!(line = %line, "Anthropic SSE: skipping non-data line");
+                continue;
+            };
+
+            if data == "[DONE]" {
+                debug!("Anthropic SSE: [DONE]");
+                break;
+            }
+
+            let v: Value = match serde_json::from_str(data) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            let event_type = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+            match event_type {
+                "message_start" => {
+                    if let Some(msg) = v.get("message") {
+                        result.model = msg
+                            .get("model")
+                            .and_then(|m| m.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if let Some(usage) = msg.get("usage") {
+                            result.input_tokens = usage["input_tokens"].as_u64().unwrap_or(0);
+                        }
+                    }
+                }
+                "content_block_start" => {
+                    let idx = v.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
+                    if let Some(cb) = v.get("content_block") {
+                        let btype = cb
+                            .get("type")
+                            .and_then(|t| t.as_str())
+                            .unwrap_or("")
+                            .to_string();
+                        if btype == "tool_use" {
+                            let id = cb
+                                .get("id")
+                                .and_then(|i| i.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            let name = cb
+                                .get("name")
+                                .and_then(|n| n.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            tool_ids.insert(idx, id);
+                            tool_names.insert(idx, name);
+                            json_accum.insert(idx, String::new());
+                        }
+                        block_types.insert(idx, btype);
+                    }
+                }
+                "content_block_delta" => {
+                    let idx = v.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
+                    if let Some(delta) = v.get("delta") {
+                        let dtype = delta.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                        match dtype {
+                            "text_delta" => {
+                                if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
+                                    result.text.push_str(text);
+                                }
+                            }
+                            "input_json_delta" => {
+                                if let Some(pj) = delta.get("partial_json").and_then(|p| p.as_str())
+                                {
+                                    json_accum.entry(idx).or_default().push_str(pj);
+                                }
+                            }
+                            "thinking_delta" | "signature_delta" => {
+                                // Internal reasoning — silently discard
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                "content_block_stop" => {
+                    let idx = v.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
+                    if block_types.get(&idx).map(|s| s.as_str()) == Some("tool_use") {
+                        let id = tool_ids.remove(&idx).unwrap_or_default();
+                        let name = tool_names.remove(&idx).unwrap_or_default();
+                        let raw = json_accum.remove(&idx).unwrap_or_default();
+                        result.tool_uses.push(AnthropicToolUse {
+                            id,
+                            name,
+                            input_json: raw,
+                        });
+                    }
+                    block_types.remove(&idx);
+                }
+                "message_delta" => {
+                    if let Some(usage) = v.get("usage") {
+                        result.output_tokens = usage["output_tokens"]
+                            .as_u64()
+                            .unwrap_or(result.output_tokens);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(result)
+}
+
+/// Convert a parsed [`AnthropicResult`] into Pinchy's
+/// `(ProviderResponse, Option<TokenUsage>)` pair.
+fn anthropic_result_to_response(
+    r: AnthropicResult,
+) -> (super::ProviderResponse, Option<super::TokenUsage>) {
+    let usage = Some(super::TokenUsage {
+        prompt_tokens: r.input_tokens,
+        completion_tokens: r.output_tokens,
+        total_tokens: r.input_tokens + r.output_tokens,
+        cached_tokens: 0,
+        reasoning_tokens: 0,
+        model: r.model,
+    });
+
+    if r.tool_uses.is_empty() {
+        (super::ProviderResponse::Final(r.text), usage)
+    } else if r.tool_uses.len() == 1 {
+        let tu = r.tool_uses.into_iter().next().unwrap();
+        (
+            super::ProviderResponse::FunctionCall {
+                id: tu.id,
+                name: tu.name,
+                arguments: tu.input_json,
+            },
+            usage,
+        )
+    } else {
+        let items: Vec<super::FunctionCallItem> = r
+            .tool_uses
+            .into_iter()
+            .map(|tu| super::FunctionCallItem {
+                id: tu.id,
+                name: tu.name,
+                arguments: tu.input_json,
+            })
+            .collect();
+        (super::ProviderResponse::MultiFunctionCall(items), usage)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -778,6 +1416,8 @@ mod tests {
             copilot_token: Arc::new(Mutex::new(None)),
             client: Arc::new(Mutex::new(None)),
             header_overrides: None,
+            model_id: "gpt-4o".to_string(),
+            reasoning_effort: None,
         }
     }
 
@@ -794,6 +1434,8 @@ mod tests {
             copilot_token: Arc::new(Mutex::new(Some(ct))),
             client: Arc::new(Mutex::new(None)),
             header_overrides: None,
+            model_id: "gpt-4o".to_string(),
+            reasoning_effort: None,
         }
     }
 

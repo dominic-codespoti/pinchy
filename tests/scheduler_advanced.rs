@@ -40,6 +40,8 @@ fn test_config(workspace: &std::path::Path, agent_id: &str) -> Config {
             max_turns: None,
             compact_keep_recent_turns: None,
             timezone: None,
+            watch_paths: Vec::new(),
+            reasoning_effort: None,
         }],
         secrets: None,
         routing: None,

@@ -109,6 +109,9 @@ pub struct IncomingMessage {
     /// each fire in an isolated session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
+    /// Optional image attachments (base64 data-URIs or https URLs).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------

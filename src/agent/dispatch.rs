@@ -55,6 +55,20 @@ pub fn init(
             }
         });
 
+        // Start file watchers if configured.
+        if !agent_cfg.watch_paths.is_empty() {
+            let watcher_agent_id = agent_id.clone();
+            let watcher_workspace = runtime_workspace.clone();
+            let watcher_paths = agent_cfg.watch_paths.clone();
+            let watcher_cancel = cancel.clone();
+            crate::watcher::start_agent_watcher(
+                watcher_agent_id,
+                watcher_workspace,
+                watcher_paths,
+                watcher_cancel,
+            );
+        }
+
         let mut rx = bus.subscribe();
         let routing = routing.clone();
         let agent_id_outer = agent_id.clone();

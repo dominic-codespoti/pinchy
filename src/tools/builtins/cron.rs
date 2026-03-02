@@ -276,6 +276,7 @@ pub async fn run_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<Valu
             .unwrap_or_default()
             .as_secs() as i64,
         session_id: Some(cron_session),
+        images: Vec::new(),
     };
 
     let tx = crate::comm::sender();

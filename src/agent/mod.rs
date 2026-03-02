@@ -115,6 +115,7 @@ mod tests {
             channel: "test".into(),
             timestamp: 0,
             session_id: None,
+            images: Vec::new(),
         };
 
         let reply = agent.run_turn(msg).await.unwrap();

@@ -78,6 +78,7 @@ async fn tool_loop_invokes_read_file_and_persists() {
         channel: "test".into(),
         timestamp: 0,
         session_id: None,
+        images: Vec::new(),
     };
 
     let reply = agent
@@ -150,6 +151,7 @@ async fn tool_loop_stops_on_plain_reply() {
         channel: "test".into(),
         timestamp: 0,
         session_id: None,
+        images: Vec::new(),
     };
 
     let reply = agent

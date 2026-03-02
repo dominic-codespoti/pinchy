@@ -746,6 +746,7 @@ pub async fn call_skill(name: &str, args: Value, workspace: &Path) -> anyhow::Re
         "session_send" => builtins::session::session_send(workspace, args).await,
         "session_spawn" => builtins::session::session_spawn(workspace, args).await,
         "mcp" => builtins::mcp::mcp_tool(workspace, args).await,
+        "apply_patch" => builtins::apply_patch::apply_patch(workspace, args).await,
         other => {
             // If the name matches a registered skill that is instruction-only
             // (no handler), tell the agent clearly that this is not a callable
@@ -818,6 +819,7 @@ pub fn init() {
     builtins::read_file::register();
     builtins::write_file::register();
     builtins::edit_file::register();
+    builtins::apply_patch::register();
     builtins::list_files::register();
     builtins::exec_shell::register();
     builtins::memory::register();
@@ -825,12 +827,19 @@ pub fn init() {
     builtins::browser::register();
     builtins::agent::register();
     builtins::cron::register();
+    builtins::delegate::register();
     builtins::session::register();
     builtins::send_message::register();
     builtins::self_update::register();
     builtins::mcp::register();
 
     // Attach handlers to the built-in tools.
+    register_handler(
+        "apply_patch",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::apply_patch::apply_patch(&ws, args).await })
+        }),
+    );
     register_handler(
         "read_file",
         Arc::new(|args, ws| {
@@ -1001,6 +1010,10 @@ pub fn init() {
         "mcp",
         Arc::new(|args, ws| Box::pin(async move { builtins::mcp::mcp_tool(&ws, args).await })),
     );
+    register_handler(
+        "delegate",
+        Arc::new(|args, ws| Box::pin(async move { builtins::delegate::delegate(&ws, args).await })),
+    );
 
     // Mark less-common tools as deferred (auto-injected when relevant
     // keywords appear in the user's message via auto_pluck_deferred).
@@ -1025,6 +1038,7 @@ pub fn init() {
             "edit_skill",
             "self_update",
             "send_message",
+            "delegate",
             "browser",
             "mcp",
         ];

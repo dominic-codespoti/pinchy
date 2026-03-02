@@ -210,6 +210,7 @@ impl SchedulerHandle {
                         content: msg.clone(),
                         timestamp: now as i64,
                         session_id: Some(session_id),
+                        images: Vec::new(),
                     };
 
                     if let Err(e) = comm::sender().send(incoming) {
@@ -382,6 +383,7 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
                                 content: message.clone(),
                                 timestamp: now as i64,
                                 session_id: Some(session_id),
+                                images: Vec::new(),
                             };
 
                             if let Err(e) = comm::sender().send(msg) {
@@ -578,6 +580,7 @@ async fn run_heartbeat(agent_id: &str, workspace: &Path, interval_secs: u64) {
             content: content.clone(),
             timestamp: now as i64,
             session_id: None,
+            images: Vec::new(),
         };
 
         // Best-effort send — if no receivers are active yet the message is
@@ -816,6 +819,7 @@ pub async fn run_persisted_job_tick(workspace: &Path, job: &PersistedCronJob) {
         content: message.clone(),
         timestamp: now as i64,
         session_id: Some(session_id),
+        images: Vec::new(),
     };
 
     let result = comm::sender()

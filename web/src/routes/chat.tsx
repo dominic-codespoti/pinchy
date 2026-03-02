@@ -43,6 +43,7 @@ import {
   Layers,
   EyeOff,
   Minimize2,
+  ImagePlus,
 } from "lucide-react";
 import { useUiStore } from "@/state/ui";
 
@@ -70,6 +71,7 @@ type LiveMessage = {
   role: string;
   content: string;
   timestamp: number;
+  images?: string[];
 };
 
 type ActivityKind = "tool" | "receipt" | "info" | "error";
@@ -78,6 +80,16 @@ type ActivityItem = {
   text: string;
   timestamp: number;
   kind: ActivityKind;
+};
+
+type ModelCallDetail = {
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  cachedTokens: number;
+  reasoningTokens: number;
+  costUsd: number | null;
+  latencyMs: number;
 };
 
 type ReceiptItem = {
@@ -103,6 +115,9 @@ type ReceiptItem = {
   }>;
   userPrompt?: string;
   replySummary?: string;
+  modelId?: string;
+  costUsd?: number;
+  callDetails?: ModelCallDetail[];
 };
 
 type GatewayEvent = {
@@ -124,6 +139,9 @@ type GatewayEvent = {
   tokens?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
   duration_ms?: number;
   model_calls?: number;
+  model_id?: string;
+  estimated_cost_usd?: number;
+  call_details?: Array<{ model?: string; prompt_tokens?: number; completion_tokens?: number; cached_tokens?: number; reasoning_tokens?: number; cost_usd?: number; latency_ms?: number }>;
   tool_calls?: Array<{ tool?: string; success?: boolean; duration_ms?: number; args_summary?: string; error?: string }>;
   summary?: string;
   messages_compacted?: number;
@@ -131,6 +149,7 @@ type GatewayEvent = {
   started_at?: number;
   user_prompt?: string;
   reply_summary?: string;
+  args_summary?: string;
 };
 
 export function ChatRoute() {
@@ -173,7 +192,9 @@ export function ChatRoute() {
   const streamBufferRef = useRef("");
   const otherSessionTimerRef = useRef<number | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const userPickedSessionRef = useRef(false);
+  const [pendingImages, setPendingImages] = useState<string[]>([]);
 
   // Streaming reveal state: we accumulate the full text in streamBufferRef,
   // but reveal it character-by-character via a rAF loop for smooth animation.
@@ -368,6 +389,17 @@ export function ChatRoute() {
         toolCalls,
         userPrompt: r.user_prompt ?? undefined,
         replySummary: r.reply_summary ?? undefined,
+        modelId: (r as Record<string, unknown>).model_id as string | undefined,
+        costUsd: typeof (r as Record<string, unknown>).estimated_cost_usd === "number" ? (r as Record<string, unknown>).estimated_cost_usd as number : undefined,
+        callDetails: Array.isArray((r as Record<string, unknown>).call_details) ? ((r as Record<string, unknown>).call_details as Array<Record<string, unknown>>).map((d) => ({
+          model: (d.model as string) ?? "",
+          promptTokens: (d.prompt_tokens as number) ?? 0,
+          completionTokens: (d.completion_tokens as number) ?? 0,
+          cachedTokens: (d.cached_tokens as number) ?? 0,
+          reasoningTokens: (d.reasoning_tokens as number) ?? 0,
+          costUsd: typeof d.cost_usd === "number" ? d.cost_usd : null,
+          latencyMs: (d.latency_ms as number) ?? 0,
+        })) : undefined,
       };
     });
   }, [receiptsQuery.data]);
@@ -386,7 +418,17 @@ export function ChatRoute() {
 
   const allMessages = useMemo<LiveMessage[]>(() => {
     const persisted = (sessionQuery.data?.messages ?? [])
-      .filter((m) => m.role && m.content !== undefined && m.content !== null && m.content !== "")
+      .filter((m) => {
+        // Filter out empty or noise messages.
+        if (!m.role || m.content === undefined || m.content === null || m.content === "") return false;
+
+        // Filter out helper/internal "session override" messages if they aren't meant for display.
+        // Some providers might leak these into the session history.
+        const contentStr = toText(m.content);
+        if (contentStr.includes("using session override for this turn")) return false;
+
+        return true;
+      })
       .map(normalizeMessage);
     if (!persisted.length) return liveMessages;
     if (!liveMessages.length) return persisted;
@@ -484,8 +526,15 @@ export function ChatRoute() {
         if (type === "typing_stop") { setTyping(false); setTypingLabel("Thinking…"); return; }
         if (type === "tool_start") {
           setTyping(true);
-          setTypingLabel(`Running ${payload.tool ?? "tool"}…`);
-          appendActivity(setActivityItems, `Tool start: ${payload.tool ?? "tool"}`, "tool");
+          const toolName = payload.tool ?? "tool";
+          if (toolName === "delegate") {
+            const target = payload.args_summary ?? "another agent";
+            setTypingLabel(`Delegating to ${target}…`);
+            appendActivity(setActivityItems, `Delegating to ${target}`, "tool");
+          } else {
+            setTypingLabel(`Running ${toolName}…`);
+            appendActivity(setActivityItems, `Tool start: ${toolName}`, "tool");
+          }
           return;
         }
         if (type === "tool_end") {
@@ -587,6 +636,17 @@ export function ChatRoute() {
               toolCalls,
               userPrompt: payload.user_prompt ?? undefined,
               replySummary: payload.reply_summary ?? undefined,
+              modelId: payload.model_id ?? undefined,
+              costUsd: payload.estimated_cost_usd ?? undefined,
+              callDetails: (payload.call_details ?? []).map((d) => ({
+                model: d.model ?? "",
+                promptTokens: d.prompt_tokens ?? 0,
+                completionTokens: d.completion_tokens ?? 0,
+                cachedTokens: d.cached_tokens ?? 0,
+                reasoningTokens: d.reasoning_tokens ?? 0,
+                costUsd: d.cost_usd ?? null,
+                latencyMs: d.latency_ms ?? 0,
+              })),
             },
           ]);
           appendActivity(setActivityItems, "Turn receipt", "receipt");
@@ -612,6 +672,11 @@ export function ChatRoute() {
             timestamp: Date.now(),
           }]);
           appendActivity(setActivityItems, `Compacted ${payload.messages_compacted ?? 0} messages`, "info");
+          return;
+        }
+        if (type === "memory_updated") {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.memory(selectedAgentRef.current) });
+          appendActivity(setActivityItems, "Memory updated (file watcher)", "info");
           return;
         }
       };
@@ -642,18 +707,58 @@ export function ChatRoute() {
     };
   }, [queryClient]);
 
+  const addImages = useCallback((files: FileList | File[]) => {
+    const MAX_SIZE = 10 * 1024 * 1024;
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith("image/")) return;
+      if (file.size > MAX_SIZE) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setPendingImages((prev) => [...prev, reader.result as string]);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  }, []);
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const imageFiles: File[] = [];
+    for (let i = 0; i < items.length; i++) {
+      if (items[i].type.startsWith("image/")) {
+        const f = items[i].getAsFile();
+        if (f) imageFiles.push(f);
+      }
+    }
+    if (imageFiles.length) {
+      e.preventDefault();
+      addImages(imageFiles);
+    }
+  }, [addImages]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer?.files?.length) addImages(e.dataTransfer.files);
+  }, [addImages]);
+
   const sendMessage = () => {
     const content = draft.trim();
-    if (!content || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    wsRef.current.send(JSON.stringify({ type: "client_command", command: content, target_agent: selectedAgent, session_id: selectedSession || undefined }));
+    const hasImages = pendingImages.length > 0;
+    if ((!content && !hasImages) || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
+    const payload: Record<string, unknown> = { type: "client_command", command: content || "[image]", target_agent: selectedAgent, session_id: selectedSession || undefined };
+    if (hasImages) payload.images = pendingImages;
+    wsRef.current.send(JSON.stringify(payload));
     const key = messageKey("user", content, undefined);
     const baseKey = messageBaseKey("user", content);
     seenKeysRef.current.add(key);
     seenKeysRef.current.add(baseKey);
-    setLiveMessages((prev) => [...prev, { role: "user", content, timestamp: Date.now() }]);
+    setLiveMessages((prev) => [...prev, { role: "user", content: content || "[image]", timestamp: Date.now(), images: hasImages ? [...pendingImages] : undefined }]);
     setTyping(true);
     setTypingLabel("Thinking…");
     setDraft("");
+    setPendingImages([]);
   };
 
   const startNewSession = () => {
@@ -1053,8 +1158,15 @@ export function ChatRoute() {
                               </button>
                             )}
                           </div>
+                          {isUser && message.images?.length ? (
+                            <div className="flex gap-2 flex-wrap mb-1.5">
+                              {message.images.map((src, i) => (
+                                <img key={i} src={src} alt="" className="max-h-48 max-w-[256px] rounded-lg border border-white/[0.08] object-contain" />
+                              ))}
+                            </div>
+                          ) : null}
                           {isUser ? (
-                            <div className="text-sm text-slate-200 whitespace-pre-wrap break-words overflow-hidden">{message.content}</div>
+                            <div className="text-sm text-slate-200 whitespace-pre-wrap break-words overflow-hidden">{message.content !== "[image]" ? message.content : ""}</div>
                           ) : isSystem ? (
                             <div className="text-sm text-amber-200/80 whitespace-pre-wrap break-words overflow-hidden">{message.content}</div>
                           ) : (
@@ -1277,24 +1389,63 @@ export function ChatRoute() {
                 ))}
               </div>
             )}
-            <TextArea
-              ref={inputRef}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Ask your agent something…"
-              rows={1}
-              className="min-h-[44px] max-h-36 py-3 pl-4 pr-12"
-              style={{ fieldSizing: "content" } as React.CSSProperties}
-            />
-            <button
-              type="button"
-              onClick={sendMessage}
-              disabled={!draft.trim()}
-              className="absolute right-2 bottom-2 h-8 w-8 rounded-lg bg-emerald-400 text-slate-950 flex items-center justify-center hover:bg-emerald-300 disabled:opacity-30 disabled:hover:bg-emerald-400 transition-all duration-200"
+            {/* Image preview strip */}
+            {pendingImages.length > 0 && (
+              <div className="flex gap-2 mb-2 flex-wrap">
+                {pendingImages.map((src, i) => (
+                  <div key={i} className="relative group/thumb">
+                    <img src={src} alt="" className="h-16 w-16 rounded-lg object-cover border border-white/[0.08]" />
+                    <button
+                      type="button"
+                      onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
+                      className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div
+              onDrop={handleDrop}
+              onDragOver={(e) => e.preventDefault()}
+              className="flex items-end gap-1.5"
             >
-              <Send className="h-4 w-4" />
-            </button>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="mb-1.5 h-8 w-8 shrink-0 rounded-lg text-slate-500 hover:text-slate-300 flex items-center justify-center transition-colors"
+              >
+                <ImagePlus className="h-4 w-4" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => { if (e.target.files?.length) { addImages(e.target.files); e.target.value = ""; } }}
+              />
+              <TextArea
+                ref={inputRef}
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
+                placeholder="Ask your agent something…"
+                rows={1}
+                className="min-h-[44px] max-h-36 py-3 px-3 flex-1"
+                style={{ fieldSizing: "content" } as React.CSSProperties}
+              />
+              <button
+                type="button"
+                onClick={sendMessage}
+                disabled={!draft.trim() && pendingImages.length === 0}
+                className="mb-1.5 h-8 w-8 shrink-0 rounded-lg bg-emerald-400 text-slate-950 flex items-center justify-center hover:bg-emerald-300 disabled:opacity-30 disabled:hover:bg-emerald-400 transition-all duration-200"
+              >
+                <Send className="h-4 w-4" />
+              </button>
+            </div>
           </div>
           <div className="flex items-center justify-between mt-1.5 px-1">
             <span className="text-[10px] text-slate-600">
@@ -1314,10 +1465,12 @@ export function ChatRoute() {
 // ── Helpers ─────────────────────────────────────────
 
 function normalizeMessage(message: SessionMessage): LiveMessage {
+  const msg = message as SessionMessage & { images?: string[] };
   return {
     role: message.role ?? "assistant",
     content: toText(message.content),
     timestamp: typeof message.timestamp === "number" ? message.timestamp : Date.now(),
+    images: msg.images,
   };
 }
 
@@ -1381,6 +1534,12 @@ function InlineReceipt({ receipt: r, index, expanded, onToggle }: { receipt: Rec
         <span className="text-slate-600">·</span>
         <span><span className="text-emerald-300">{r.tokens.total.toLocaleString()}</span> tok</span>
         <span className="text-slate-600">·</span>
+        {r.costUsd != null && r.costUsd > 0 && (
+          <>
+            <span className="text-amber-300 tabular-nums">${r.costUsd < 0.01 ? r.costUsd.toFixed(4) : r.costUsd.toFixed(2)}</span>
+            <span className="text-slate-600">·</span>
+          </>
+        )}
         {failCount > 0
           ? <span>{okCount} <span className="text-emerald-400">✓</span> · {failCount} <span className="text-rose-400">✗</span></span>
           : <span>{r.tools.length} tools</span>
@@ -1419,7 +1578,29 @@ function InlineReceipt({ receipt: r, index, expanded, onToggle }: { receipt: Rec
             {r.durationMs != null && (
               <span className="text-slate-500">Duration: <span className="text-slate-300 tabular-nums">{(r.durationMs / 1000).toFixed(1)}s</span></span>
             )}
+            {r.modelId && (
+              <span className="text-slate-500">Model: <span className="text-sky-300 font-mono">{r.modelId}</span></span>
+            )}
+            {r.costUsd != null && r.costUsd > 0 && (
+              <span className="text-slate-500">Cost: <span className="text-amber-300 tabular-nums">${r.costUsd < 0.01 ? r.costUsd.toFixed(4) : r.costUsd.toFixed(2)}</span></span>
+            )}
           </div>
+
+          {r.callDetails && r.callDetails.length > 1 && (
+            <div className="px-3 pb-2">
+              <span className="text-[9px] uppercase tracking-widest text-slate-500">Model Calls</span>
+              <div className="mt-1 space-y-1">
+                {r.callDetails.map((d, di) => (
+                  <div key={di} className="flex items-center gap-3 text-[10px]">
+                    <span className="font-mono text-sky-300/80">{d.model || "unknown"}</span>
+                    <span className="text-slate-500 tabular-nums">{(d.promptTokens + d.completionTokens).toLocaleString()} tok</span>
+                    {d.costUsd != null && <span className="text-amber-300/70 tabular-nums">${d.costUsd < 0.01 ? d.costUsd.toFixed(4) : d.costUsd.toFixed(2)}</span>}
+                    <span className="text-slate-600 tabular-nums">{d.latencyMs >= 1000 ? `${(d.latencyMs / 1000).toFixed(1)}s` : `${d.latencyMs}ms`}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {(r.userPrompt || r.replySummary) && (
             <div className="px-3 pb-2 space-y-1.5">

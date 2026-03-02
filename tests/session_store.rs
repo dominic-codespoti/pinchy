@@ -62,6 +62,7 @@ async fn append_creates_file_and_loads_back() {
             metadata: None,
             tool_calls: None,
             tool_call_id: None,
+            images: Vec::new(),
         },
     )
     .await
@@ -77,6 +78,7 @@ async fn append_creates_file_and_loads_back() {
             metadata: None,
             tool_calls: None,
             tool_call_id: None,
+            images: Vec::new(),
         },
     )
     .await
@@ -109,6 +111,7 @@ async fn load_history_respects_limit() {
                 metadata: None,
                 tool_calls: None,
                 tool_call_id: None,
+                images: Vec::new(),
             },
         )
         .await
@@ -148,6 +151,7 @@ async fn metadata_round_trips() {
             metadata: Some(serde_json::json!({"author": "tester", "channel": "tui"})),
             tool_calls: None,
             tool_call_id: None,
+            images: Vec::new(),
         },
     )
     .await

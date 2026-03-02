@@ -80,6 +80,27 @@ pub struct TurnReceipt {
     pub tokens: TokenUsageSummary,
     pub model_calls: u32,
     pub reply_summary: String,
+    /// Model used for this turn.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub model_id: String,
+    /// Estimated cost in USD (None when pricing data unavailable).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub estimated_cost_usd: Option<f64>,
+    /// Per model-call usage breakdown.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub call_details: Vec<ModelCallDetail>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct ModelCallDetail {
+    pub model: String,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub cached_tokens: u64,
+    pub reasoning_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
+    pub latency_ms: u64,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -87,6 +108,10 @@ pub struct TokenUsageSummary {
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
     pub total_tokens: u64,
+    #[serde(default)]
+    pub cached_tokens: u64,
+    #[serde(default)]
+    pub reasoning_tokens: u64,
 }
 
 impl TokenUsageSummary {
@@ -94,6 +119,8 @@ impl TokenUsageSummary {
         self.prompt_tokens += usage.prompt_tokens;
         self.completion_tokens += usage.completion_tokens;
         self.total_tokens += usage.total_tokens;
+        self.cached_tokens += usage.cached_tokens;
+        self.reasoning_tokens += usage.reasoning_tokens;
     }
 }
 
@@ -112,6 +139,7 @@ pub struct Agent {
     pub enabled_skills: Option<Vec<String>>,
     pub fallback_models: Vec<String>,
     pub model_config_ref: Option<String>,
+    pub reasoning_effort: Option<String>,
 }
 
 impl Agent {
@@ -130,6 +158,7 @@ impl Agent {
             enabled_skills: None,
             fallback_models: Vec::new(),
             model_config_ref: None,
+            reasoning_effort: None,
         }
     }
 
@@ -160,6 +189,7 @@ impl Agent {
             enabled_skills: agent_cfg.enabled_skills.clone(),
             fallback_models: agent_cfg.fallback_models.clone(),
             model_config_ref: agent_cfg.model.clone(),
+            reasoning_effort: agent_cfg.reasoning_effort.clone(),
         }
     }
 

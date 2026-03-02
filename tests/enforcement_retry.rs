@@ -110,6 +110,7 @@ async fn enforcement_retry_coaxes_provider_and_processes_tool_call() {
         channel: "test".into(),
         timestamp: 0,
         session_id: None,
+        images: Vec::new(),
     };
 
     let reply = agent

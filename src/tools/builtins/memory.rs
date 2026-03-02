@@ -65,38 +65,51 @@ pub async fn recall_memory(workspace: &Path, args: Value) -> anyhow::Result<Valu
     let store = Arc::new(crate::memory::MemoryStore::open(workspace)?);
 
     // Determine effective mode: if the caller didn't specify, auto-detect
-    // embedding availability and prefer semantic search when possible.
-    let use_semantic = match explicit_mode.as_deref() {
-        Some("semantic") => true,
-        Some("text") => false,
+    // embedding availability and prefer hybrid search when possible.
+    let mode = match explicit_mode.as_deref() {
+        Some("semantic") => "semantic",
+        Some("text") => "text",
+        Some("hybrid") => "hybrid",
         _ => {
-            // Auto-detect: try semantic if a query was given and an
-            // embedding provider is available.
+            // Auto-detect: prefer hybrid when embeddings are available.
             if query.is_empty() {
-                false
+                "text"
+            } else if has_embedding_provider() {
+                "hybrid"
             } else {
-                has_embedding_provider()
+                "text"
             }
         }
     };
 
-    let results = if use_semantic {
-        match recall_semantic(&store, &query, tag.as_deref(), limit).await {
+    let results = match mode {
+        "hybrid" => {
+            // Try hybrid (BM25 + vector RRF), fall back gracefully.
+            // First ensure embeddings exist (backfill if needed).
+            if let Err(e) = backfill_embeddings(&store, &query).await {
+                tracing::debug!(error = %e, "embedding backfill failed, hybrid will degrade to BM25");
+            }
+            let s = Arc::clone(&store);
+            let q = query.clone();
+            let t = tag.clone();
+            tokio::task::spawn_blocking(move || s.search_hybrid(&q, t.as_deref(), limit)).await??
+        }
+        "semantic" => match recall_semantic(&store, &query, tag.as_deref(), limit).await {
             Ok(r) => r,
             Err(e) => {
-                // Fallback to text search if semantic fails.
                 tracing::debug!(error = %e, "semantic recall failed, falling back to text search");
                 let s = Arc::clone(&store);
                 let q = query.clone();
                 let t = tag.clone();
                 tokio::task::spawn_blocking(move || s.search(&q, t.as_deref(), limit)).await??
             }
+        },
+        _ => {
+            let s = Arc::clone(&store);
+            let q = query.clone();
+            let t = tag.clone();
+            tokio::task::spawn_blocking(move || s.search(&q, t.as_deref(), limit)).await??
         }
-    } else {
-        let s = Arc::clone(&store);
-        let q = query.clone();
-        let t = tag.clone();
-        tokio::task::spawn_blocking(move || s.search(&q, t.as_deref(), limit)).await??
     };
 
     let items: Vec<Value> = results
@@ -188,6 +201,54 @@ async fn recall_semantic(
         .await?
 }
 
+/// Backfill missing embeddings for memories that don't have them yet.
+/// Called before hybrid search to ensure vector results are available.
+async fn backfill_embeddings(
+    store: &Arc<crate::memory::MemoryStore>,
+    _query: &str,
+) -> anyhow::Result<()> {
+    let pm =
+        crate::models::get_global_providers().ok_or_else(|| anyhow::anyhow!("no providers"))?;
+
+    let s = Arc::clone(store);
+    let missing = tokio::task::spawn_blocking(move || s.keys_without_embeddings()).await??;
+    if missing.is_empty() {
+        return Ok(());
+    }
+
+    let s = Arc::clone(store);
+    let entries = tokio::task::spawn_blocking(move || s.search("", None, 10000)).await??;
+    let texts_to_embed: Vec<(String, String)> = entries
+        .iter()
+        .filter(|e| missing.iter().any(|k| k == &e.key))
+        .map(|e| (e.key.clone(), e.value.clone()))
+        .collect();
+
+    if texts_to_embed.is_empty() {
+        return Ok(());
+    }
+
+    // Batch in chunks of 100 to avoid huge payloads.
+    for chunk in texts_to_embed.chunks(100) {
+        let text_refs: Vec<&str> = chunk.iter().map(|(_, v)| v.as_str()).collect();
+        if let Ok(Some(vecs)) = pm.embed(&text_refs).await {
+            let s = Arc::clone(store);
+            let pairs: Vec<(String, Vec<f32>)> = chunk
+                .iter()
+                .map(|(k, _)| k.clone())
+                .zip(vecs.into_iter())
+                .collect();
+            tokio::task::spawn_blocking(move || {
+                for (key, vec) in &pairs {
+                    let _ = s.save_embedding(key, vec);
+                }
+            })
+            .await?;
+        }
+    }
+    Ok(())
+}
+
 /// `forget_memory` tool — delete a memory entry by key.
 pub async fn forget_memory(workspace: &Path, args: Value) -> anyhow::Result<Value> {
     let key = args["key"]
@@ -257,8 +318,8 @@ pub fn register() {
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["text", "semantic"],
-                    "description": "Search mode: 'text' (default, keyword) or 'semantic' (embedding similarity)"
+                    "enum": ["text", "semantic", "hybrid"],
+                    "description": "Search mode: 'hybrid' (default, BM25 + vector fusion), 'semantic' (embedding only), or 'text' (keyword only)"
                 }
             }
         }),

@@ -18,6 +18,7 @@ pub async fn run_tool_loop(
     max_iters: usize,
     receipt_tokens: &mut TokenUsageSummary,
     receipt_model_calls: &mut u32,
+    call_details: &mut Vec<ModelCallDetail>,
     provider: &str,
     model: &str,
 ) -> Vec<ToolCallRecord> {
@@ -32,6 +33,7 @@ pub async fn run_tool_loop(
         max_iters,
         receipt_tokens,
         receipt_model_calls,
+        call_details,
         provider,
         model,
     )
@@ -57,6 +59,7 @@ async fn run_tool_loop_inner(
     max_iters: usize,
     receipt_tokens: &mut TokenUsageSummary,
     receipt_model_calls: &mut u32,
+    call_details: &mut Vec<ModelCallDetail>,
     provider: &str,
     model: &str,
 ) -> anyhow::Result<Vec<ToolCallRecord>> {
@@ -131,6 +134,7 @@ async fn run_tool_loop_inner(
                     content: String::new(),
                     tool_calls: Some(tc_json),
                     tool_call_id: None,
+                    images: Vec::new(),
                 });
 
                 let mut handles = Vec::new();
@@ -155,6 +159,7 @@ async fn run_tool_loop_inner(
                                 content: truncate_tool_result(tr.result_json),
                                 tool_calls: None,
                                 tool_call_id: Some(tr.call_id),
+                                images: Vec::new(),
                             });
                             tool_calls.push(tr.record);
                         }
@@ -167,6 +172,7 @@ async fn run_tool_loop_inner(
                                 ),
                                 tool_calls: None,
                                 tool_call_id: None,
+                                images: Vec::new(),
                             });
                         }
                     }
@@ -197,6 +203,7 @@ async fn run_tool_loop_inner(
             session_id.as_deref(),
             receipt_tokens,
             receipt_model_calls,
+            call_details,
             provider,
             model,
         )

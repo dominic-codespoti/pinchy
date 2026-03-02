@@ -4,7 +4,9 @@ use crate::models::{ChatMessage, ProviderManager, ProviderResponse, TokenUsage};
 use crate::tools;
 
 use super::debug::emit_model_request_debug;
-use super::types::{truncate_tool_result, uuid_like_id, TokenUsageSummary, ToolCallRecord};
+use super::types::{
+    truncate_tool_result, uuid_like_id, ModelCallDetail, TokenUsageSummary, ToolCallRecord,
+};
 
 // ---------------------------------------------------------------------------
 // Tool invocation / result types
@@ -112,17 +114,35 @@ pub fn unknown_tool_corrective(bad_name: &str, function_defs: &[serde_json::Valu
 pub fn emit_and_accumulate_usage(
     usage: &Option<TokenUsage>,
     agent_id: &str,
+    session_id: Option<&str>,
     receipt_tokens: &mut TokenUsageSummary,
+    call_details: &mut Vec<ModelCallDetail>,
+    latency_ms: u64,
 ) {
     if let Some(ref u) = usage {
         receipt_tokens.accumulate(u);
+        let cost = crate::models::pricing::estimate_cost(u);
         crate::gateway::publish_event_json(&serde_json::json!({
             "type": "token_usage",
             "agent": agent_id,
+            "session": session_id,
+            "model": u.model,
             "prompt_tokens": u.prompt_tokens,
             "completion_tokens": u.completion_tokens,
             "total_tokens": u.total_tokens,
+            "cached_tokens": u.cached_tokens,
+            "reasoning_tokens": u.reasoning_tokens,
+            "cost_usd": cost,
         }));
+        call_details.push(ModelCallDetail {
+            model: u.model.clone(),
+            prompt_tokens: u.prompt_tokens,
+            completion_tokens: u.completion_tokens,
+            cached_tokens: u.cached_tokens,
+            reasoning_tokens: u.reasoning_tokens,
+            cost_usd: cost,
+            latency_ms,
+        });
     }
 }
 
@@ -135,6 +155,7 @@ pub async fn requery_provider(
     session_id: Option<&str>,
     receipt_tokens: &mut TokenUsageSummary,
     receipt_model_calls: &mut u32,
+    call_details: &mut Vec<ModelCallDetail>,
     provider: &str,
     model: &str,
 ) -> anyhow::Result<ProviderResponse> {
@@ -146,12 +167,21 @@ pub async fn requery_provider(
         provider,
         model,
     );
+    let timer = std::time::Instant::now();
     let (new_resp, loop_usage) = manager
         .send_chat_with_functions(messages, function_defs)
         .await
         .context("model call failed (tool loop)")?;
+    let latency_ms = timer.elapsed().as_millis() as u64;
     *receipt_model_calls += 1;
-    emit_and_accumulate_usage(&loop_usage, agent_id, receipt_tokens);
+    emit_and_accumulate_usage(
+        &loop_usage,
+        agent_id,
+        session_id,
+        receipt_tokens,
+        call_details,
+        latency_ms,
+    );
     Ok(new_resp)
 }
 
@@ -218,11 +248,13 @@ pub fn push_fc_messages(
             }
         })]),
         tool_call_id: None,
+        images: Vec::new(),
     });
     messages.push(ChatMessage {
         role: "tool".into(),
         content: truncate_tool_result(result.result_json.clone()),
         tool_calls: None,
         tool_call_id: Some(inv.call_id.clone()),
+        images: Vec::new(),
     });
 }

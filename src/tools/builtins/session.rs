@@ -203,6 +203,7 @@ pub async fn session_send(_workspace: &Path, args: Value) -> anyhow::Result<Valu
             .unwrap_or_default()
             .as_secs() as i64,
         session_id: None,
+        images: Vec::new(),
     };
 
     let tx = crate::comm::sender();
@@ -275,6 +276,7 @@ pub async fn session_spawn(_workspace: &Path, args: Value) -> anyhow::Result<Val
                 .unwrap_or_default()
                 .as_secs() as i64,
             session_id: None,
+            images: Vec::new(),
         };
 
         crate::comm::sender().send(msg).is_ok()

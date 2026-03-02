@@ -86,9 +86,25 @@ impl MemoryStore {
             "CREATE TABLE IF NOT EXISTS memory_embeddings (
                 key       TEXT PRIMARY KEY,
                 embedding BLOB NOT NULL,
-                dim       INTEGER NOT NULL
+                dim       INTEGER NOT NULL,
+                model     TEXT NOT NULL DEFAULT ''
             );",
         )?;
+
+        // Add model column if upgrading from older schema.
+        let has_model: bool = conn
+            .prepare("PRAGMA table_info(memory_embeddings)")
+            .and_then(|mut stmt| {
+                let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+                let cols: Vec<String> = rows.filter_map(|r| r.ok()).collect();
+                Ok(cols.iter().any(|c| c == "model"))
+            })
+            .unwrap_or(true);
+        if !has_model {
+            let _ = conn.execute_batch(
+                "ALTER TABLE memory_embeddings ADD COLUMN model TEXT NOT NULL DEFAULT ''",
+            );
+        }
 
         Ok(Self {
             inner: Arc::new(Mutex::new(conn)),
@@ -255,11 +271,23 @@ impl MemoryStore {
 
     /// Get all memories for system prompt injection.
     ///
-    /// Returns at most 50 entries, most recent first, capped at `max_chars`.
+    /// When `query` is non-empty, uses hybrid search (BM25 + vector) for
+    /// relevance.  Falls back to most-recent when empty or on error.
+    /// Returns at most 50 entries, capped at `max_chars`.
     pub fn prompt_block(&self, max_chars: usize) -> String {
-        let entries = match self.search("", None, 50) {
-            Ok(e) => e,
-            Err(_) => return String::new(),
+        self.prompt_block_contextual("", max_chars)
+    }
+
+    /// Context-aware memory injection: selects the most relevant memories
+    /// for the given query (last user message) using hybrid search.
+    pub fn prompt_block_contextual(&self, query: &str, max_chars: usize) -> String {
+        let entries = if query.is_empty() {
+            self.search("", None, 50).unwrap_or_default()
+        } else {
+            // Try hybrid first, fall back to BM25, fall back to recency.
+            self.search_hybrid(query, None, 50)
+                .or_else(|_| self.search(query, None, 50))
+                .unwrap_or_else(|_| self.search("", None, 50).unwrap_or_default())
         };
         if entries.is_empty() {
             return String::new();
@@ -289,18 +317,28 @@ impl MemoryStore {
 
     // ── Embedding / semantic search ─────────────────────────
 
-    /// Store an embedding vector for a memory key.
+    /// Store an embedding vector for a memory key, tagged with the model name.
     pub fn save_embedding(&self, key: &str, embedding: &[f32]) -> anyhow::Result<()> {
+        self.save_embedding_with_model(key, embedding, "")
+    }
+
+    /// Store an embedding vector for a memory key with the model name.
+    pub fn save_embedding_with_model(
+        &self,
+        key: &str,
+        embedding: &[f32],
+        model: &str,
+    ) -> anyhow::Result<()> {
         let conn = self
             .inner
             .lock()
             .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
         let blob = embedding_to_blob(embedding);
         conn.execute(
-            "INSERT INTO memory_embeddings (key, embedding, dim)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(key) DO UPDATE SET embedding=?2, dim=?3",
-            params![key, blob, embedding.len() as i64],
+            "INSERT INTO memory_embeddings (key, embedding, dim, model)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(key) DO UPDATE SET embedding=?2, dim=?3, model=?4",
+            params![key, blob, embedding.len() as i64, model],
         )?;
         Ok(())
     }
@@ -391,10 +429,110 @@ impl MemoryStore {
         scored.truncate(limit);
         Ok(scored.into_iter().map(|(_, e)| e).collect())
     }
+
+    /// Hybrid search: fuses BM25 keyword results with vector cosine similarity
+    /// using Reciprocal Rank Fusion (RRF).
+    ///
+    /// Score = Σ 1/(k + rank) across both result lists, with k = 60.
+    /// Falls back to BM25-only when no embeddings are available.
+    pub fn search_hybrid(
+        &self,
+        query: &str,
+        tag: Option<&str>,
+        limit: usize,
+    ) -> anyhow::Result<Vec<MemoryEntry>> {
+        if query.is_empty() {
+            return self.search("", tag, limit);
+        }
+
+        // Get BM25 results.
+        let bm25_results = self.search(query, tag, limit.max(50))?;
+
+        // Check if we have any embeddings at all.
+        let has_embeddings = {
+            let conn = self
+                .inner
+                .lock()
+                .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
+            let count: i64 =
+                conn.query_row("SELECT COUNT(*) FROM memory_embeddings", [], |r| r.get(0))?;
+            count > 0
+        };
+
+        if !has_embeddings {
+            // No embeddings available — return BM25 results only.
+            let mut results = bm25_results;
+            results.truncate(limit);
+            return Ok(results);
+        }
+
+        // We need a query embedding for the vector side.  If we can't get one,
+        // fall back to BM25-only.
+        let query_emb = match get_cached_query_embedding(query) {
+            Some(emb) => emb,
+            None => {
+                let mut results = bm25_results;
+                results.truncate(limit);
+                return Ok(results);
+            }
+        };
+
+        let vec_results = self.search_semantic(&query_emb, tag, limit.max(50))?;
+
+        // Reciprocal Rank Fusion with k=60.
+        let k = 60.0f64;
+        let mut rrf_scores: std::collections::HashMap<String, (f64, MemoryEntry)> =
+            std::collections::HashMap::new();
+
+        for (rank, entry) in bm25_results.iter().enumerate() {
+            let rrf = 1.0 / (k + rank as f64 + 1.0);
+            rrf_scores
+                .entry(entry.key.clone())
+                .and_modify(|(score, _)| *score += rrf)
+                .or_insert_with(|| (rrf, entry.clone()));
+        }
+
+        for (rank, entry) in vec_results.iter().enumerate() {
+            let rrf = 1.0 / (k + rank as f64 + 1.0);
+            rrf_scores
+                .entry(entry.key.clone())
+                .and_modify(|(score, _)| *score += rrf)
+                .or_insert_with(|| (rrf, entry.clone()));
+        }
+
+        let mut fused: Vec<(f64, MemoryEntry)> = rrf_scores.into_values().collect();
+        fused.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        fused.truncate(limit);
+        Ok(fused
+            .into_iter()
+            .map(|(score, mut e)| {
+                e.score = Some(score);
+                e
+            })
+            .collect())
+    }
 }
 
 fn parse_tags(json: &str) -> Vec<String> {
     serde_json::from_str(json).unwrap_or_default()
+}
+
+/// Try to synchronously get a query embedding from the global provider manager.
+///
+/// This uses `tokio::task::block_in_place` to call the async embed method
+/// from a sync context.  Returns `None` if no provider supports embeddings
+/// or if the call fails.
+fn get_cached_query_embedding(query: &str) -> Option<Vec<f32>> {
+    let pm = crate::models::get_global_providers()?;
+    // block_in_place is safe here because MemoryStore methods are only called
+    // from spawn_blocking or from async contexts that can tolerate it.
+    let result = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async { pm.embed(&[query]).await })
+    });
+    match result {
+        Ok(Some(mut vecs)) if !vecs.is_empty() => Some(vecs.remove(0)),
+        _ => None,
+    }
 }
 
 /// Serialize an f32 slice to a compact little-endian byte blob.

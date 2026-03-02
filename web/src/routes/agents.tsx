@@ -19,6 +19,7 @@ import {
   Brain,
   Search,
   X,
+  Eye,
 } from "lucide-react";
 
 import {
@@ -343,6 +344,7 @@ export function AgentDetailRoute() {
   const [maxTurns, setMaxTurns] = useState(20);
   const [compactKeepRecentTurns, setCompactKeepRecentTurns] = useState(8);
   const [historyMessages, setHistoryMessages] = useState(40);
+  const [reasoningEffort, setReasoningEffort] = useState("");
   const [enabledSkills, setEnabledSkills] = useState<string[]>([]);
   const [allSkillsMode, setAllSkillsMode] = useState(true);
   const [formInitialized, setFormInitialized] = useState(false);
@@ -368,6 +370,7 @@ export function AgentDetailRoute() {
       max_turns?: number;
       compact_keep_recent_turns?: number;
       history_messages?: number;
+      reasoning_effort?: string;
       enabled_skills?: string[] | null;
     }) => updateAgent(agentId, payload),
     onSuccess: () => {
@@ -404,6 +407,7 @@ export function AgentDetailRoute() {
     setMaxTurns(data.max_turns ?? 20);
     setCompactKeepRecentTurns(data.compact_keep_recent_turns ?? 8);
     setHistoryMessages(data.history_messages ?? 40);
+    setReasoningEffort(data.reasoning_effort ?? "");
     const isAllSkills = data.enabled_skills == null || data.enabled_skills === undefined;
     setAllSkillsMode(isAllSkills);
     setEnabledSkills(isAllSkills ? [] : data.enabled_skills!);
@@ -418,6 +422,7 @@ export function AgentDetailRoute() {
       max_turns: maxTurns,
       compact_keep_recent_turns: compactKeepRecentTurns,
       history_messages: historyMessages,
+      reasoning_effort: reasoningEffort || undefined,
     });
   };
 
@@ -553,6 +558,30 @@ export function AgentDetailRoute() {
               </div>
             </div>
 
+            {/* ── Watch Paths (File Watcher) ──────── */}
+            {(() => {
+              const wp = (data as Record<string, unknown> | undefined)?.watch_paths;
+              const watchPaths = Array.isArray(wp) ? wp.filter((p): p is string => typeof p === "string") : [];
+              if (!watchPaths.length) return null;
+              return (
+                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Eye className="h-3.5 w-3.5 text-emerald-400/60" />
+                    <span className="text-xs font-medium text-slate-300">File Watcher</span>
+                    <span className="text-[10px] text-slate-600 ml-auto">{watchPaths.length} path{watchPaths.length !== 1 ? "s" : ""}</span>
+                  </div>
+                  <div className="space-y-1">
+                    {watchPaths.map((p) => (
+                      <div key={p} className="flex items-center gap-2 text-[11px]">
+                        <span className="font-mono text-emerald-300/70">{p}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-slate-600 mt-2">Changes auto-ingested to memory with tag <span className="font-mono text-slate-500">file-watch</span>.</p>
+                </div>
+              );
+            })()}
+
 
             <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-4">
                 <div>
@@ -578,6 +607,19 @@ export function AgentDetailRoute() {
                 <div>
                   <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">History Messages</label>
                   <Input type="number" value={historyMessages} onChange={(event) => setHistoryMessages(parseInt(event.target.value, 10) || 0)} />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">Reasoning Effort</label>
+                  <select
+                    value={reasoningEffort}
+                    onChange={(e) => setReasoningEffort(e.target.value)}
+                    className="flex h-9 w-full rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1 text-sm text-slate-200 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/50"
+                  >
+                    <option value="">Default (none)</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
                 </div>
                 <button
                   type="button"
@@ -821,6 +863,7 @@ function AgentMemoryPanel({ agentId }: { agentId: string }) {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [deleteKey, setDeleteKey] = useState<string | null>(null);
+  const [searchMode, setSearchMode] = useState<"keyword" | "semantic" | "hybrid">("keyword");
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -828,8 +871,8 @@ function AgentMemoryPanel({ agentId }: { agentId: string }) {
   }, [search]);
 
   const memoryQuery = useQuery({
-    queryKey: [...queryKeys.memory(agentId), debouncedSearch],
-    queryFn: () => listMemory(agentId, { q: debouncedSearch || undefined, limit: 200 }),
+    queryKey: [...queryKeys.memory(agentId), debouncedSearch, searchMode],
+    queryFn: () => listMemory(agentId, { q: debouncedSearch || undefined, limit: 200, mode: searchMode !== "keyword" ? searchMode : undefined }),
   });
 
   const deleteMutation = useMutation({
@@ -847,24 +890,42 @@ function AgentMemoryPanel({ agentId }: { agentId: string }) {
   return (
     <div className="space-y-3">
       {/* Search bar */}
-      <div className="relative">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-        <input
-          type="text"
-          placeholder="Search memories…"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="h-9 w-full rounded-lg border border-white/[0.06] bg-white/[0.02] pl-9 pr-8 text-sm text-slate-200 placeholder:text-slate-600 outline-none focus:border-emerald-400/30 transition-colors"
-        />
-        {search && (
-          <button
-            type="button"
-            onClick={() => setSearch("")}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
-          >
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
+      <div className="flex gap-2">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+          <input
+            type="text"
+            placeholder="Search memories…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 w-full rounded-lg border border-white/[0.06] bg-white/[0.02] pl-9 pr-8 text-sm text-slate-200 placeholder:text-slate-600 outline-none focus:border-emerald-400/30 transition-colors"
+          />
+          {search && (
+            <button
+              type="button"
+              onClick={() => setSearch("")}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        <div className="flex items-center rounded-lg border border-white/[0.06] bg-white/[0.02] overflow-hidden">
+          {(["keyword", "semantic", "hybrid"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setSearchMode(mode)}
+              className={`px-2.5 py-2 text-[10px] font-medium capitalize transition-colors ${
+                searchMode === mode
+                  ? "bg-emerald-400/10 text-emerald-300"
+                  : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]"
+              }`}
+            >
+              {mode}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Result count */}

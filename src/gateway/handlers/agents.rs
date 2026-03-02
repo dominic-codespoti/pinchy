@@ -68,6 +68,10 @@ pub(crate) async fn api_agents_list() -> impl IntoResponse {
                         "timezone".into(),
                         serde_json::json!(cfg.resolve_timezone(&id).to_string()),
                     );
+                    m.insert(
+                        "reasoning_effort".into(),
+                        serde_json::json!(ac.reasoning_effort),
+                    );
                 }
             }
 
@@ -146,6 +150,13 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
                 "timezone".into(),
                 serde_json::json!(cfg.resolve_timezone(&agent_id).to_string()),
             );
+            m.insert(
+                "reasoning_effort".into(),
+                serde_json::json!(ac.reasoning_effort),
+            );
+            if !ac.watch_paths.is_empty() {
+                m.insert("watch_paths".into(), serde_json::json!(ac.watch_paths));
+            }
         }
     }
 
@@ -266,6 +277,8 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
                         max_turns: None,
                         compact_keep_recent_turns: None,
                         timezone: None,
+                        watch_paths: Vec::new(),
+                        reasoning_effort: None,
                     });
                     if let Err(e) = cfg.save(&config_path).await {
                         tracing::warn!(error = %e, "failed to save config after agent creation");
@@ -313,6 +326,8 @@ pub(crate) struct UpdateAgentRequest {
     compact_keep_recent_turns: Option<usize>,
     #[serde(default)]
     history_messages: Option<usize>,
+    #[serde(default)]
+    reasoning_effort: Option<String>,
 }
 
 /// `PUT /api/agents/:id` — update agent workspace files.
@@ -395,6 +410,7 @@ pub(crate) async fn api_agent_update(
         || body.max_turns.is_some()
         || body.compact_keep_recent_turns.is_some()
         || body.history_messages.is_some()
+        || body.reasoning_effort.is_some()
     {
         let config_path = crate::pinchy_home().join("config.yaml");
         let _guard = crate::config::config_lock().await;
@@ -432,6 +448,10 @@ pub(crate) async fn api_agent_update(
                     if let Some(hm) = body.history_messages {
                         ac.history_messages = Some(hm);
                         updated.push("history_messages");
+                    }
+                    if let Some(re) = body.reasoning_effort {
+                        ac.reasoning_effort = if re.is_empty() { None } else { Some(re) };
+                        updated.push("reasoning_effort");
                     }
                     if let Err(e) = cfg.save(&config_path).await {
                         return (

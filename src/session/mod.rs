@@ -36,6 +36,9 @@ pub struct Exchange {
     /// For `role: "tool"` messages: the id of the originating tool call.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
+    /// Image attachments (base64 data-URIs or URLs) for user messages.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub images: Vec<String>,
 }
 
 // ── Session ──────────────────────────────────────────────────
@@ -368,6 +371,7 @@ mod tests {
                 metadata: None,
                 tool_calls: None,
                 tool_call_id: None,
+                images: Vec::new(),
             },
         )
         .await
@@ -383,6 +387,7 @@ mod tests {
                 metadata: None,
                 tool_calls: None,
                 tool_call_id: None,
+                images: Vec::new(),
             },
         )
         .await
@@ -414,6 +419,7 @@ mod tests {
                     metadata: None,
                     tool_calls: None,
                     tool_call_id: None,
+                    images: Vec::new(),
                 },
             )
             .await

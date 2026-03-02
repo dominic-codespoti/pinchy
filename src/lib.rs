@@ -21,6 +21,7 @@ pub mod skills;
 pub mod slash;
 pub mod tools;
 pub mod utils;
+pub mod watcher;
 
 /// Return the Pinchy home directory.
 ///

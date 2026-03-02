@@ -26,6 +26,7 @@ impl Agent {
                 metadata: None,
                 tool_calls: m.tool_calls.clone(),
                 tool_call_id: m.tool_call_id.clone(),
+                images: m.images.clone(),
             };
             if let Err(e) = SessionStore::append(&self.workspace, session_id, &exchange).await {
                 warn!(error = %e, role = %m.role, "failed to persist tool message");
@@ -47,6 +48,7 @@ impl Agent {
             })),
             tool_calls: None,
             tool_call_id: None,
+            images: msg.images.clone(),
         };
 
         if let Some(ref session_id) = self.current_session {
@@ -77,6 +79,7 @@ impl Agent {
             metadata: None,
             tool_calls: None,
             tool_call_id: None,
+            images: Vec::new(),
         };
 
         if let Some(ref session_id) = self.current_session {

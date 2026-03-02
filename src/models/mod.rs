@@ -8,6 +8,7 @@ pub mod azure_openai;
 pub mod copilot;
 pub mod openai;
 pub mod openai_compat;
+pub mod pricing;
 
 use std::any::Any;
 use std::pin::Pin;
@@ -37,6 +38,9 @@ pub struct ChatMessage {
     /// For `role: "tool"` messages: the id of the tool call
     /// this result corresponds to.
     pub tool_call_id: Option<String>,
+    /// Optional image attachments (base64 data-URIs or URLs).
+    /// When present, serialize_messages produces the array-of-parts content format.
+    pub images: Vec<String>,
 }
 
 impl ChatMessage {
@@ -47,6 +51,18 @@ impl ChatMessage {
             content: content.into(),
             tool_calls: None,
             tool_call_id: None,
+            images: Vec::new(),
+        }
+    }
+
+    /// Create a user message with image attachments.
+    pub fn user_with_images(text: impl Into<String>, images: Vec<String>) -> Self {
+        Self {
+            role: "user".into(),
+            content: text.into(),
+            tool_calls: None,
+            tool_call_id: None,
+            images,
         }
     }
 
@@ -96,6 +112,15 @@ pub fn serialize_messages(messages: &[ChatMessage]) -> Vec<serde_json::Value> {
                 } else {
                     msg["content"] = serde_json::json!(m.content);
                 }
+            } else if !m.images.is_empty() {
+                let mut parts = vec![serde_json::json!({"type": "text", "text": m.content})];
+                for img_url in &m.images {
+                    parts.push(serde_json::json!({
+                        "type": "image_url",
+                        "image_url": {"url": img_url}
+                    }));
+                }
+                msg["content"] = serde_json::json!(parts);
             } else {
                 msg["content"] = serde_json::json!(m.content);
             }
@@ -166,10 +191,26 @@ pub use openai_compat::OpenAICompatProvider;
 /// Extract token usage statistics from an OpenAI / Azure response JSON.
 pub fn parse_token_usage(json: &serde_json::Value) -> Option<TokenUsage> {
     let usage = json.get("usage")?;
+    let model = json
+        .get("model")
+        .and_then(|m| m.as_str())
+        .unwrap_or("")
+        .to_string();
     Some(TokenUsage {
         prompt_tokens: usage["prompt_tokens"].as_u64().unwrap_or(0),
         completion_tokens: usage["completion_tokens"].as_u64().unwrap_or(0),
         total_tokens: usage["total_tokens"].as_u64().unwrap_or(0),
+        cached_tokens: usage
+            .get("prompt_tokens_details")
+            .and_then(|d| d.get("cached_tokens"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        reasoning_tokens: usage
+            .get("completion_tokens_details")
+            .and_then(|d| d.get("reasoning_tokens"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        model,
     })
 }
 
@@ -286,6 +327,12 @@ pub struct TokenUsage {
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
     pub total_tokens: u64,
+    /// Tokens served from KV cache (OpenAI `prompt_tokens_details.cached_tokens`).
+    pub cached_tokens: u64,
+    /// Tokens used for chain-of-thought reasoning (OpenAI `completion_tokens_details.reasoning_tokens`).
+    pub reasoning_tokens: u64,
+    /// The model that produced this usage.
+    pub model: String,
 }
 
 /// A single function call within a multi-call response.
@@ -597,6 +644,10 @@ impl ProviderManager {
 /// Parses status codes from error messages like "OpenAI API returned 401: …"
 fn is_permanent_error(err: &anyhow::Error) -> bool {
     let msg = err.to_string();
+    // 429 is transient, others are permanent.
+    if msg.contains("returned 429") || msg.contains("status: 429") || msg.contains("HTTP 429") {
+        return false;
+    }
     // Match patterns like "returned 401", "returned 403", "returned 404", "returned 400"
     for code in &["400", "401", "403", "404", "409", "413", "422"] {
         if msg.contains(&format!("returned {code}"))
@@ -719,10 +770,11 @@ pub async fn send_chat_messages(messages: &[ChatMessage]) -> anyhow::Result<Stri
 ///   `OPENAI_API_KEY` is set, otherwise [`FallbackProvider`].
 /// * Anything else → [`FallbackProvider`] (auto-selects best available).
 pub fn build_provider(provider_id: &str, model_id: &str) -> Box<dyn ModelProvider> {
-    build_provider_with_config_fields(provider_id, model_id, None, None, None, None, None)
+    build_provider_with_config_fields(provider_id, model_id, None, None, None, None, None, None)
 }
 
 /// Build a provider with optional config fields.
+#[allow(clippy::too_many_arguments)]
 pub fn build_provider_with_config_fields(
     provider_id: &str,
     model_id: &str,
@@ -731,9 +783,14 @@ pub fn build_provider_with_config_fields(
     embedding_deployment: Option<&str>,
     api_key: Option<&str>,
     headers: Option<&std::collections::HashMap<String, String>>,
+    reasoning_effort: Option<&str>,
 ) -> Box<dyn ModelProvider> {
     if provider_id.contains("copilot") {
-        Box::new(CopilotProvider::new_with_headers(headers.cloned()))
+        Box::new(CopilotProvider::with_model_headers_and_effort(
+            model_id,
+            headers.cloned(),
+            reasoning_effort.map(String::from),
+        ))
     } else if matches!(provider_id, "azure-openai" | "azure_openai" | "azure") {
         let ep = endpoint
             .map(String::from)
@@ -839,6 +896,7 @@ pub fn build_provider_manager_from_config(
             mc.embedding_deployment.as_deref(),
             mc.api_key.as_deref(),
             mc.headers.as_ref(),
+            agent_cfg.reasoning_effort.as_deref(),
         );
         if mc.provider.contains("openai")
             || mc.provider.contains("copilot")
@@ -864,6 +922,7 @@ pub fn build_provider_manager_from_config(
                 mc.embedding_deployment.as_deref(),
                 mc.api_key.as_deref(),
                 mc.headers.as_ref(),
+                agent_cfg.reasoning_effort.as_deref(),
             );
             if mc.provider.contains("openai")
                 || mc.provider.contains("copilot")
@@ -1047,6 +1106,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert!(p.as_any().downcast_ref::<FallbackProvider>().is_some());
     }
@@ -1057,6 +1117,7 @@ mod tests {
             "openai-compat",
             "llama3",
             Some("http://localhost:11434/v1/chat/completions"),
+            None,
             None,
             None,
             None,
@@ -1086,6 +1147,7 @@ mod tests {
                 alias,
                 "model",
                 Some("http://localhost:8080/v1/chat/completions"),
+                None,
                 None,
                 None,
                 None,

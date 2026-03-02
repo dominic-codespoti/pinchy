@@ -20,6 +20,7 @@ const agentSchema = z.object({
   max_turns: z.number().nullable().optional(),
   compact_keep_recent_turns: z.number().nullable().optional(),
   timezone: z.string().nullable().optional(),
+  reasoning_effort: z.string().nullable().optional(),
 });
 
 const agentDetailSchema = agentSchema.extend({
@@ -137,6 +138,7 @@ export interface UpdateAgentPayload {
   max_turns?: number;
   compact_keep_recent_turns?: number;
   history_messages?: number;
+  reasoning_effort?: string;
   enabled_skills?: string[] | null;
   soul?: string;
   tools?: string;
@@ -255,6 +257,25 @@ export interface GetReceiptsResponse {
 export interface EnhancePromptResponse {
   original: string;
   enhanced: string;
+}
+
+export interface UsageBucket {
+  day: string;
+  agent: string;
+  model: string;
+  turns: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+}
+
+export interface UsageResponse {
+  usage: UsageBucket[];
+  total_cost_usd: number;
+  total_turns: number;
 }
 
 export interface MemoryEntry {
@@ -437,14 +458,25 @@ export async function enhancePrompt(prompt: string): Promise<EnhancePromptRespon
   });
 }
 
+export async function getUsage(opts?: { agent?: string; model?: string; from?: string; to?: string }): Promise<UsageResponse> {
+  const params = new URLSearchParams();
+  if (opts?.agent) params.set("agent", opts.agent);
+  if (opts?.model) params.set("model", opts.model);
+  if (opts?.from) params.set("from", opts.from);
+  if (opts?.to) params.set("to", opts.to);
+  const qs = params.toString();
+  return request<UsageResponse>(`/api/usage${qs ? `?${qs}` : ""}`);
+}
+
 export async function listMemory(
   agentId: string,
-  opts?: { q?: string; tag?: string; limit?: number },
+  opts?: { q?: string; tag?: string; limit?: number; mode?: string },
 ): Promise<MemoryListResponse> {
   const params = new URLSearchParams();
   if (opts?.q) params.set("q", opts.q);
   if (opts?.tag) params.set("tag", opts.tag);
   if (opts?.limit) params.set("limit", String(opts.limit));
+  if (opts?.mode) params.set("mode", opts.mode);
   const qs = params.toString();
   return request<MemoryListResponse>(
     `/api/agents/${encodeURIComponent(agentId)}/memory${qs ? `?${qs}` : ""}`,
@@ -540,4 +572,5 @@ export const queryKeys = {
   receiptSession: (agentId: string, sessionId: string) => ["receipts", agentId, sessionId] as const,
   slashCommands: ["slash-commands"] as const,
   memory: (agentId: string) => ["memory", agentId] as const,
+  usage: (opts?: { agent?: string }) => opts?.agent ? ["usage", opts.agent] as const : ["usage"] as const,
 };

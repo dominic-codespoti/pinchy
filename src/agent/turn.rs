@@ -50,6 +50,7 @@ impl Agent {
                     content: ex.content,
                     tool_calls: ex.tool_calls,
                     tool_call_id: ex.tool_call_id,
+                    images: ex.images,
                 })
                 .collect());
         }
@@ -118,6 +119,7 @@ impl Agent {
                     self.enabled_skills = Some(skills.clone());
                 }
                 self.fallback_models = ac.fallback_models.clone();
+                self.reasoning_effort = ac.reasoning_effort.clone();
             }
         }
 
@@ -157,6 +159,8 @@ impl Agent {
                 max_turns: None,
                 compact_keep_recent_turns: None,
                 timezone: None,
+                watch_paths: Vec::new(),
+                reasoning_effort: self.reasoning_effort.clone(),
             };
             match cfg {
                 Some(c) => crate::models::build_provider_manager_from_config(&agent_cfg, c),
@@ -207,6 +211,7 @@ impl Agent {
         let turn_start_ms = epoch_millis();
         let mut receipt_tokens = TokenUsageSummary::default();
         let mut receipt_model_calls: u32 = 0;
+        let mut call_details: Vec<ModelCallDetail> = Vec::new();
 
         // -- Initial model call --
         emit_model_request_debug(
@@ -217,12 +222,21 @@ impl Agent {
             &self.provider,
             &self.model_id,
         );
+        let initial_timer = std::time::Instant::now();
         let (mut response, usage) = manager
             .send_chat_with_functions(&messages, &function_defs)
             .await
             .context("model call failed")?;
+        let initial_latency = initial_timer.elapsed().as_millis() as u64;
         receipt_model_calls += 1;
-        emit_and_accumulate_usage(&usage, &self.id, &mut receipt_tokens);
+        emit_and_accumulate_usage(
+            &usage,
+            &self.id,
+            self.current_session.as_deref(),
+            &mut receipt_tokens,
+            &mut call_details,
+            initial_latency,
+        );
 
         // -- Enforcement retry --
         self.maybe_enforcement_retry(
@@ -233,6 +247,7 @@ impl Agent {
             &msg,
             &mut receipt_tokens,
             &mut receipt_model_calls,
+            &mut call_details,
         )
         .await;
 
@@ -253,6 +268,7 @@ impl Agent {
             self.max_tool_iterations,
             &mut receipt_tokens,
             &mut receipt_model_calls,
+            &mut call_details,
             &self.provider,
             &self.model_id,
         )
@@ -272,6 +288,14 @@ impl Agent {
         self.persist_assistant_reply(&final_reply).await?;
 
         let turn_duration = turn_start.elapsed().unwrap_or_default().as_millis() as u64;
+        let estimated_cost: Option<f64> = {
+            let total: f64 = call_details.iter().filter_map(|d| d.cost_usd).sum();
+            if total > 0.0 {
+                Some(total)
+            } else {
+                None
+            }
+        };
         let receipt = TurnReceipt {
             agent: self.id.clone(),
             session: self.current_session.clone(),
@@ -282,6 +306,9 @@ impl Agent {
             tokens: receipt_tokens,
             model_calls: receipt_model_calls,
             reply_summary: crate::utils::truncate_str(&final_reply, 200),
+            model_id: self.model_id.clone(),
+            estimated_cost_usd: estimated_cost,
+            call_details,
         };
         self.persist_receipt(&receipt).await;
 
@@ -339,6 +366,19 @@ impl Agent {
             messages.push(ChatMessage::system(skill_prompt));
         }
 
+        // Memory injection — context-aware when a user message is available.
+        if let Ok(store) = crate::memory::MemoryStore::open(&self.workspace) {
+            let user_content = msg.content.clone();
+            let mem_block = tokio::task::spawn_blocking(move || {
+                store.prompt_block_contextual(&user_content, 4000)
+            })
+            .await
+            .unwrap_or_default();
+            if !mem_block.is_empty() {
+                messages.push(ChatMessage::system(mem_block));
+            }
+        }
+
         // Session history.
         let history_limit = turn_cfg
             .and_then(|cfg| {
@@ -351,7 +391,14 @@ impl Agent {
         let history = self.load_history(history_limit).await.unwrap_or_default();
         messages.extend(history);
 
-        messages.push(ChatMessage::user(msg.content.clone()));
+        if msg.images.is_empty() {
+            messages.push(ChatMessage::user(msg.content.clone()));
+        } else {
+            messages.push(ChatMessage::user_with_images(
+                msg.content.clone(),
+                msg.images.clone(),
+            ));
+        }
 
         Ok(messages)
     }
@@ -438,6 +485,7 @@ impl Agent {
         msg: &IncomingMessage,
         receipt_tokens: &mut TokenUsageSummary,
         receipt_model_calls: &mut u32,
+        call_details: &mut Vec<ModelCallDetail>,
     ) {
         let needs_enforcement = matches!(response, ProviderResponse::Final(_)
                 if !function_defs.is_empty()
@@ -480,7 +528,14 @@ impl Agent {
                 *receipt_model_calls += 1;
                 debug!("enforcement retry completed");
                 *response = retry_resp;
-                emit_and_accumulate_usage(&retry_usage, &self.id, receipt_tokens);
+                emit_and_accumulate_usage(
+                    &retry_usage,
+                    &self.id,
+                    self.current_session.as_deref(),
+                    receipt_tokens,
+                    call_details,
+                    0,
+                );
             }
             Err(e) => {
                 warn!(error = %e, "enforcement retry failed, using original response");
