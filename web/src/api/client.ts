@@ -335,11 +335,17 @@ export async function updateAgent(
   );
 }
 
-export async function deleteAgent(agentId: string): Promise<DeleteAgentResponse> {
-  return request<DeleteAgentResponse>(
-    `/api/agents/${encodeURIComponent(agentId)}`,
-    { method: "DELETE" },
-  );
+export async function deleteAgent(id: string): Promise<{ id: string }> {
+  return request<{ id: string }>(`/api/agents/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function cloneAgent(id: string, newId: string): Promise<{ id: string }> {
+  return request<{ id: string }>(`/api/agents/${encodeURIComponent(id)}/clone`, {
+    method: "POST",
+    body: JSON.stringify({ new_id: newId }),
+  });
 }
 
 export async function getConfig(): Promise<Record<string, unknown>> {

@@ -87,6 +87,92 @@ pub(crate) async fn api_agents_list() -> impl IntoResponse {
     Json(serde_json::json!({ "agents": agents }))
 }
 
+#[derive(serde::Deserialize)]
+pub(crate) struct CloneAgentRequest {
+    pub new_id: String,
+}
+
+/// `POST /api/agents/:id/clone` — clone an agent's definition and configuration.
+pub(crate) async fn api_agent_clone(
+    Path(agent_id): Path<String>,
+    Json(body): Json<CloneAgentRequest>,
+) -> impl IntoResponse {
+    if let Err(e) = validate_path_segment(&agent_id) {
+        return e.into_response();
+    }
+    if let Err(e) = validate_path_segment(&body.new_id) {
+        return e.into_response();
+    }
+
+    let src_base = crate::utils::agent_root(&agent_id);
+    let dst_base = crate::utils::agent_root(&body.new_id);
+
+    if !src_base.exists() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "source agent not found" })),
+        )
+            .into_response();
+    }
+    if dst_base.exists() {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({ "error": "target agent already exists" })),
+        )
+            .into_response();
+    }
+
+    // 1. Create directory structure (fresh workspace, no sessions)
+    if let Err(e) = tokio::fs::create_dir_all(dst_base.join("workspace").join("sessions")).await {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": format!("create dirs: {e}") })),
+        )
+            .into_response();
+    }
+
+    // 2. Copy SOUL.md, TOOLS.md, HEARTBEAT.md
+    for name in ["SOUL.md", "TOOLS.md", "HEARTBEAT.md"] {
+        let src = src_base.join(name);
+        if src.exists() {
+            if let Err(e) = tokio::fs::copy(&src, dst_base.join(name)).await {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": format!("copy {name}: {e}") })),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    // 3. Clone config entry
+    let config_path = crate::pinchy_home().join("config.yaml");
+    if let Ok(mut cfg) = crate::config::Config::load(&config_path).await {
+        if let Some(ac) = cfg.agents.iter().find(|a| a.id == agent_id).cloned() {
+            let mut new_ac = ac;
+            new_ac.id = body.new_id.clone();
+            new_ac.root = dst_base.to_string_lossy().to_string();
+            // Fresh start: no cron jobs or other session-specific state in config
+            new_ac.cron_jobs = vec![];
+
+            cfg.agents.push(new_ac);
+            if let Err(e) = cfg.save(&config_path).await {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": format!("save config: {e}") })),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    (
+        StatusCode::CREATED,
+        Json(serde_json::json!({ "id": body.new_id })),
+    )
+        .into_response()
+}
+
 /// `GET /api/agents/:id` — return agent metadata and file contents.
 pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResponse {
     if let Err(e) = validate_path_segment(&agent_id) {

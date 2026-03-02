@@ -20,9 +20,11 @@ import {
   Search,
   X,
   Eye,
+  Copy,
 } from "lucide-react";
 
 import {
+  cloneAgent,
   createAgent,
   deleteAgent,
   deleteMemory,
@@ -59,6 +61,8 @@ export function AgentsListRoute() {
   >([]);
   const [loadingFallback, setLoadingFallback] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [cloneAgentId, setCloneAgentId] = useState<string | null>(null);
+  const [cloneNewId, setCloneNewId] = useState("");
 
   const agentsQuery = useQuery({ queryKey: queryKeys.agents, queryFn: listAgents });
 
@@ -123,6 +127,19 @@ export function AgentsListRoute() {
     },
   });
 
+  const cloneMutation = useMutation({
+    mutationFn: ({ id, newId }: { id: string; newId: string }) => cloneAgent(id, newId),
+    onSuccess: (data) => {
+      toast.success(`Agent cloned: ${data.id}`);
+      setCloneAgentId(null);
+      setCloneNewId("");
+      void queryClient.invalidateQueries({ queryKey: queryKeys.agents });
+    },
+    onError: (error: any) => {
+      toast.error(`Clone failed: ${error.message}`);
+    },
+  });
+
   const onCreate = () => {
     const id = newAgentId.trim();
     if (!id) {
@@ -139,6 +156,20 @@ export function AgentsListRoute() {
       model: newAgentModel.trim() || undefined,
       heartbeat_secs: Number.isFinite(newAgentHeartbeat) ? newAgentHeartbeat : undefined,
     });
+  };
+
+  const onClone = () => {
+    const id = cloneNewId.trim();
+    if (!id || !cloneAgentId) {
+      toast.error("New Agent ID is required");
+      return;
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+      toast.error("Agent ID must be alphanumeric, dash, or underscore");
+      return;
+    }
+
+    cloneMutation.mutate({ id: cloneAgentId, newId: id });
   };
 
   const visibleAgents = agentsQuery.data?.agents ?? fallbackAgents;
@@ -234,7 +265,14 @@ export function AgentsListRoute() {
                     <p className="flex items-center gap-1.5"><Clock className="h-3 w-3" /> {agent.cron_jobs_count ?? agent.cron_job_count ?? "-"} cron jobs</p>
                   </div>
                 </button>
-                <div className="mt-3 pt-2 border-t border-white/[0.06] flex justify-end">
+                <div className="mt-3 pt-2 border-t border-white/[0.06] flex justify-between items-center">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setCloneAgentId(agent.id); setCloneNewId(`${agent.id}-clone`); }}
+                    className="text-[10px] text-emerald-400/50 hover:text-emerald-300 transition-colors flex items-center gap-1"
+                  >
+                    <Copy className="h-2.5 w-2.5" /> Clone
+                  </button>
                   <button
                     type="button"
                     onClick={(e) => { e.stopPropagation(); setConfirmDeleteId(agent.id); }}
@@ -294,6 +332,44 @@ export function AgentsListRoute() {
                 onClick={() => { if (confirmDeleteId) listDeleteMutation.mutate(confirmDeleteId); }}
               >
                 {listDeleteMutation.isPending ? "Deleting..." : "Delete"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Clone Agent Dialog ──────────────────── */}
+      <Dialog open={!!cloneAgentId} onOpenChange={(open) => { if (!open) setCloneAgentId(null); }}>
+        <DialogContent>
+          <div className="p-5 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-400/10">
+                <Copy className="h-5 w-5 text-emerald-400" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-slate-100">Clone Agent</p>
+                <p className="text-xs text-slate-500">Creates a copy of the agent definition and config.</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">New Agent ID</label>
+              <Input
+                placeholder="new-agent-id"
+                value={cloneNewId}
+                onChange={(e) => setCloneNewId(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" size="sm" onClick={() => setCloneAgentId(null)}>Cancel</Button>
+              <Button
+                variant="primary"
+                size="sm"
+                className="!bg-emerald-500 hover:!bg-emerald-400"
+                disabled={cloneMutation.isPending}
+                onClick={onClone}
+              >
+                {cloneMutation.isPending ? "Cloning..." : "Clone Agent"}
               </Button>
             </div>
           </div>

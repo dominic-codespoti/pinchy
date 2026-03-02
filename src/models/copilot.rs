@@ -770,7 +770,7 @@ async fn post_with_retry(
     headers: &reqwest::header::HeaderMap,
     body: &serde_json::Value,
 ) -> Result<Value, Option<String>> {
-    const MAX_RETRIES: u32 = 2;
+    const MAX_RETRIES: u32 = 10;
     let mut attempt: u32 = 0;
 
     loop {
@@ -788,7 +788,7 @@ async fn post_with_retry(
                 warn!("CopilotProvider: {msg}");
                 if attempt < MAX_RETRIES && is_retryable_request_error(&e) {
                     attempt += 1;
-                    let delay = Duration::from_millis(500 * u64::from(attempt));
+                    let delay = Duration::from_millis(1000 * 2u64.pow(attempt - 1));
                     warn!("CopilotProvider: retrying {url} (attempt {attempt}/{MAX_RETRIES}) after {delay:?}");
                     tokio::time::sleep(delay).await;
                     continue;
@@ -816,7 +816,7 @@ async fn post_with_retry(
             && attempt < MAX_RETRIES
         {
             attempt += 1;
-            let delay = Duration::from_millis(500 * u64::from(attempt));
+            let delay = Duration::from_millis(1000 * 2u64.pow(attempt - 1));
             warn!(
                 "CopilotProvider: retrying {url} (attempt {attempt}/{MAX_RETRIES}) after {delay:?}"
             );

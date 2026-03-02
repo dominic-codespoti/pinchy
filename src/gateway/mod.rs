@@ -182,6 +182,10 @@ pub async fn start_gateway_with_config(
                 .put(handlers::agents::api_agent_update)
                 .delete(handlers::agents::api_agent_delete),
         )
+        .route(
+            "/agents/:agent_id/clone",
+            post(handlers::agents::api_agent_clone),
+        )
         // Agent files
         .route(
             "/agents/:agent_id/files/:filename",
