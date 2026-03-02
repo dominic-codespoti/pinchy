@@ -1098,10 +1098,12 @@ export function ChatRoute() {
               const role = message.role.toLowerCase();
               const isUser = role === "user";
               const isSystem = role === "system";
+              const isTool = role === "tool";
               const isOutOfContext = contextBoundary > 0 && index < contextBoundary;
               const isCompactedHistory = isSystem && message.content.includes("<compacted_history>");
               const isContextDivider = contextBoundary > 0 && index === contextBoundary;
 
+              if (isTool && message.content.trim().startsWith("{")) return null;
               if (isOutOfContext && collapsedOutOfContext && !isCompactedHistory) return null;
 
               return (
