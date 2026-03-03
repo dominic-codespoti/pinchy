@@ -27,7 +27,7 @@ pub async fn activate_skill(_workspace: &Path, args: Value) -> anyhow::Result<Va
             "name": name,
             "instructions": instructions,
             "IMPORTANT": "These are INSTRUCTIONS, not results. You have NOT performed any action yet. \
-                          NOW use the appropriate tools (exec_shell, write_file, browser, etc.) to \
+                          NOW use the appropriate tools (exec_shell, write_file, etc.) to \
                           carry out the steps described in the instructions above. Do NOT call \
                           activate_skill again for this skill.",
         })),

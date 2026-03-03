@@ -68,6 +68,80 @@ pub async fn append_global_index(
     Ok(())
 }
 
+/// Load all entries from the global session index.
+pub async fn load_global_index(pinchy_home: &Path) -> anyhow::Result<Vec<IndexEntry>> {
+    let path = pinchy_home.join("sessions").join("index.jsonl");
+    let content = match fs::read_to_string(&path).await {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
+    };
+    let entries: Vec<IndexEntry> = content
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .filter_map(|l| serde_json::from_str(l).ok())
+        .collect();
+    Ok(entries)
+}
+
+/// Update the title for a specific session in the global index.
+///
+/// Reads the entire `index.jsonl`, patches the matching entry, and
+/// rewrites the file.  The file is small (one line per session) so
+/// a full rewrite is safe.
+pub async fn update_index_title(
+    pinchy_home: &Path,
+    session_id: &str,
+    agent_id: &str,
+    title: &str,
+) -> anyhow::Result<()> {
+    let path = pinchy_home.join("sessions").join("index.jsonl");
+    let content = fs::read_to_string(&path).await.unwrap_or_default();
+
+    let mut found = false;
+    let mut lines: Vec<String> = Vec::new();
+    for line in content.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(mut entry) = serde_json::from_str::<IndexEntry>(line) {
+            if entry.session_id == session_id && entry.agent_id == agent_id {
+                entry.title = Some(title.to_string());
+                found = true;
+            }
+            if let Ok(serialized) = serde_json::to_string(&entry) {
+                lines.push(serialized);
+            }
+        } else {
+            // Preserve lines we can't parse
+            lines.push(line.to_string());
+        }
+    }
+
+    if !found {
+        tracing::warn!(
+            session_id,
+            agent_id,
+            "session not found in index for title update"
+        );
+        return Ok(());
+    }
+
+    let mut out = lines.join("\n");
+    out.push('\n');
+    fs::write(&path, out.as_bytes())
+        .await
+        .with_context(|| format!("rewrite {}", path.display()))?;
+
+    tracing::debug!(
+        session_id,
+        agent_id,
+        title,
+        "updated session title in global index"
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

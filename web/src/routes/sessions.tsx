@@ -157,7 +157,7 @@ export function SessionsListRoute() {
             >
               <div className="h-2 w-2 rounded-full bg-emerald-400/40 group-hover:bg-emerald-400 transition-colors shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-slate-200 truncate">{formatSessionLabel(s.session_id)}</p>
+                <p className="text-sm text-slate-200 truncate">{formatSessionLabel(s.session_id, s.title)}</p>
                 <p className="text-[10px] text-slate-600 mt-0.5">
                   {s.modified ? new Date(s.modified * 1000).toLocaleString() : "Unknown"}
                   {s.size != null ? (" · " + humanBytes(s.size)) : ""}
@@ -529,7 +529,8 @@ export function SessionDetailRoute() {
   );
 }
 
-function formatSessionLabel(sessionId: string): string {
+function formatSessionLabel(sessionId: string, title?: string): string {
+  if (title) return title;
   if (sessionId.startsWith("cron_")) return "cron: " + sessionId.replace(/_/g, " ");
   return "chat: " + sessionId;
 }

@@ -836,7 +836,12 @@ pub fn build_provider_with_config_fields(
         }
         // API key from config, then env var, then empty (local servers).
         let key = resolve_config_key(api_key, provider_id);
-        Box::new(OpenAICompatProvider::new(ep, key, model_id.to_string()))
+        Box::new(OpenAICompatProvider::with_headers(
+            ep,
+            key,
+            model_id.to_string(),
+            headers.cloned(),
+        ))
     } else if provider_id.contains("openai") {
         if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
             Box::new(OpenAIProvider::with_config(

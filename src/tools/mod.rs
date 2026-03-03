@@ -12,9 +12,6 @@
 pub mod builtins;
 pub mod parsing;
 
-// Re-export submodules at their old paths for backward compatibility.
-pub use builtins::browser_service;
-
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -265,7 +262,12 @@ fn synonyms(term: &str) -> Vec<String> {
         "memory" | "memories" => vec!["save_memory".into(), "recall".into(), "forget".into()],
         "forget" | "delete" => vec!["forget".into(), "delete".into(), "remove".into()],
         "agent" | "bot" | "assistant" => {
-            vec!["agent".into(), "list_agent".into(), "create_agent".into()]
+            vec![
+                "agent".into(),
+                "list_agent".into(),
+                "create_agent".into(),
+                "delegate".into(),
+            ]
         }
         "session" | "chat" | "conversation" => {
             vec!["session".into(), "chat".into()]
@@ -293,10 +295,7 @@ fn synonyms(term: &str) -> Vec<String> {
             ]
         }
         "browse" | "web" | "url" | "http" | "page" | "website" | "scrape" | "crawl" => {
-            vec!["browser".into()]
-        }
-        "mcp" | "mcporter" | "protocol" | "remote" | "external" => {
-            vec!["mcp".into()]
+            vec!["exec_shell".into()]
         }
         "send" | "message" | "notify" | "notification" | "discord" | "channel" => {
             vec!["send_message".into(), "message".into()]
@@ -353,7 +352,7 @@ const AUTO_PLUCK_RULES: &[(&[&str], &[&str])] = &[
     ),
     (
         &["agent", "agents", "bot", "bots"],
-        &["list_agents", "get_agent", "create_agent"],
+        &["list_agents", "get_agent", "create_agent", "delegate"],
     ),
     (
         &[
@@ -370,13 +369,26 @@ const AUTO_PLUCK_RULES: &[(&[&str], &[&str])] = &[
             "session_spawn",
         ],
     ),
-    (&["update", "upgrade", "version"], &["self_update"]),
+    // Multi-agent delegation: surface the `delegate` tool when the user
+    // asks one agent to hand work off to another.
     (
         &[
-            "browse", "browser", "web", "website", "url", "scrape", "crawl", "webpage",
+            "delegate",
+            "hand off",
+            "have",
+            "ask",
+            "tell",
+            "assign",
+            "dispatch",
+            "orchestrate",
+            "sub-agent",
+            "subagent",
+            "coding agent",
+            "coder",
         ],
-        &["browser"],
+        &["delegate", "list_agents"],
     ),
+    (&["update", "upgrade", "version"], &["self_update"]),
     (
         &[
             "message",
@@ -391,20 +403,6 @@ const AUTO_PLUCK_RULES: &[(&[&str], &[&str])] = &[
             "report",
         ],
         &["send_message"],
-    ),
-    (
-        &[
-            "mcp",
-            "mcporter",
-            "model context protocol",
-            "server",
-            "external tool",
-            "remote tool",
-            "api tool",
-            "enumerate",
-            "remote",
-        ],
-        &["mcp"],
     ),
 ];
 
@@ -721,7 +719,6 @@ pub async fn call_skill(name: &str, args: Value, workspace: &Path) -> anyhow::Re
         "read_file" => builtins::read_file::read_file(workspace, args).await,
         "write_file" => builtins::write_file::write_file(workspace, args).await,
         "exec_shell" => builtins::exec_shell::exec_shell(workspace, args).await,
-        "browser" => builtins::browser::browser_tool(args).await,
         "save_memory" => builtins::memory::save_memory(workspace, args).await,
         "recall_memory" => builtins::memory::recall_memory(workspace, args).await,
         "forget_memory" => builtins::memory::forget_memory(workspace, args).await,
@@ -745,29 +742,45 @@ pub async fn call_skill(name: &str, args: Value, workspace: &Path) -> anyhow::Re
         "session_status" => builtins::session::session_status(workspace, args).await,
         "session_send" => builtins::session::session_send(workspace, args).await,
         "session_spawn" => builtins::session::session_spawn(workspace, args).await,
-        "mcp" => builtins::mcp::mcp_tool(workspace, args).await,
+        "send_message" => builtins::send_message::send_message(workspace, args).await,
+        "self_update" => builtins::self_update::self_update(workspace, args).await,
         "apply_patch" => builtins::apply_patch::apply_patch(workspace, args).await,
         other => {
             // If the name matches a registered skill that is instruction-only
             // (no handler), tell the agent clearly that this is not a callable
             // tool — it needs to use activate_skill then follow the instructions
-            // with real tools like exec_shell, browser, etc.
-            if get_skill_instructions(other).is_some() {
+            // with real tools like exec_shell, etc.
+            //
+            // Also handle prefixed names like "skill:foo" — strip the prefix
+            // and try matching the suffix against skills.
+            let skill_name = if get_skill_instructions(other).is_some() {
+                Some(other.to_string())
+            } else if let Some((_prefix, suffix)) = other.split_once(':') {
+                if get_skill_instructions(suffix).is_some() {
+                    Some(suffix.to_string())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+
+            if let Some(ref resolved) = skill_name {
                 // Check if it has a handler — if so, this is a real tool that
                 // was just missing from the match above (shouldn't happen, but safe).
                 let has_handler = {
                     let reg = REGISTRY.lock().expect("tool registry poisoned");
                     reg.iter()
-                        .any(|e| e.meta.name == other && e.handler.is_some())
+                        .any(|e| e.meta.name == resolved.as_str() && e.handler.is_some())
                 };
                 if has_handler {
-                    let skill_args = serde_json::json!({ "name": other });
+                    let skill_args = serde_json::json!({ "name": resolved });
                     return builtins::skill_author::activate_skill(workspace, skill_args).await;
                 }
                 // Instruction-only skill: return a clear message
                 return Ok(serde_json::json!({
-                    "error": format!("'{}' is a SKILL (instructions), not a callable tool.", other),
-                    "instructions": "Call activate_skill({ \"name\": \"" .to_string() + other + "\" }) to load the instructions, then use exec_shell, browser, or other real tools to carry out the actions described.",
+                    "error": format!("'{}' is a SKILL (instructions), not a callable tool.", resolved),
+                    "instructions": "Call activate_skill({ \"name\": \"".to_string() + resolved + "\" }) to load the instructions, then use exec_shell or other real tools to carry out the actions described.",
                     "hint": "Skills provide guidance on HOW to do something. You still need to execute the steps yourself using your actual tools.",
                 }));
             }
@@ -792,7 +805,6 @@ pub fn builtin_skill_names() -> &'static [&'static str] {
         "list_skills",
         "delete_skill",
         "edit_skill",
-        "browser",
         "list_agents",
         "get_agent",
         "create_agent",
@@ -808,7 +820,7 @@ pub fn builtin_skill_names() -> &'static [&'static str] {
         "session_spawn",
         "send_message",
         "self_update",
-        "mcp",
+        "apply_patch",
     ]
 }
 
@@ -824,14 +836,12 @@ pub fn init() {
     builtins::exec_shell::register();
     builtins::memory::register();
     builtins::skill_author::register();
-    builtins::browser::register();
     builtins::agent::register();
     builtins::cron::register();
     builtins::delegate::register();
     builtins::session::register();
     builtins::send_message::register();
     builtins::self_update::register();
-    builtins::mcp::register();
 
     // Attach handlers to the built-in tools.
     register_handler(
@@ -887,10 +897,6 @@ pub fn init() {
         Arc::new(|args, ws| {
             Box::pin(async move { builtins::memory::forget_memory(&ws, args).await })
         }),
-    );
-    register_handler(
-        "browser",
-        Arc::new(|args, _ws| Box::pin(async move { builtins::browser::browser_tool(args).await })),
     );
     register_handler(
         "list_agents",
@@ -1007,10 +1013,6 @@ pub fn init() {
         }),
     );
     register_handler(
-        "mcp",
-        Arc::new(|args, ws| Box::pin(async move { builtins::mcp::mcp_tool(&ws, args).await })),
-    );
-    register_handler(
         "delegate",
         Arc::new(|args, ws| Box::pin(async move { builtins::delegate::delegate(&ws, args).await })),
     );
@@ -1039,8 +1041,6 @@ pub fn init() {
             "self_update",
             "send_message",
             "delegate",
-            "browser",
-            "mcp",
         ];
         let mut reg = REGISTRY.lock().expect("tool registry poisoned");
         for entry in reg.iter_mut() {

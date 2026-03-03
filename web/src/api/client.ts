@@ -39,6 +39,7 @@ const sessionSummarySchema = z.object({
   session_id: z.string(),
   size: z.number().optional(),
   modified: z.number().optional(),
+  title: z.string().optional(),
 });
 
 const listSessionsResponseSchema = z.object({
@@ -133,7 +134,7 @@ export interface CreateAgentPayload {
 
 export interface UpdateAgentPayload {
   model?: string;
-  heartbeat_secs?: number;
+  heartbeat_secs?: number | null;
   max_tool_iterations?: number;
   max_turns?: number;
   compact_keep_recent_turns?: number;

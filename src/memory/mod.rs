@@ -177,6 +177,31 @@ impl MemoryStore {
         Ok(())
     }
 
+    /// Upsert a memory entry and invalidate its cached embedding in a
+    /// single lock acquisition.  This ensures the stale embedding is
+    /// always cleared when the content changes (atomic w.r.t. the lock).
+    pub fn save_and_invalidate_embedding(
+        &self,
+        key: &str,
+        value: &str,
+        tags: &[String],
+    ) -> anyhow::Result<()> {
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
+        let tags_json = serde_json::to_string(tags)?;
+        let ts = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO memories (key, value, tags, ts)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(key) DO UPDATE SET value=?2, tags=?3, ts=?4",
+            params![key, value, tags_json, ts],
+        )?;
+        conn.execute("DELETE FROM memory_embeddings WHERE key = ?1", params![key])?;
+        Ok(())
+    }
+
     /// Delete a memory entry by key. Returns true if a row was deleted.
     pub fn forget(&self, key: &str) -> anyhow::Result<bool> {
         let conn = self

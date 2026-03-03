@@ -599,7 +599,7 @@ impl Config {
         Ok(())
     }
 
-    pub fn json_schema() -> schemars::schema::RootSchema {
+    pub fn json_schema() -> schemars::Schema {
         schemars::schema_for!(Config)
     }
 }

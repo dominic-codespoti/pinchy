@@ -45,17 +45,43 @@ pub fn estimate_tokens(text: &str) -> usize {
     bpe().encode_with_special_tokens(text).len()
 }
 
+/// Precomputed token count for the four known role strings (#15).
+fn role_tokens(role: &str) -> usize {
+    use std::sync::OnceLock;
+    static CACHE: OnceLock<[usize; 4]> = OnceLock::new();
+    let counts = CACHE.get_or_init(|| {
+        let enc = bpe();
+        [
+            enc.encode_with_special_tokens("system").len(),
+            enc.encode_with_special_tokens("user").len(),
+            enc.encode_with_special_tokens("assistant").len(),
+            enc.encode_with_special_tokens("tool").len(),
+        ]
+    });
+    match role {
+        "system" => counts[0],
+        "user" => counts[1],
+        "assistant" => counts[2],
+        "tool" => counts[3],
+        other => bpe().encode_with_special_tokens(other).len(),
+    }
+}
+
 /// Total estimated tokens for a slice of messages.
 pub fn estimate_total(messages: &[ChatMessage]) -> usize {
     let enc = bpe();
     messages
         .iter()
         .map(|m| {
-            enc.encode_with_special_tokens(&m.content).len()
-                + enc.encode_with_special_tokens(&m.role).len()
-                + 4 // per-message overhead
+            enc.encode_with_special_tokens(&m.content).len() + role_tokens(&m.role) + 4
+            // per-message overhead
         })
         .sum()
+}
+
+/// Per-message token cost used by [`hard_truncate`].
+fn message_token_cost(enc: &CoreBPE, m: &ChatMessage) -> usize {
+    enc.encode_with_special_tokens(&m.content).len() + role_tokens(&m.role) + 4
 }
 
 // ---------------------------------------------------------------------------
@@ -394,46 +420,45 @@ pub async fn manage_context(
 
 /// Last-resort truncation: drop oldest non-system messages until within
 /// budget.  **System messages are never removed.**
+///
+/// Uses `retain` for O(n) removal instead of repeated `Vec::remove` (#11).
 fn hard_truncate(messages: &mut Vec<ChatMessage>, max_tokens: usize) {
     let enc = bpe();
     let costs: Vec<usize> = messages
         .iter()
-        .map(|m| {
-            enc.encode_with_special_tokens(&m.content).len()
-                + enc.encode_with_special_tokens(&m.role).len()
-                + 4
-        })
+        .map(|m| message_token_cost(enc, m))
         .collect();
 
     let mut total: usize = costs.iter().sum();
+    let tail_guard = messages.len().saturating_sub(2);
 
-    // Collect indices of non-system messages eligible for removal,
-    // excluding the last 2 messages (keep at least the current exchange).
-    let removable: Vec<usize> = messages
-        .iter()
-        .enumerate()
-        .filter(|(i, m)| m.role != "system" && *i < messages.len().saturating_sub(2))
-        .map(|(i, _)| i)
-        .collect();
-
-    let mut to_remove: Vec<usize> = Vec::new();
-    for &idx in &removable {
+    // Mark which indices to remove (oldest non-system first).
+    let mut remove_set = vec![false; messages.len()];
+    let mut removed = 0usize;
+    for (i, msg) in messages.iter().enumerate() {
         if total <= max_tokens {
             break;
         }
-        total -= costs[idx];
-        to_remove.push(idx);
+        if msg.role != "system" && i < tail_guard {
+            remove_set[i] = true;
+            total -= costs[i];
+            removed += 1;
+        }
     }
 
-    // Remove in reverse order to preserve indices.
-    for &idx in to_remove.iter().rev() {
-        messages.remove(idx);
+    if removed > 0 {
+        let mut idx = 0;
+        messages.retain(|_| {
+            let keep = !remove_set[idx];
+            idx += 1;
+            keep
+        });
     }
 
     debug!(
         remaining = messages.len(),
         tokens = total,
-        removed = to_remove.len(),
+        removed,
         "hard-truncated context (system messages preserved)"
     );
 }

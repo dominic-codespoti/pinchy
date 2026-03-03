@@ -30,6 +30,8 @@ pub struct OpenAICompatProvider {
     endpoint: String,
     model: String,
     client: Client,
+    /// Optional header overrides from config.
+    header_overrides: Option<std::collections::HashMap<String, String>>,
 }
 
 impl OpenAICompatProvider {
@@ -37,12 +39,39 @@ impl OpenAICompatProvider {
     ///
     /// `api_key` may be empty for local servers that don't require auth.
     pub fn new(endpoint: String, api_key: String, model: String) -> Self {
+        Self::with_headers(endpoint, api_key, model, None)
+    }
+
+    /// Create a provider with explicit configuration and optional header overrides.
+    pub fn with_headers(
+        endpoint: String,
+        api_key: String,
+        model: String,
+        header_overrides: Option<std::collections::HashMap<String, String>>,
+    ) -> Self {
+        tracing::info!(
+            endpoint = %endpoint,
+            model = %model,
+            header_overrides = ?header_overrides,
+            "OpenAICompatProvider: constructed"
+        );
         Self {
             api_key,
             endpoint,
             model,
             client: super::get_shared_http_client(),
+            header_overrides,
         }
+    }
+
+    /// Apply header overrides to a request builder.
+    fn apply_headers(&self, mut req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        if let Some(ref overrides) = self.header_overrides {
+            for (key, value) in overrides {
+                req = req.header(key.as_str(), value.as_str());
+            }
+        }
+        req
     }
 
     /// SSE streaming implementation.
@@ -63,6 +92,7 @@ impl OpenAICompatProvider {
             if !self.api_key.is_empty() {
                 req = req.bearer_auth(&self.api_key);
             }
+            req = self.apply_headers(req);
             let resp = req.send().await?;
 
             let status = resp.status();
@@ -97,6 +127,7 @@ impl ModelProvider for OpenAICompatProvider {
         if !self.api_key.is_empty() {
             req = req.bearer_auth(&self.api_key);
         }
+        req = self.apply_headers(req);
         let resp = req.send().await?;
 
         let status = resp.status();
@@ -132,6 +163,7 @@ impl ModelProvider for OpenAICompatProvider {
         if !self.api_key.is_empty() {
             req = req.bearer_auth(&self.api_key);
         }
+        req = self.apply_headers(req);
         let resp = req.send().await?;
 
         let status = resp.status();

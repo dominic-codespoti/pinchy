@@ -216,23 +216,15 @@ pub fn interactive_onboard_tui(
                     .iter()
                     .position(|p| *p == data.provider)
                     .unwrap_or(0);
-                let sel = dialoguer::Select::new()
+                #[allow(clippy::needless_borrows_for_generic_args)]
+                let provider_sel = dialoguer::Select::new()
                     .with_prompt("Provider")
                     .items(&providers)
                     .default(default_idx)
                     .interact()
-                    .unwrap_or(0);
-                if providers[sel] == "other" {
-                    let custom: String = dialoguer::Input::new()
-                        .with_prompt("Custom provider name")
-                        .default(data.provider.clone())
-                        .interact_text()
-                        .unwrap_or_else(|_| data.provider.clone());
-                    data.provider = custom;
-                } else {
-                    data.provider = providers[sel].to_string();
-                }
-                println!("  Provider: {}", data.provider);
+                    .context("provider selection cancelled")?;
+                let chosen_provider = &providers[provider_sel];
+                println!("  Provider: {}", chosen_provider);
             }
 
             // ── Step 2: Enter model id ────────────────────────────────
@@ -391,7 +383,7 @@ pub fn interactive_onboard_tui(
         if step == 0 {
             let items = ["Next \u{2192}", "Cancel"];
             let sel = dialoguer::Select::new()
-                .items(&items)
+                .items(items)
                 .default(0)
                 .interact()
                 .unwrap_or(0);
@@ -406,7 +398,7 @@ pub fn interactive_onboard_tui(
             // step 1
             let items = ["Next \u{2192}", "\u{2190} Back", "Cancel"];
             let sel = dialoguer::Select::new()
-                .items(&items)
+                .items(items)
                 .default(0)
                 .interact()
                 .unwrap_or(0);
@@ -487,7 +479,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
     let provider_choices = ["OpenAI", "Azure OpenAI", "GitHub Copilot", "Skip"];
     let cred_sel = dialoguer::Select::new()
         .with_prompt("Configure API credentials")
-        .items(&provider_choices)
+        .items(provider_choices)
         .default(0)
         .interact()
         .unwrap_or(3);

@@ -13,6 +13,17 @@ pub(crate) async fn api_sessions_list(Path(agent_id): Path<String>) -> impl Into
         return Json(serde_json::json!({ "sessions": [] })).into_response();
     }
 
+    // Load the global index to look up titles.
+    let home = crate::pinchy_home();
+    let index_entries = crate::session::index::load_global_index(&home)
+        .await
+        .unwrap_or_default();
+    let title_map: std::collections::HashMap<String, String> = index_entries
+        .into_iter()
+        .filter(|e| e.agent_id == agent_id)
+        .filter_map(|e| e.title.map(|t| (e.session_id, t)))
+        .collect();
+
     let mut sessions = Vec::new();
     if let Ok(mut rd) = tokio::fs::read_dir(&sessions_dir).await {
         while let Ok(Some(entry)) = rd.next_entry().await {
@@ -34,12 +45,16 @@ pub(crate) async fn api_sessions_list(Path(agent_id): Path<String>) -> impl Into
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
-                sessions.push(serde_json::json!({
+                let mut entry = serde_json::json!({
                     "file": filename,
                     "session_id": session_id,
                     "size": size,
                     "modified": modified,
-                }));
+                });
+                if let Some(title) = title_map.get(&session_id) {
+                    entry["title"] = serde_json::json!(title);
+                }
+                sessions.push(entry);
             }
         }
     }

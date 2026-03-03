@@ -21,7 +21,7 @@ Pinchy has an extensible skill system. Additional tools are injected automatical
 - **Automation:** Scheduling cron jobs (`cron`, `schedule`).
 - **Orchestration:** Managing multiple `agents` or `sessions`.
 - **Interaction:** Web `browser` access and `messaging` (Discord/Slack).
-- **Core:** System `updates` and `mcp` (Model Context Protocol) servers.
+- **Core:** System `updates`.
 
 ---
 

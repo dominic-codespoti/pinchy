@@ -147,12 +147,14 @@ async fn run_tool_loop_inner(
                     }));
                 }
 
-                let mut any_failed = false;
+                let mut fail_count = 0u32;
+                let mut total_count = 0u32;
                 for handle in handles {
                     match handle.await {
                         Ok(tr) => {
+                            total_count += 1;
                             if tr.failed {
-                                any_failed = true;
+                                fail_count += 1;
                             }
                             messages.push(ChatMessage {
                                 role: "tool".into(),
@@ -164,7 +166,8 @@ async fn run_tool_loop_inner(
                             tool_calls.push(tr.record);
                         }
                         Err(join_err) => {
-                            warn!("tool task panicked: {join_err}");
+                            total_count += 1;
+                            fail_count += 1;
                             messages.push(ChatMessage {
                                 role: "tool".into(),
                                 content: format!(
@@ -177,7 +180,9 @@ async fn run_tool_loop_inner(
                         }
                     }
                 }
-                if any_failed {
+                // Only count as a consecutive failure if the majority of
+                // the batch failed (#12).
+                if fail_count > 0 && fail_count * 2 >= total_count {
                     consecutive_failures += 1;
                     if consecutive_failures >= 3 {
                         messages.push(ChatMessage::system(

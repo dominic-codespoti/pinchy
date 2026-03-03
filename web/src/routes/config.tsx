@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Plus, Save, Trash2, Settings, FileCode, Sparkles } from "lucide-react";
+import { Plus, Save, Trash2, Settings, FileCode, Sparkles, ChevronDown, ChevronRight, Search, X } from "lucide-react";
 import yaml from "js-yaml";
 import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from "@codemirror/view";
 import { EditorState } from "@codemirror/state";
@@ -60,7 +60,7 @@ function primaryType(prop: SchemaProperty): string {
 }
 
 // Keys with dedicated UI sections or managed elsewhere
-const MANAGED_KEYS = new Set(["models", "agents", "channels"]);
+const MANAGED_KEYS = new Set(["models", "agents", "channels", "skills"]);
 
 // ── Generic value helpers ────────────────────────────
 
@@ -246,12 +246,74 @@ function SchemaField({
 
 type Mode = "form" | "yaml";
 
+/** Collapsible section wrapper for the config form */
+function CollapsibleSection({
+  sectionKey,
+  label,
+  icon: Icon,
+  collapsed,
+  onToggle,
+  actions,
+  description,
+  children,
+}: {
+  sectionKey: string;
+  label: string;
+  icon?: React.ComponentType<{ className?: string }>;
+  collapsed: boolean;
+  onToggle: (key: string) => void;
+  actions?: React.ReactNode;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  const Chevron = collapsed ? ChevronRight : ChevronDown;
+  return (
+    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
+      <button
+        type="button"
+        onClick={() => onToggle(sectionKey)}
+        className="flex items-center gap-2 w-full p-5 pb-0 text-left"
+      >
+        <Chevron className="h-3 w-3 text-slate-600 shrink-0" />
+        {Icon && <Icon className="h-3.5 w-3.5 text-emerald-400/60" />}
+        <span className="text-xs font-medium text-slate-300">{label}</span>
+        {actions && (
+          <div className="ml-auto" onClick={(e) => e.stopPropagation()}>
+            {actions}
+          </div>
+        )}
+      </button>
+      {description && !collapsed && <p className="text-[10px] text-slate-500 px-5 mt-1">{description}</p>}
+      {!collapsed && <div className="p-5 pt-4">{children}</div>}
+      {collapsed && <div className="h-2" />}
+    </div>
+  );
+}
+
 export function ConfigRoute() {
   const queryClient = useQueryClient();
   const [mode, setMode] = useState<Mode>("form");
   const [rawYaml, setRawYaml] = useState("");
   // Single state object for the entire config
   const [values, setValues] = useState<Record<string, unknown>>({});
+  // Section filter/collapse state
+  const [sectionFilter, setSectionFilter] = useState("");
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+
+  const toggleSection = useCallback((key: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  /** Check if a section name matches the current filter */
+  const matchesFilter = useCallback((label: string) => {
+    if (!sectionFilter.trim()) return true;
+    return label.toLowerCase().includes(sectionFilter.toLowerCase());
+  }, [sectionFilter]);
 
   const configQuery = useQuery({ queryKey: queryKeys.config, queryFn: getConfig });
   const schemaQuery = useQuery({
@@ -517,7 +579,27 @@ export function ConfigRoute() {
           ))}
         </div>
 
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          {mode === "form" && (
+            <div className="relative">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-600" />
+              <input
+                value={sectionFilter}
+                onChange={(e) => setSectionFilter(e.target.value)}
+                placeholder="Filter sections…"
+                className="h-7 w-40 rounded-lg border border-white/[0.06] bg-white/[0.03] pl-7 pr-6 text-[11px] text-slate-300 placeholder:text-slate-600 outline-none focus:border-emerald-400/30 transition-colors"
+              />
+              {sectionFilter && (
+                <button
+                  type="button"
+                  onClick={() => setSectionFilter("")}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-400"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+          )}
           {configQuery.isLoading && <span className="text-[10px] text-slate-500">Loading…</span>}
           {configQuery.error && <span className="text-[10px] text-rose-400">Failed to load</span>}
         </div>
@@ -530,12 +612,14 @@ export function ConfigRoute() {
           {mode === "form" && (
             <form onSubmit={onSubmit} className="space-y-6">
               {/* ── Models (special UX: add/remove) ── */}
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex items-center gap-2">
-                    <Settings className="h-3.5 w-3.5 text-emerald-400/60" />
-                    <span className="text-xs font-medium text-slate-300">Models</span>
-                  </div>
+              {matchesFilter("models") && (
+              <CollapsibleSection
+                sectionKey="models"
+                label="Models"
+                icon={Settings}
+                collapsed={collapsedSections.has("models")}
+                onToggle={toggleSection}
+                actions={
                   <button
                     type="button"
                     onClick={addModel}
@@ -543,7 +627,8 @@ export function ConfigRoute() {
                   >
                     <Plus className="h-3 w-3" /> Add Model
                   </button>
-                </div>
+                }
+              >
                 <div className="space-y-5">
                   {formModels.map((model, index) => (
                     <article key={`model-${index}`} className="rounded-lg border border-white/[0.04] bg-white/[0.01] p-4 space-y-3">
@@ -617,15 +702,19 @@ export function ConfigRoute() {
                     </article>
                   ))}
                 </div>
-              </div>
+              </CollapsibleSection>
+              )}
 
               {/* ── Channels (special: secret refs, enum kind) ── */}
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
-                <div className="flex items-center gap-2 mb-1">
-                  <Settings className="h-3.5 w-3.5 text-emerald-400/60" />
-                  <span className="text-xs font-medium text-slate-300">Channels</span>
-                </div>
-                <p className="text-[10px] text-slate-500 mb-4">Channel (e.g. Discord) settings.</p>
+              {matchesFilter("channels") && (
+              <CollapsibleSection
+                sectionKey="channels"
+                label="Channels"
+                icon={Settings}
+                collapsed={collapsedSections.has("channels")}
+                onToggle={toggleSection}
+                description="Channel (e.g. Discord) settings."
+              >
                 <div className="space-y-4">
                   <div className="space-y-1">
                     <label className="text-[9px] uppercase tracking-widest text-slate-600 block">Discord Token</label>
@@ -661,16 +750,19 @@ export function ConfigRoute() {
                     </div>
                   </div>
                 </div>
-              </div>
+              </CollapsibleSection>
+              )}
 
               {/* ── Schema-driven: General settings (scalars) ── */}
-              {schema && scalarFields.length > 0 && (
-                <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Settings className="h-3.5 w-3.5 text-emerald-400/60" />
-                    <span className="text-xs font-medium text-slate-300">General</span>
-                  </div>
-                  <p className="text-[10px] text-slate-500 mb-4">Instance-level settings.</p>
+              {schema && scalarFields.length > 0 && matchesFilter("general") && (
+                <CollapsibleSection
+                  sectionKey="general"
+                  label="General"
+                  icon={Settings}
+                  collapsed={collapsedSections.has("general")}
+                  onToggle={toggleSection}
+                  description="Instance-level settings."
+                >
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     {scalarFields.map(({ key, prop }) => (
                       <SchemaField
@@ -683,26 +775,48 @@ export function ConfigRoute() {
                       />
                     ))}
                   </div>
-                </div>
+                </CollapsibleSection>
               )}
 
               {/* ── Schema-driven: Object sections ── */}
-              {schema && objectFields.map(({ key, prop }) => (
-                <SchemaField
-                  key={key}
-                  schema={schema}
-                  prop={prop}
-                  path={[key]}
-                  values={values}
-                  onChange={handleFieldChange}
-                />
-              ))}
+              {schema && objectFields.map(({ key, prop }) => {
+                const label = key.replace(/_/g, " ");
+                if (!matchesFilter(label) && !matchesFilter(key)) return null;
+                return (
+                  <CollapsibleSection
+                    key={key}
+                    sectionKey={key}
+                    label={label.charAt(0).toUpperCase() + label.slice(1)}
+                    icon={Settings}
+                    collapsed={collapsedSections.has(key)}
+                    onToggle={toggleSection}
+                    description={prop.description || resolveProp(schema, prop).description}
+                  >
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      {Object.entries(resolveProp(schema, prop).properties ?? {}).map(([childKey, childProp]) => (
+                        <SchemaField
+                          key={childKey}
+                          schema={schema}
+                          prop={childProp}
+                          path={[key, childKey]}
+                          values={values}
+                          onChange={handleFieldChange}
+                        />
+                      ))}
+                    </div>
+                  </CollapsibleSection>
+                );
+              })}
 
               {/* ── Agents summary ──────────────────── */}
-              <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
-                <div className="flex items-center gap-2 mb-3">
-                  <span className="text-xs font-medium text-slate-300">Agents</span>
-                </div>
+              {matchesFilter("agents") && (
+              <CollapsibleSection
+                sectionKey="agents"
+                label="Agents"
+                icon={Settings}
+                collapsed={collapsedSections.has("agents")}
+                onToggle={toggleSection}
+              >
                 <div className="space-y-1.5">
                   {configuredAgents.map((agent) => (
                     <p key={agent.id} className="text-xs text-slate-500">
@@ -717,7 +831,8 @@ export function ConfigRoute() {
                   )}
                   <p className="text-[10px] text-slate-600 mt-2">Edit agent settings and files in the Agents page.</p>
                 </div>
-              </div>
+              </CollapsibleSection>
+              )}
 
               <button
                 type="submit"

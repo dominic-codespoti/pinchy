@@ -165,6 +165,10 @@ pub async fn session_status(workspace: &Path, args: Value) -> anyhow::Result<Val
 ///
 /// The message is delivered as an `IncomingMessage` on the global comm bus,
 /// so the target agent's dispatcher picks it up and runs a turn.
+///
+/// When `wait: true` (default: false), the tool subscribes to gateway events
+/// and blocks until the target agent emits an `agent_reply` for the matching
+/// channel, returning the full reply text.
 pub async fn session_send(_workspace: &Path, args: Value) -> anyhow::Result<Value> {
     let agent_id = args
         .get("agent_id")
@@ -182,6 +186,13 @@ pub async fn session_send(_workspace: &Path, args: Value) -> anyhow::Result<Valu
         anyhow::bail!("session_send: agent not found: {agent_id}");
     }
 
+    let wait = args.get("wait").and_then(Value::as_bool).unwrap_or(false);
+
+    let timeout_secs = args
+        .get("timeout_secs")
+        .and_then(Value::as_u64)
+        .unwrap_or(120);
+
     let channel = args
         .get("channel")
         .and_then(Value::as_str)
@@ -191,6 +202,14 @@ pub async fn session_send(_workspace: &Path, args: Value) -> anyhow::Result<Valu
         .get("sender")
         .and_then(Value::as_str)
         .unwrap_or("agent");
+
+    // If waiting for a response, subscribe to gateway events BEFORE
+    // sending so we don't miss the reply.
+    let mut events_rx = if wait {
+        crate::gateway::global_events_tx().map(|tx| tx.subscribe())
+    } else {
+        None
+    };
 
     // Publish to the global comm bus.
     let msg = crate::comm::IncomingMessage {
@@ -207,15 +226,94 @@ pub async fn session_send(_workspace: &Path, args: Value) -> anyhow::Result<Valu
     };
 
     let tx = crate::comm::sender();
-    match tx.send(msg) {
-        Ok(_) => Ok(json!({
-            "sent": true,
-            "agent_id": agent_id,
-        })),
-        Err(e) => Ok(json!({
+    if let Err(e) = tx.send(msg) {
+        return Ok(json!({
             "sent": false,
             "error": format!("no active receivers: {e}"),
-        })),
+        }));
+    }
+
+    // Fire-and-forget path.
+    if !wait || events_rx.is_none() {
+        return Ok(json!({
+            "sent": true,
+            "agent_id": agent_id,
+            "waited": false,
+        }));
+    }
+
+    // Wait for the target agent's reply by watching gateway events.
+    let rx = events_rx.as_mut().unwrap();
+    let target = agent_id.to_string();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(timeout_secs);
+
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep_until(deadline) => {
+                return Ok(json!({
+                    "sent": true,
+                    "agent_id": target,
+                    "waited": true,
+                    "status": "timeout",
+                    "timeout_secs": timeout_secs,
+                }));
+            }
+            result = rx.recv() => {
+                match result {
+                    Ok(event_str) => {
+                        if let Ok(ev) = serde_json::from_str::<Value>(&event_str) {
+                            let ev_type = ev.get("type").and_then(Value::as_str).unwrap_or("");
+                            let ev_agent = ev.get("agent").and_then(Value::as_str).unwrap_or("");
+
+                            // Match on agent_reply or turn_receipt from the target agent.
+                            if ev_agent == target {
+                                if ev_type == "agent_reply" {
+                                    let reply = ev.get("text")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_string();
+                                    return Ok(json!({
+                                        "sent": true,
+                                        "agent_id": target,
+                                        "waited": true,
+                                        "status": "completed",
+                                        "reply": reply,
+                                        "session": ev.get("session"),
+                                    }));
+                                }
+                                if ev_type == "turn_receipt" {
+                                    let reply = ev.get("reply_summary")
+                                        .and_then(Value::as_str)
+                                        .unwrap_or("")
+                                        .to_string();
+                                    return Ok(json!({
+                                        "sent": true,
+                                        "agent_id": target,
+                                        "waited": true,
+                                        "status": "completed",
+                                        "reply": reply,
+                                        "session": ev.get("session"),
+                                        "receipt": ev,
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                        tracing::warn!(skipped = n, "session_send: lagged on gateway events");
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        return Ok(json!({
+                            "sent": true,
+                            "agent_id": target,
+                            "waited": true,
+                            "status": "error",
+                            "error": "gateway event bus closed",
+                        }));
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -328,7 +426,11 @@ pub fn register() {
 
     register_tool(ToolMeta {
         name: "session_send".into(),
-        description: "Send a message to another agent. The message is dispatched to the target agent's active session via the internal message bus, triggering an agent turn.".into(),
+        description: "Send a message to another agent and optionally wait for the response. \
+            The message is dispatched to the target agent's active session via the internal \
+            message bus, triggering an agent turn. Set wait=true to block until the agent \
+            replies (synchronous round-trip). Default is fire-and-forget."
+            .into(),
         args_schema: json!({
             "type": "object",
             "properties": {
@@ -339,6 +441,14 @@ pub fn register() {
                 "message": {
                     "type": "string",
                     "description": "The message content to send"
+                },
+                "wait": {
+                    "type": "boolean",
+                    "description": "If true, wait for the agent's reply before returning (default: false)"
+                },
+                "timeout_secs": {
+                    "type": "integer",
+                    "description": "Max seconds to wait when wait=true (default: 120)"
                 },
                 "sender": {
                     "type": "string",

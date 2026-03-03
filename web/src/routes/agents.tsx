@@ -55,7 +55,7 @@ export function AgentsListRoute() {
 
   const [newAgentId, setNewAgentId] = useState("");
   const [newAgentModel, setNewAgentModel] = useState("copilot-default");
-  const [newAgentHeartbeat, setNewAgentHeartbeat] = useState(300);
+  const [newAgentHeartbeat, setNewAgentHeartbeat] = useState<number | null>(300);
   const [fallbackAgents, setFallbackAgents] = useState<
     Array<{ id: string; model?: string; heartbeat_secs?: number; enabled_skills?: string[]; cron_jobs_count?: number; cron_job_count?: number }>
   >([]);
@@ -154,7 +154,7 @@ export function AgentsListRoute() {
     createMutation.mutate({
       id,
       model: newAgentModel.trim() || undefined,
-      heartbeat_secs: Number.isFinite(newAgentHeartbeat) ? newAgentHeartbeat : undefined,
+      heartbeat_secs: newAgentHeartbeat !== null && Number.isFinite(newAgentHeartbeat) ? newAgentHeartbeat : undefined,
     });
   };
 
@@ -217,12 +217,29 @@ export function AgentsListRoute() {
                 value={newAgentModel}
                 onChange={(event) => setNewAgentModel(event.target.value)}
               />
-              <Input
-                type="number"
-                placeholder="heartbeat"
-                value={newAgentHeartbeat}
-                onChange={(event) => setNewAgentHeartbeat(parseInt(event.target.value, 10) || 0)}
-              />
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={newAgentHeartbeat !== null}
+                    onCheckedChange={(next) => {
+                      if (Boolean(next)) {
+                        setNewAgentHeartbeat(300);
+                      } else {
+                        setNewAgentHeartbeat(null);
+                      }
+                    }}
+                  />
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500">Heartbeat</label>
+                </div>
+                {newAgentHeartbeat !== null && (
+                  <Input
+                    type="number"
+                    placeholder="heartbeat"
+                    value={newAgentHeartbeat}
+                    onChange={(event) => setNewAgentHeartbeat(parseInt(event.target.value, 10) || 0)}
+                  />
+                )}
+              </div>
               <button
                 type="button"
                 onClick={onCreate}
@@ -415,7 +432,7 @@ export function AgentDetailRoute() {
   });
 
   const [model, setModel] = useState("");
-  const [heartbeatSecs, setHeartbeatSecs] = useState(300);
+  const [heartbeatSecs, setHeartbeatSecs] = useState<number | null>(300);
   const [maxToolIterations, setMaxToolIterations] = useState(15);
   const [maxTurns, setMaxTurns] = useState(20);
   const [compactKeepRecentTurns, setCompactKeepRecentTurns] = useState(8);
@@ -441,7 +458,7 @@ export function AgentDetailRoute() {
   const updateMutation = useMutation({
     mutationFn: (payload: {
       model?: string;
-      heartbeat_secs?: number;
+      heartbeat_secs?: number | null;
       max_tool_iterations?: number;
       max_turns?: number;
       compact_keep_recent_turns?: number;
@@ -478,7 +495,7 @@ export function AgentDetailRoute() {
   useEffect(() => {
     if (!data || formInitialized) return;
     setModel(data.model ?? "");
-    setHeartbeatSecs(data.heartbeat_secs ?? 300);
+    setHeartbeatSecs(data.heartbeat_secs ?? null);
     setMaxToolIterations(data.max_tool_iterations ?? 15);
     setMaxTurns(data.max_turns ?? 20);
     setCompactKeepRecentTurns(data.compact_keep_recent_turns ?? 8);
@@ -665,8 +682,27 @@ export function AgentDetailRoute() {
                   <Input value={model} onChange={(event) => setModel(event.target.value)} />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">Heartbeat (seconds)</label>
-                  <Input type="number" value={heartbeatSecs} onChange={(event) => setHeartbeatSecs(parseInt(event.target.value, 10) || 0)} />
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="text-[10px] uppercase tracking-widest text-slate-500">Heartbeat (seconds)</label>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <Checkbox
+                        checked={heartbeatSecs !== null}
+                        onCheckedChange={(next) => {
+                          if (Boolean(next)) {
+                            setHeartbeatSecs(300);
+                          } else {
+                            setHeartbeatSecs(null);
+                          }
+                        }}
+                      />
+                      <span className="text-[10px] text-slate-500">Enabled</span>
+                    </label>
+                  </div>
+                  {heartbeatSecs !== null ? (
+                    <Input type="number" value={heartbeatSecs} onChange={(event) => setHeartbeatSecs(parseInt(event.target.value, 10) || 0)} />
+                  ) : (
+                    <p className="text-xs text-slate-600 py-1">Heartbeat disabled — agent will only respond when invoked.</p>
+                  )}
                 </div>
                 <div>
                   <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">Max Tool Iterations</label>

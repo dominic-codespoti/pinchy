@@ -2,8 +2,8 @@
 
 Lightweight Rust agent platform that runs on anything from a Raspberry Pi to a cloud VM.
 Connects to Discord, exposes a WebSocket + REST gateway, calls LLMs through
-pluggable providers, runs 31 built-in tools, and supports heartbeat, cron,
-skills, persistent memory, and MCP (Model Context Protocol) server integration.
+pluggable providers, runs 30 built-in tools, and supports heartbeat, cron,
+skills, and persistent memory.
 
 ## Quick Start
 
@@ -124,30 +124,16 @@ conversation mentions relevant keywords:
 | agent, bot | `list_agents`, `get_agent`, `create_agent` |
 | session, conversation, chat history | `session_list`, `session_status`, `session_send`, `session_spawn` |
 | update, upgrade, version | `self_update` |
-| browser, web, url, scrape | `browser` |
+| browse, web, url, scrape | `exec_shell` (browser skill uses `playwright-cli`) |
 | message, discord, notify | `send_message` |
-| mcp, model context protocol | `mcp` |
 
-## MCP Client
+## Browser Automation
 
-Pinchy includes a built-in MCP (Model Context Protocol) client powered by the
-[rmcp](https://crates.io/crates/rmcp) SDK with Streamable HTTP transport.
-
-Configure servers in `config/mcp.json` (or `mcporter.json` / `.mcp.json`)
-inside the agent workspace:
-
-```json
-{
-  "servers": {
-    "my-server": {
-      "url": "https://example.com/mcp",
-      "headers": { "X-ApiKey": "secret" }
-    }
-  }
-}
-```
-
-Actions: `list_servers`, `list_tools`, `call_tool`, `add_server`, `remove_server`.
+Browser automation is handled via a built-in **skill** (`browser`) that uses
+`playwright-cli` through `exec_shell`. This is more token-efficient than
+dedicated browser tools — it avoids loading large tool schemas and accessibility
+trees into context. The skill is auto-activated when web/browser keywords are
+detected.
 
 ## Skills
 
@@ -193,8 +179,8 @@ src/
 ├── config/           Config loading & validation
 ├── agent/            Agent runtime, prompt building, tool loops
 ├── models/           LLM provider trait + OpenAI, Azure, Copilot, compat
-├── tools/            31 built-in tools + auto-pluck system
-│   └── builtins/     Tool implementations (mcp, browser, skill_author, …)
+├── tools/            30 built-in tools + auto-pluck system
+│   └── builtins/     Tool implementations (exec_shell, edit_file, skill_author, …)
 ├── skills/           Skill registry, progressive disclosure
 ├── memory/           SQLite + FTS5 persistent memory
 ├── session/          Session store (JSONL), session index
@@ -208,6 +194,7 @@ src/
 ├── auth/             GitHub device flow, Copilot token exchange
 ├── secrets/          AES-256-GCM encrypted file-backed secret store
 ├── utils/            Browser detection, helpers
+├── watcher/          Config file-system watcher (hot reload)
 └── logs.rs           Tracing setup
 ```
 
@@ -219,7 +206,7 @@ make build            # Build web + cargo
 make release          # Production build
 cargo fmt             # Format
 cargo clippy          # Lint
-cargo test            # Run tests (22 integration test files)
+cargo test            # Run tests (21 integration test files)
 ```
 
 ## CI

@@ -23,8 +23,8 @@ Pinchy is a single-binary Rust daemon. On start it launches:
 | `config/` | Serde config loading, `Config`/`AgentConfig`/`ModelConfig` structs |
 | `agent/` | Agent runtime: prompt building, tool loop, session management |
 | `models/` | `ModelProvider` trait + `OpenAI`, `AzureOpenAI`, `Copilot`, `OpenAICompat` providers; `ProviderManager` with retry/fallback |
-| `tools/` | 31 built-in tools, `ToolRegistry`, `AUTO_PLUCK_RULES` keyword-based deferred injection |
-| `tools/builtins/` | Tool implementations: `mcp` (rmcp SDK), `browser` (Playwright), `skill_author`, etc. |
+| `tools/` | 30 built-in tools, `ToolRegistry`, `AUTO_PLUCK_RULES` keyword-based deferred injection |
+| `tools/builtins/` | Tool implementations: `exec_shell`, `edit_file`, `skill_author`, `delegate`, etc. |
 | `skills/` | `SkillRegistry` — discovers `SKILL.md` manifests, progressive disclosure via `activate_skill` |
 | `memory/` | SQLite + FTS5 persistent memory (`save_memory`, `recall_memory`, `forget_memory`) |
 | `session/` | JSONL-backed session store, session index |
@@ -34,8 +34,9 @@ Pinchy is a single-binary Rust daemon. On start it launches:
 | `comm/` | Channel-agnostic `IncomingMessage` / `RichMessage` bus, connector registry |
 | `gateway/` | Axum REST routes + WebSocket + static serving; handler sub-modules |
 | `slash/` | Slash command registry (`/new`, `/status`, `/cron`, `/compact`, etc.) |
-| `auth/` | GitHub device-flow login, Copilot token exchange |
+| `auth/` | GitHub device-flow login, Copilot token exchange (direct HTTP — no SDK) |
 | `secrets/` | AES-256-GCM encrypted file-backed secret store (via `ring`) |
+| `watcher/` | File-system watcher for config hot-reload (`notify-debouncer-mini`) |
 
 ### Agent Workspace
 
@@ -46,7 +47,6 @@ Each agent gets a workspace at `agents/<id>/workspace/` containing:
 - `sessions/*.jsonl` — conversation history
 - `memory.db` — SQLite persistent memory
 - `skills/*/SKILL.md` — skill manifests
-- `config/mcp.json` — MCP server definitions
 
 File tools are sandboxed to the agent workspace unless explicitly configured otherwise.
 
@@ -57,17 +57,19 @@ Tools are registered in `src/tools/mod.rs`. Two categories:
 - **Core tools** (always in prompt): `read_file`, `write_file`, `edit_file`, `list_files`, `exec_shell`, `save_memory`, `recall_memory`, `forget_memory`, `activate_skill`
 - **Deferred tools** (auto-plucked by keywords in recent conversation): managed by `AUTO_PLUCK_RULES` — scans last 5 user messages + current message for domain keywords, then injects matching tools into the function-calling payload
 
-### MCP Client
+### Browser Automation
 
-`src/tools/builtins/mcp.rs` — uses the `rmcp` SDK with Streamable HTTP transport.
-Config loaded from `config/mcp.json` (or `mcporter.json`, `.mcp.json`) in the agent workspace.
-Actions: `list_servers`, `list_tools`, `call_tool`, `add_server`, `remove_server`.
+Browser automation is handled via a **skill** (`skills/default_skills/browser.md`) that uses `playwright-cli` through `exec_shell`. This is more token-efficient than dedicated browser tools — it avoids loading large tool schemas and accessibility trees into context.
 
 ### Context Management
 
 `src/context/mod.rs` — budget-based context window management using `tiktoken-rs` (`o200k_base`).
 Default budget: 120k tokens max, prune at 80k, compact at 100k.
 Pruning strips old tool results; compaction summarises oldest messages via an LLM call.
+
+### Copilot Provider
+
+The Copilot provider (`src/models/copilot.rs`) talks to GitHub Copilot via **direct HTTP** to the Copilot API proxy. Auth uses GitHub device-flow (`src/auth/github_device.rs`) + token exchange (`src/auth/copilot_token.rs`). Supports both OpenAI-compatible and Anthropic Messages API formats (Claude models route through `/v1/messages` SSE).
 
 ## CI Pipeline
 
@@ -84,7 +86,7 @@ Pruning strips old tool results; compaction summarises oldest messages via an LL
 make dev        # Vite HMR + Rust auto-rebuild
 cargo fmt       # Must pass before push
 cargo clippy    # Must be clean before push
-cargo test      # 22 integration test files in tests/
+cargo test      # 21 integration test files in tests/
 ```
 
 ## Key Patterns

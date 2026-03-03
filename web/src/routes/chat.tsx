@@ -15,7 +15,7 @@ import {
   listSlashCommands,
   queryKeys,
 } from "@/api/client";
-import { Badge, Button, Select, SelectItem, Separator, TextArea } from "@/components/ui";
+import { Badge, Button, Separator, TextArea } from "@/components/ui";
 import {
   Send,
   Plus,
@@ -25,7 +25,6 @@ import {
   AlertCircle,
   Sparkles,
   Zap,
-  Clock,
   RotateCcw,
   Copy,
   Check,
@@ -44,8 +43,11 @@ import {
   EyeOff,
   Minimize2,
   ImagePlus,
+  PanelLeftClose,
+  PanelLeft,
 } from "lucide-react";
 import { useUiStore } from "@/state/ui";
+import { SessionSidebar } from "@/components/SessionSidebar";
 
 const markedParser = new Marked({
   async: false,
@@ -178,6 +180,10 @@ export function ChatRoute() {
   const [compactSummaries, setCompactSummaries] = useState<Array<{ summary: string; messagesCompacted: number; messagesKept: number; timestamp: number }>>([]);
   const [wsConnected, setWsConnectedLocal] = useState(true);
   const setWsConnectedGlobal = useUiStore((s) => s.setWsConnected);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("pinchy-sidebar-collapsed") === "1";
+  });
 
   const wsReconnectRef = useRef<number | null>(null);
   const wsReconnectAttempts = useRef(0);
@@ -305,6 +311,7 @@ export function ChatRoute() {
   useEffect(() => { selectedAgentRef.current = selectedAgent; }, [selectedAgent]);
   useEffect(() => { selectedSessionRef.current = selectedSession; }, [selectedSession]);
   useEffect(() => { window.sessionStorage.setItem("pinchy-show-activity", showActivity ? "1" : "0"); }, [showActivity]);
+  useEffect(() => { window.localStorage.setItem("pinchy-sidebar-collapsed", sidebarCollapsed ? "1" : "0"); }, [sidebarCollapsed]);
 
   useEffect(() => {
     if (!agentIds.length) return;
@@ -425,20 +432,31 @@ export function ChatRoute() {
         // Filter out helper/internal "session override" messages if they aren't meant for display.
         // Some providers might leak these into the session history.
         const contentStr = toText(m.content);
+        if (!contentStr.trim()) return false;
         if (contentStr.includes("using session override for this turn")) return false;
 
         return true;
       })
       .map(normalizeMessage);
-    if (!persisted.length) return liveMessages;
-    if (!liveMessages.length) return persisted;
+
+    // Filter empty liveMessages too
+    const liveCleaned = liveMessages.filter((m) => m.content.trim());
+
+    if (!persisted.length) return liveCleaned;
+    if (!liveCleaned.length) return persisted;
     const persistedKeys = new Set(persisted.map((m) => messageKey(m.role, m.content, m.timestamp)));
     const persistedBaseKeys = new Set(persisted.map((m) => messageBaseKey(m.role, m.content)));
-    const dedupedLive = liveMessages.filter((m) => {
-      if (persistedKeys.has(messageKey(m.role, m.content, m.timestamp))) return false;
-      if (persistedBaseKeys.has(messageBaseKey(m.role, m.content))) return false;
-      return true;
-    });
+    const dedupedLive: LiveMessage[] = [];
+    const liveBaseKeys = new Set<string>();
+    for (const m of liveCleaned) {
+      if (persistedKeys.has(messageKey(m.role, m.content, m.timestamp))) continue;
+      if (persistedBaseKeys.has(messageBaseKey(m.role, m.content))) continue;
+      // Also deduplicate within liveMessages themselves
+      const bk = messageBaseKey(m.role, m.content);
+      if (liveBaseKeys.has(bk)) continue;
+      liveBaseKeys.add(bk);
+      dedupedLive.push(m);
+    }
     return [...persisted, ...dedupedLive];
   }, [sessionQuery.data, liveMessages]);
 
@@ -499,6 +517,11 @@ export function ChatRoute() {
 
         const agent = payload.agent ?? payload.agent_id ?? "";
         if (agent !== selectedAgentRef.current) return;
+
+        if (type === "session_title") {
+          void queryClient.invalidateQueries({ queryKey: queryKeys.sessions(selectedAgentRef.current) });
+          return;
+        }
 
         const eventSession = payload.session ?? payload.session_id ?? null;
         const currentSession = selectedSessionRef.current;
@@ -592,7 +615,8 @@ export function ChatRoute() {
         }
         if (type === "session_message") {
           const role = payload.role ?? "assistant";
-          const content = toText(payload.content ?? payload.message ?? payload.response);
+          const content = toText(payload.content ?? payload.message ?? payload.response).trim();
+          if (!content) return; // skip empty messages
           const key = messageKey(role, content, payload.timestamp);
           const baseKey = messageBaseKey(role, content);
           if (seenKeysRef.current.has(key) || seenKeysRef.current.has(baseKey)) return;
@@ -925,43 +949,45 @@ export function ChatRoute() {
   ];
 
   // ── Render ─────────────────────────────────────────
+  const handleSidebarSelect = useCallback((sessionId: string) => {
+    userPickedSessionRef.current = true;
+    setSelectedSession(sessionId);
+  }, []);
+
   return (
-    <div className="flex flex-col h-full bg-[var(--bg)]">
+    <div className="flex h-full bg-[var(--bg)]">
+      {/* ── Session sidebar ─────────────────────── */}
+      <SessionSidebar
+        sessions={sessions}
+        selectedSession={selectedSession}
+        currentBackendSession={currentSessionQuery.data?.session_id ?? null}
+        onSelect={handleSidebarSelect}
+        onNewSession={startNewSession}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed((p) => !p)}
+        typing={typing}
+        agentIds={agentIds}
+        selectedAgent={selectedAgent}
+        onAgentChange={(v) => { userPickedSessionRef.current = false; setSelectedAgent(v); }}
+      />
+
+      {/* ── Chat panel ──────────────────────────── */}
+      <div className="flex flex-col flex-1 min-w-0">
       {/* ── Top bar ──────────────────────────────── */}
       <div className="flex items-center gap-2 px-4 h-12 border-b border-white/[0.06] bg-white/[0.02] backdrop-blur-sm shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-400/10">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-400/10 shrink-0">
             <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
           </span>
-          <span className="text-sm font-semibold text-slate-100">Command</span>
-        </div>
-
-        <Separator className="!h-5 !w-px !bg-white/[0.08]" />
-
-        <div className="flex items-center gap-1.5 min-w-0">
-          <Select
-            value={selectedAgent}
-            onValueChange={(v) => { userPickedSessionRef.current = false; setSelectedAgent(v); }}
-            icon={<Bot className="h-3 w-3" />}
-            className="h-7 min-w-[90px] max-w-[180px] rounded-lg text-xs border-white/[0.06]"
-          >
-            {agentIds.map((id) => (
-              <SelectItem key={id} value={id}>{id}</SelectItem>
-            ))}
-          </Select>
-          <Select
-            value={selectedSession}
-            onValueChange={(v) => { userPickedSessionRef.current = true; setSelectedSession(v); }}
-            disabled={!sessions.length}
-            icon={<Clock className="h-3 w-3 text-slate-500" />}
-            className="h-7 min-w-[120px] max-w-[260px] rounded-lg text-xs border-white/[0.06]"
-          >
-            {sessions.map((s) => (
-              <SelectItem key={s.session_id} value={s.session_id}>
-                {sessionLabel(s.session_id, s.modified)}
-              </SelectItem>
-            ))}
-          </Select>
+          <span className="text-sm font-semibold text-slate-100 shrink-0">Command</span>
+          {selectedSession && (
+            <>
+              <Separator className="!h-5 !w-px !bg-white/[0.08]" />
+              <span className="text-xs text-slate-400 truncate">
+                {sessions.find((s) => s.session_id === selectedSession)?.title || selectedSession.slice(0, 24)}
+              </span>
+            </>
+          )}
         </div>
 
         <div className="ml-auto flex items-center gap-1">
@@ -975,6 +1001,9 @@ export function ChatRoute() {
               {allMessages.length} msgs{contextBoundary > 0 && ` (${contextWindowSize} in ctx)`} · {recentReceiptTokens.toLocaleString()} tok
             </span>
           )}
+          <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={() => setSidebarCollapsed((p) => !p)} title="Toggle sessions sidebar (⌘J)">
+            {sidebarCollapsed ? <PanelLeft className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
+          </Button>
           <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={toggleSearch} title="Search messages (⌘F)">
             <Search className="h-3.5 w-3.5" />
           </Button>
@@ -983,9 +1012,6 @@ export function ChatRoute() {
           </Button>
           <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={compactSession} title="Compact history" disabled={!allMessages.length}>
             <Minimize2 className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={startNewSession} title="New session">
-            <Plus className="h-3.5 w-3.5" />
           </Button>
           <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={() => setShowActivity((p) => !p)} title="Toggle activity">
             {showActivity ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
@@ -1104,6 +1130,7 @@ export function ChatRoute() {
               const isContextDivider = contextBoundary > 0 && index === contextBoundary;
 
               if (isTool && message.content.trim().startsWith("{")) return null;
+              if (!message.content.trim()) return null;
               if (isOutOfContext && collapsedOutOfContext && !isCompactedHistory) return null;
 
               return (
@@ -1460,6 +1487,7 @@ export function ChatRoute() {
           </div>
         </div>
       </div>
+      </div>
     </div>
   );
 }
@@ -1470,13 +1498,14 @@ function normalizeMessage(message: SessionMessage): LiveMessage {
   const msg = message as SessionMessage & { images?: string[] };
   return {
     role: message.role ?? "assistant",
-    content: toText(message.content),
+    content: toText(message.content).trim(),
     timestamp: typeof message.timestamp === "number" ? message.timestamp : Date.now(),
     images: msg.images,
   };
 }
 
-function sessionLabel(sessionId: string, modified?: number): string {
+function sessionLabel(sessionId: string, modified?: number, title?: string): string {
+  if (title) return title;
   const shortId = sessionId.length > 20 ? `${sessionId.slice(0, 16)}…` : sessionId;
   if (!modified) return shortId;
   return `${shortId} · ${new Date(modified * 1000).toLocaleDateString()}`;

@@ -11,7 +11,7 @@
 
 #![cfg(feature = "playwright")]
 
-use mini_claw::tools::browser_service::BrowserService;
+use mini_claw::tools::builtins::browser_service::BrowserService;
 
 #[tokio::test]
 async fn playwright_browser_roundtrip() {

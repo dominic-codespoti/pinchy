@@ -1,9 +1,8 @@
-//! GitHub Copilot provider via the community Copilot SDK.
+//! GitHub Copilot provider via direct HTTP proxy.
 //!
-//! Routes chat through the Copilot CLI using `copilot_sdk`.  When the
-//! CLI is unavailable or no token is configured the provider returns
-//! a clearly-labelled stub response so the rest of the system keeps
-//! working.
+//! Routes chat through the Copilot API proxy using direct HTTP requests.
+//! When no token is configured the provider returns a clearly-labelled
+//! stub response so the rest of the system keeps working.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -26,16 +25,15 @@ const DEFAULT_COPILOT_API_BASE: &str = "https://api.githubcopilot.com";
 // CopilotProvider
 // ---------------------------------------------------------------------------
 
-/// Provider that talks to GitHub Copilot through the community Copilot
-/// SDK.  Requires the Copilot CLI to be installed and a valid GitHub
-/// token in the `COPILOT_TOKEN` environment variable.
+/// Provider that talks to GitHub Copilot through direct HTTP requests
+/// to the Copilot API proxy.  Requires a valid GitHub token obtained
+/// via device-flow auth or the `COPILOT_TOKEN` environment variable.
 pub struct CopilotProvider {
-    /// The GitHub access token (used to build the SDK client).
+    /// The GitHub access token (used for token exchange).
     token: Arc<Mutex<Option<String>>>,
     /// A cached Copilot session token obtained via token exchange.
     /// Wrapped in `Mutex` for interior mutability (token refresh).
     copilot_token: Arc<Mutex<Option<copilot_token::CopilotToken>>>,
-    client: Arc<Mutex<Option<copilot_sdk::CopilotClient>>>,
     /// Optional header overrides from config.
     header_overrides: Option<std::collections::HashMap<String, String>>,
     /// Model identifier sent in the request body (e.g. "claude-sonnet-4").
@@ -53,10 +51,10 @@ impl Default for CopilotProvider {
 impl CopilotProvider {
     /// Create a new provider.
     ///
-    /// Reads `COPILOT_TOKEN` from the environment.  If the variable is
-    /// present the SDK client is eagerly built (but **not** started —
-    /// the CLI process is only spawned on first use).  When the variable
-    /// is absent the provider operates in stub mode.
+    /// Reads `COPILOT_TOKEN` from the environment.  When the variable
+    /// is absent the provider attempts to load a stored GitHub token
+    /// from keyring/file.  If neither is available it operates in stub
+    /// mode.
     pub fn new() -> Self {
         Self::with_model_and_headers("gpt-4o", None)
     }
@@ -113,35 +111,73 @@ impl CopilotProvider {
                     }
                 });
 
-        // --- 3. Build SDK client (only when no cached Copilot token) -----
-        let client = if cached_ct.is_some() {
-            // When we have a direct Copilot token we bypass the SDK.
-            None
-        } else {
-            token.as_ref().map(|t| {
-                copilot_sdk::CopilotClient::new(copilot_sdk::CopilotClientOptions {
-                    github_token: Some(t.clone()),
-                    ..Default::default()
-                })
-            })
-        };
-
         if cached_ct.is_some() {
             debug!("CopilotProvider: will use cached Copilot session token");
-        } else if client.is_some() {
-            debug!("CopilotProvider: SDK client ready (not yet started)");
+        } else if token.is_some() {
+            debug!("CopilotProvider: GitHub token available for token exchange");
         } else {
-            warn!("CopilotProvider: no COPILOT_TOKEN or SDK build failed — stub mode");
+            warn!("CopilotProvider: no COPILOT_TOKEN or stored token — stub mode");
         }
 
-        Self {
+        let s = Self {
             token: Arc::new(Mutex::new(token)),
             copilot_token: Arc::new(Mutex::new(cached_ct)),
-            client: Arc::new(Mutex::new(client)),
-            header_overrides,
+            header_overrides: header_overrides.clone(),
             model_id: model_id.to_string(),
             reasoning_effort,
+        };
+
+        info!(
+            model = %s.model_id,
+            header_overrides = ?s.header_overrides,
+            "CopilotProvider: constructed"
+        );
+
+        s
+    }
+
+    /// Ensure the cached Copilot session token is fresh, refreshing it
+    /// from the GitHub access token when expired or missing (#5).
+    ///
+    /// Returns `(endpoint, bearer)` on success, or `None` if no valid
+    /// token is available.
+    async fn ensure_fresh_token(&self) -> Option<(String, String)> {
+        let mut ct_guard = self.copilot_token.lock().await;
+
+        let should_exchange = match &*ct_guard {
+            None => true,
+            Some(ct) => ct.is_expired(),
+        };
+
+        if should_exchange {
+            if let Some(gh_token) = resolve_gh_token(&self.token).await {
+                debug!("CopilotProvider: exchanging/refreshing Copilot session token…");
+                match copilot_token::exchange_github_for_copilot_token(&gh_token).await {
+                    Ok(new_ct) => {
+                        let _ = copilot_token::cache_copilot_token(&new_ct);
+                        debug!("CopilotProvider: token refresh succeeded");
+                        *ct_guard = Some(new_ct);
+                    }
+                    Err(e) => {
+                        warn!("CopilotProvider: token refresh failed: {e:#}");
+                    }
+                }
+            }
         }
+
+        if let Some(ref ct) = *ct_guard {
+            if !ct.is_expired() {
+                let ep = ct
+                    .proxy_ep
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(DEFAULT_COPILOT_API_BASE)
+                    .to_string();
+                return Some((ep, ct.token.clone()));
+            }
+        }
+
+        None
     }
 
     /// Build a provider for testing with a pre-injected Copilot session
@@ -156,7 +192,6 @@ impl CopilotProvider {
         Self {
             token: Arc::new(Mutex::new(Some("test-gh-token".to_string()))),
             copilot_token: Arc::new(Mutex::new(Some(ct))),
-            client: Arc::new(Mutex::new(None)),
             header_overrides: None,
             model_id: "gpt-4o".to_string(),
             reasoning_effort: None,
@@ -172,66 +207,31 @@ impl CopilotProvider {
         functions: &[serde_json::Value],
     ) -> Result<(ProviderResponse, Option<super::TokenUsage>), anyhow::Error> {
         // -----------------------------------------------------------------
-        // Fast path: proxy HTTP with tools
+        // Proxy HTTP with tools
         // -----------------------------------------------------------------
-        {
-            let mut ct_guard = self.copilot_token.lock().await;
-
-            // Refresh token if needed.
-            let should_exchange = match &*ct_guard {
-                None => true,
-                Some(ct) => ct.is_expired(),
+        if let Some((ep, bearer)) = self.ensure_fresh_token().await {
+            let result = if is_anthropic_model(&self.model_id) {
+                self.try_anthropic_http_with_tools(&ep, &bearer, messages, functions)
+                    .await
+            } else {
+                self.try_proxy_http_with_tools(&ep, &bearer, messages, functions)
+                    .await
             };
-
-            if should_exchange {
-                if let Some(gh_token) = resolve_gh_token(&self.token).await {
-                    debug!(
-                        "CopilotProvider: exchanging/refreshing Copilot session token (fn-call)…"
-                    );
-                    match copilot_token::exchange_github_for_copilot_token(&gh_token).await {
-                        Ok(new_ct) => {
-                            let _ = copilot_token::cache_copilot_token(&new_ct);
-                            debug!("CopilotProvider: token refresh succeeded");
-                            *ct_guard = Some(new_ct);
-                        }
-                        Err(e) => {
-                            warn!("CopilotProvider: token refresh failed: {e:#}");
-                        }
-                    }
-                }
-            }
-
-            // Try proxy if we have a valid (non-expired) token.
-            if let Some(ref ct) = *ct_guard {
-                if !ct.is_expired() {
-                    let ep = ct
-                        .proxy_ep
-                        .as_deref()
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or(DEFAULT_COPILOT_API_BASE);
-                    let result = if is_anthropic_model(&self.model_id) {
-                        self.try_anthropic_http_with_tools(ep, &ct.token, messages, functions)
-                            .await
-                    } else {
-                        self.try_proxy_http_with_tools(ep, &ct.token, messages, functions)
-                            .await
-                    };
-                    match result {
-                        Ok((resp, usage)) => return Ok((resp, usage)),
-                        Err(e) => {
-                            warn!("CopilotProvider: proxy (fn-call) failed ({e:#}), falling back");
-                        }
-                    }
+            match result {
+                Ok((resp, usage)) => return Ok((resp, usage)),
+                Err(e) => {
+                    warn!("CopilotProvider: proxy (fn-call) failed ({e:#})");
                 }
             }
         }
 
-        // -----------------------------------------------------------------
-        // Fallback: plain send_chat (SDK path will not get tools metadata
-        // natively, but the agent runtime's enforcement retry still works).
-        // -----------------------------------------------------------------
-        let reply = self.send_chat(messages).await?;
-        Ok((ProviderResponse::Final(reply), None))
+        // No valid token available
+        Err(crate::auth::AuthError {
+            provider: "GitHub Copilot".into(),
+            hint: "your token may have expired or is invalid — run `/gh-login` to re-authorise"
+                .into(),
+        }
+        .into())
     }
 
     /// Attempt a direct HTTP POST to the Copilot proxy endpoint.
@@ -449,7 +449,6 @@ impl CopilotProvider {
                 // Opus uses adaptive thinking with effort level.
                 body["thinking"] = json!({
                     "type": "adaptive",
-                    "effort": effort,
                 });
             } else {
                 // Other Claude models use enabled + budget_tokens.
@@ -548,125 +547,29 @@ async fn resolve_gh_token(token: &Mutex<Option<String>>) -> Option<String> {
 impl ModelProvider for CopilotProvider {
     async fn send_chat(&self, messages: &[ChatMessage]) -> anyhow::Result<String> {
         // -----------------------------------------------------------------
-        // Fast path: direct HTTP proxy with token-refresh on expiry.
+        // Direct HTTP proxy
         // -----------------------------------------------------------------
-        {
-            let mut ct_guard = self.copilot_token.lock().await;
-
-            let should_exchange = match &*ct_guard {
-                None => true,
-                Some(ct) => ct.is_expired(),
-            };
-
-            if should_exchange {
-                if let Some(gh_token) = resolve_gh_token(&self.token).await {
-                    debug!("CopilotProvider: exchanging/refreshing Copilot session token…");
-                    match copilot_token::exchange_github_for_copilot_token(&gh_token).await {
-                        Ok(new_ct) => {
-                            let _ = copilot_token::cache_copilot_token(&new_ct);
-                            debug!("CopilotProvider: token refresh succeeded");
-                            *ct_guard = Some(new_ct);
-                        }
-                        Err(e) => {
-                            warn!("CopilotProvider: token refresh failed: {e:#}");
-                        }
-                    }
-                }
-            }
-
-            if let Some(ref ct) = *ct_guard {
-                if !ct.is_expired() {
-                    let ep = ct
-                        .proxy_ep
-                        .as_deref()
-                        .filter(|s| !s.is_empty())
-                        .unwrap_or(DEFAULT_COPILOT_API_BASE);
-                    let result = if is_anthropic_model(&self.model_id) {
-                        self.try_anthropic_http(ep, &ct.token, messages).await
-                    } else {
-                        self.try_proxy_http(ep, &ct.token, messages).await
-                    };
-                    match result {
-                        Ok(text) => return Ok(text),
-                        Err(e) => {
-                            warn!("CopilotProvider: proxy failed ({e:#}), falling back to SDK");
-                        }
-                    }
-                }
-            }
-        }
-
-        // -----------------------------------------------------------------
-        // CLI availability gate.
-        // -----------------------------------------------------------------
-        if !copilot_cli_available() {
-            return Err(crate::auth::AuthError {
-                provider: "GitHub Copilot".into(),
-                hint: "your token may have expired or is invalid — run `/gh-login` to re-authorise"
-                    .into(),
-            }
-            .into());
-        }
-
-        // -----------------------------------------------------------------
-        // SDK/CLI path.
-        // -----------------------------------------------------------------
-        let mut guard = self.client.lock().await;
-
-        if guard.is_none() {
-            if let Some(gh_token) = resolve_gh_token(&self.token).await {
-                *guard = Some(copilot_sdk::CopilotClient::new(
-                    copilot_sdk::CopilotClientOptions {
-                        github_token: Some(gh_token),
-                        ..Default::default()
-                    },
-                ));
+        if let Some((ep, bearer)) = self.ensure_fresh_token().await {
+            let result = if is_anthropic_model(&self.model_id) {
+                self.try_anthropic_http(&ep, &bearer, messages).await
             } else {
-                return Err(crate::auth::AuthError {
-                    provider: "GitHub Copilot".into(),
-                    hint: "no token available — run `/gh-login` to authenticate".into(),
-                }
-                .into());
-            }
-        }
-
-        let client = guard.as_ref().unwrap();
-
-        if let Err(e) = client.start().await {
-            return Ok(format!("[copilot stub] start failed: {e}"));
-        }
-
-        let prompt: String = messages
-            .iter()
-            .map(|m| format!("[{}]: {}", m.role, m.content))
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let config = copilot_sdk::SessionConfig::default();
-        match client.create_session(config).await {
-            Ok(session) => {
-                let result = session
-                    .send_and_wait(
-                        copilot_sdk::MessageOptions {
-                            prompt: prompt.to_string(),
-                            attachments: None,
-                            mode: None,
-                        },
-                        None,
-                    )
-                    .await;
-                let _ = session.destroy().await;
-                match result {
-                    Ok(Some(event)) => Ok(event
-                        .assistant_message_content()
-                        .unwrap_or("[copilot stub] no content in response")
-                        .to_string()),
-                    Ok(None) => anyhow::bail!("[copilot] no response event from SDK session"),
-                    Err(e) => anyhow::bail!("[copilot] SDK send failed: {e}"),
+                self.try_proxy_http(&ep, &bearer, messages).await
+            };
+            match result {
+                Ok(text) => return Ok(text),
+                Err(e) => {
+                    warn!("CopilotProvider: proxy failed ({e:#})");
                 }
             }
-            Err(e) => anyhow::bail!("[copilot] SDK session creation failed: {e}"),
         }
+
+        // No valid token available
+        Err(crate::auth::AuthError {
+            provider: "GitHub Copilot".into(),
+            hint: "your token may have expired or is invalid — run `/gh-login` to re-authorise"
+                .into(),
+        }
+        .into())
     }
 
     async fn send_chat_with_functions(
@@ -711,7 +614,6 @@ fn proxy_paths() -> Vec<String> {
             .filter(|s| !s.is_empty())
             .collect();
         if !paths.is_empty() {
-            debug!("CopilotProvider: using custom proxy endpoints from COPILOT_PROXY_ENDPOINTS");
             return paths;
         }
     }
@@ -744,6 +646,7 @@ fn copilot_headers(
     h.insert("Openai-Intent", "conversation-panel".parse().unwrap());
 
     if let Some(overrides) = overrides {
+        debug!(overrides = ?overrides, "copilot_headers: applying header overrides");
         for (key, value) in overrides {
             if let (Ok(name), Ok(val)) = (
                 reqwest::header::HeaderName::from_bytes(key.as_bytes()),
@@ -754,6 +657,8 @@ fn copilot_headers(
                 warn!(header = %key, "copilot: skipping invalid header override");
             }
         }
+    } else {
+        debug!("copilot_headers: no header overrides configured");
     }
 
     h
@@ -762,15 +667,15 @@ fn copilot_headers(
 /// POST a JSON body to `url` with retry logic for transient errors.
 ///
 /// Retries up to `MAX_RETRIES` times on transport errors and 5xx
-/// responses with exponential backoff.  Returns the parsed JSON
-/// response on success.
+/// responses with exponential backoff capped at 30 s (#4).
 async fn post_with_retry(
     client: &reqwest::Client,
     url: &str,
     headers: &reqwest::header::HeaderMap,
     body: &serde_json::Value,
 ) -> Result<Value, Option<String>> {
-    const MAX_RETRIES: u32 = 10;
+    const MAX_RETRIES: u32 = 4;
+    const MAX_DELAY: Duration = Duration::from_secs(30);
     let mut attempt: u32 = 0;
 
     loop {
@@ -788,7 +693,7 @@ async fn post_with_retry(
                 warn!("CopilotProvider: {msg}");
                 if attempt < MAX_RETRIES && is_retryable_request_error(&e) {
                     attempt += 1;
-                    let delay = Duration::from_millis(1000 * 2u64.pow(attempt - 1));
+                    let delay = Duration::from_millis(1000 * 2u64.pow(attempt - 1)).min(MAX_DELAY);
                     warn!("CopilotProvider: retrying {url} (attempt {attempt}/{MAX_RETRIES}) after {delay:?}");
                     tokio::time::sleep(delay).await;
                     continue;
@@ -816,7 +721,7 @@ async fn post_with_retry(
             && attempt < MAX_RETRIES
         {
             attempt += 1;
-            let delay = Duration::from_millis(1000 * 2u64.pow(attempt - 1));
+            let delay = Duration::from_millis(1000 * 2u64.pow(attempt - 1)).min(MAX_DELAY);
             warn!(
                 "CopilotProvider: retrying {url} (attempt {attempt}/{MAX_RETRIES}) after {delay:?}"
             );
@@ -892,16 +797,6 @@ fn extract_assistant_text(v: &Value) -> Option<String> {
 /// Extract a tool call from an OpenAI-compatible response JSON.
 fn extract_tool_call(json: &Value) -> Option<ProviderResponse> {
     crate::models::parse_tool_calls(json)
-}
-
-/// Check whether the Copilot CLI / language-server binary is on `PATH`.
-fn copilot_cli_available() -> bool {
-    std::process::Command::new("copilot-language-server")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -1170,6 +1065,14 @@ struct AnthropicToolUse {
     input_json: String,
 }
 
+/// Per-block accumulator for SSE content blocks (#17).
+struct BlockAccum {
+    block_type: String,
+    tool_id: String,
+    tool_name: String,
+    json_buf: String,
+}
+
 /// Parse a full Anthropic SSE stream from the response body into an
 /// [`AnthropicResult`].
 ///
@@ -1187,11 +1090,8 @@ async fn parse_anthropic_sse(resp: reqwest::Response) -> anyhow::Result<Anthropi
         model: String::new(),
     };
 
-    // Per-block accumulators indexed by content block index.
-    let mut block_types: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
-    let mut tool_ids: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
-    let mut tool_names: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
-    let mut json_accum: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
+    // Single map for per-block state (#17).
+    let mut blocks: std::collections::HashMap<u64, BlockAccum> = std::collections::HashMap::new();
 
     // Read the byte stream and process SSE lines.
     let mut stream = resp.bytes_stream();
@@ -1216,7 +1116,6 @@ async fn parse_anthropic_sse(resp: reqwest::Response) -> anyhow::Result<Anthropi
             } else if let Some(d) = line.strip_prefix("data:") {
                 d
             } else {
-                // event: lines etc — skip
                 trace!(line = %line, "Anthropic SSE: skipping non-data line");
                 continue;
             };
@@ -1254,22 +1153,29 @@ async fn parse_anthropic_sse(resp: reqwest::Response) -> anyhow::Result<Anthropi
                             .and_then(|t| t.as_str())
                             .unwrap_or("")
                             .to_string();
-                        if btype == "tool_use" {
-                            let id = cb
-                                .get("id")
-                                .and_then(|i| i.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            let name = cb
-                                .get("name")
-                                .and_then(|n| n.as_str())
-                                .unwrap_or("")
-                                .to_string();
-                            tool_ids.insert(idx, id);
-                            tool_names.insert(idx, name);
-                            json_accum.insert(idx, String::new());
-                        }
-                        block_types.insert(idx, btype);
+                        let (tool_id, tool_name) = if btype == "tool_use" {
+                            (
+                                cb.get("id")
+                                    .and_then(|i| i.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                                cb.get("name")
+                                    .and_then(|n| n.as_str())
+                                    .unwrap_or("")
+                                    .to_string(),
+                            )
+                        } else {
+                            (String::new(), String::new())
+                        };
+                        blocks.insert(
+                            idx,
+                            BlockAccum {
+                                block_type: btype,
+                                tool_id,
+                                tool_name,
+                                json_buf: String::new(),
+                            },
+                        );
                     }
                 }
                 "content_block_delta" => {
@@ -1285,7 +1191,9 @@ async fn parse_anthropic_sse(resp: reqwest::Response) -> anyhow::Result<Anthropi
                             "input_json_delta" => {
                                 if let Some(pj) = delta.get("partial_json").and_then(|p| p.as_str())
                                 {
-                                    json_accum.entry(idx).or_default().push_str(pj);
+                                    if let Some(block) = blocks.get_mut(&idx) {
+                                        block.json_buf.push_str(pj);
+                                    }
                                 }
                             }
                             "thinking_delta" | "signature_delta" => {
@@ -1297,17 +1205,15 @@ async fn parse_anthropic_sse(resp: reqwest::Response) -> anyhow::Result<Anthropi
                 }
                 "content_block_stop" => {
                     let idx = v.get("index").and_then(|i| i.as_u64()).unwrap_or(0);
-                    if block_types.get(&idx).map(|s| s.as_str()) == Some("tool_use") {
-                        let id = tool_ids.remove(&idx).unwrap_or_default();
-                        let name = tool_names.remove(&idx).unwrap_or_default();
-                        let raw = json_accum.remove(&idx).unwrap_or_default();
-                        result.tool_uses.push(AnthropicToolUse {
-                            id,
-                            name,
-                            input_json: raw,
-                        });
+                    if let Some(block) = blocks.remove(&idx) {
+                        if block.block_type == "tool_use" {
+                            result.tool_uses.push(AnthropicToolUse {
+                                id: block.tool_id,
+                                name: block.tool_name,
+                                input_json: block.json_buf,
+                            });
+                        }
                     }
-                    block_types.remove(&idx);
                 }
                 "message_delta" => {
                     if let Some(usage) = v.get("usage") {
@@ -1414,7 +1320,6 @@ mod tests {
         CopilotProvider {
             token: Arc::new(Mutex::new(None)),
             copilot_token: Arc::new(Mutex::new(None)),
-            client: Arc::new(Mutex::new(None)),
             header_overrides: None,
             model_id: "gpt-4o".to_string(),
             reasoning_effort: None,
@@ -1432,7 +1337,6 @@ mod tests {
         CopilotProvider {
             token: Arc::new(Mutex::new(Some("test-gh-token".to_string()))),
             copilot_token: Arc::new(Mutex::new(Some(ct))),
-            client: Arc::new(Mutex::new(None)),
             header_overrides: None,
             model_id: "gpt-4o".to_string(),
             reasoning_effort: None,
@@ -1544,7 +1448,7 @@ mod tests {
 
         wiremock::Mock::given(wiremock::matchers::any())
             .respond_with(wiremock::ResponseTemplate::new(500).set_body_string("internal error"))
-            .expect(3) // 1 initial + 2 retries
+            .expect(5) // 1 initial + 4 retries (MAX_RETRIES = 4)
             .mount(&mock_server)
             .await;
 

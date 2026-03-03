@@ -224,9 +224,15 @@ fn spawn_turn(agent_mut: Arc<Mutex<Agent>>, msg: IncomingMessage) {
 
 fn send_reply(agent_id: String, session_id: Option<String>, channel: String, reply: String) {
     tokio::spawn(async move {
-        // Internal channels (heartbeat, cron) have no connector — publish
-        // directly to the gateway instead of going through comm.
-        if channel.starts_with("cron:") || channel == "heartbeat" {
+        // Internal channels (heartbeat, cron, delegate, inter-agent) have no connector —
+        // publish directly to the gateway instead of going through comm.
+        // Delegate channels are handled synchronously by the delegate tool,
+        // so we only emit a gateway event for UI visibility.
+        if channel.starts_with("cron:")
+            || channel == "heartbeat"
+            || channel.starts_with("delegate:")
+            || channel == "inter-agent"
+        {
             crate::gateway::publish_event_json(&serde_json::json!({
                 "type": "agent_reply",
                 "agent": agent_id,
@@ -238,14 +244,12 @@ fn send_reply(agent_id: String, session_id: Option<String>, channel: String, rep
         }
 
         let ctx = crate::discord::ReplyContext {
-            agent_id: agent_id.clone(),
-            session_id: session_id.clone(),
+            agent_id,
+            session_id,
         };
-        let ch = channel.clone();
-        let rp = reply.clone();
         let send_result = crate::discord::CURRENT_REPLY_CONTEXT
-            .scope(ctx.clone(), async move {
-                crate::comm::send_reply(&ch, &rp).await
+            .scope(ctx, async {
+                crate::comm::send_reply(&channel, &reply).await
             })
             .await;
 

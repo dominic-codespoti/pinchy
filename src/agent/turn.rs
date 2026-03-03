@@ -6,7 +6,9 @@ use tracing::{debug, info, warn};
 
 use crate::comm::IncomingMessage;
 use crate::config::Config;
-use crate::models::{build_provider_manager, ChatMessage, ProviderManager, ProviderResponse};
+use crate::models::{
+    build_provider_manager, ChatMessage, ModelProvider, ProviderManager, ProviderResponse,
+};
 use crate::session::SessionStore;
 use crate::tools;
 
@@ -14,6 +16,65 @@ use super::debug::emit_model_request_debug;
 use super::tool_exec::emit_and_accumulate_usage;
 use super::tool_loop::run_tool_loop;
 use super::types::*;
+
+// ---------------------------------------------------------------------------
+// Session auto-naming
+// ---------------------------------------------------------------------------
+
+/// Generate a short title for a session from the first user message.
+///
+/// Fire-and-forget: call via `tokio::spawn`.  Uses the global
+/// provider manager so we don't need to plumb one through.
+async fn generate_and_set_session_title(
+    agent_id: String,
+    session_id: String,
+    user_message: String,
+) {
+    let Some(pm) = crate::models::get_global_providers() else {
+        debug!("no global provider available for session naming");
+        return;
+    };
+
+    // Truncate the user message so we don't waste tokens.
+    let truncated = crate::utils::truncate_str(&user_message, 300);
+
+    let prompt = format!(
+        "Give this conversation a very short title (max 6 words). \
+         Reply with ONLY the title, no quotes, no punctuation at the end.\n\n\
+         User message: {truncated}"
+    );
+
+    let messages = vec![ChatMessage::user(prompt)];
+    let title = match pm.send_chat(&messages).await {
+        Ok(t) => t.trim().trim_matches('"').trim_matches('\'').to_string(),
+        Err(e) => {
+            warn!(error = %e, "session naming LLM call failed");
+            return;
+        }
+    };
+
+    if title.is_empty() {
+        return;
+    }
+
+    let home = crate::pinchy_home();
+    if let Err(e) =
+        crate::session::index::update_index_title(&home, &session_id, &agent_id, &title).await
+    {
+        warn!(error = %e, "failed to update session title in index");
+        return;
+    }
+
+    // Push a WS event so the UI updates live.
+    crate::gateway::publish_event_json(&serde_json::json!({
+        "type": "session_title",
+        "agent": agent_id,
+        "session": session_id,
+        "title": title,
+    }));
+
+    info!(agent = %agent_id, session = %session_id, title = %title, "auto-named session");
+}
 
 impl Agent {
     // -- bootstrap ----------------------------------------------------------
@@ -141,31 +202,31 @@ impl Agent {
     }
 
     fn build_provider_manager(&self, cfg: Option<&Config>) -> ProviderManager {
-        if self.fallback_models.is_empty() {
-            build_provider_manager(&self.provider, &self.model_id)
-        } else {
-            let agent_cfg = crate::config::AgentConfig {
-                id: self.id.clone(),
-                root: self.agent_root.display().to_string(),
-                model: self.model_config_ref.clone(),
-                heartbeat_secs: None,
-                cron_jobs: Vec::new(),
-                max_tool_iterations: Some(self.max_tool_iterations),
-                enabled_skills: self.enabled_skills.clone(),
-                fallback_models: self.fallback_models.clone(),
-                webhook_secret: None,
-                extra_exec_commands: Vec::new(),
-                history_messages: None,
-                max_turns: None,
-                compact_keep_recent_turns: None,
-                timezone: None,
-                watch_paths: Vec::new(),
-                reasoning_effort: self.reasoning_effort.clone(),
-            };
-            match cfg {
-                Some(c) => crate::models::build_provider_manager_from_config(&agent_cfg, c),
-                None => build_provider_manager(&self.provider, &self.model_id),
-            }
+        // Always prefer the config-based path so that all model config
+        // fields (headers, endpoint, api_key, etc.) are forwarded to
+        // the provider.  The simple `build_provider_manager(provider,
+        // model_id)` shortcut loses those fields.
+        let agent_cfg = crate::config::AgentConfig {
+            id: self.id.clone(),
+            root: self.agent_root.display().to_string(),
+            model: self.model_config_ref.clone(),
+            heartbeat_secs: None,
+            cron_jobs: Vec::new(),
+            max_tool_iterations: Some(self.max_tool_iterations),
+            enabled_skills: self.enabled_skills.clone(),
+            fallback_models: self.fallback_models.clone(),
+            webhook_secret: None,
+            extra_exec_commands: Vec::new(),
+            history_messages: None,
+            max_turns: None,
+            compact_keep_recent_turns: None,
+            timezone: None,
+            watch_paths: Vec::new(),
+            reasoning_effort: self.reasoning_effort.clone(),
+        };
+        match cfg {
+            Some(c) => crate::models::build_provider_manager_from_config(&agent_cfg, c),
+            None => build_provider_manager(&self.provider, &self.model_id),
         }
     }
 
@@ -182,6 +243,18 @@ impl Agent {
             "agent": self.id,
             "session": self.current_session,
         }));
+
+        // Detect first turn: if the session JSONL file doesn't exist yet
+        // (or is empty), this is the first message and we should auto-name.
+        let is_first_turn = if let Some(ref sid) = self.current_session {
+            let session_path = self.workspace.join("sessions").join(format!("{sid}.jsonl"));
+            match tokio::fs::metadata(&session_path).await {
+                Ok(m) => m.len() == 0,
+                Err(_) => true, // file doesn't exist yet
+            }
+        } else {
+            false
+        };
 
         // -- Build message list --
         let mut messages = self
@@ -286,6 +359,18 @@ impl Agent {
 
         // -- Persist final assistant reply --
         self.persist_assistant_reply(&final_reply).await?;
+
+        // -- Auto-name the session on first turn --
+        if is_first_turn {
+            if let Some(ref sid) = self.current_session {
+                let agent_id = self.id.clone();
+                let session_id = sid.clone();
+                let user_msg = msg.content.clone();
+                tokio::spawn(async move {
+                    generate_and_set_session_title(agent_id, session_id, user_msg).await;
+                });
+            }
+        }
 
         let turn_duration = turn_start.elapsed().unwrap_or_default().as_millis() as u64;
         let estimated_cost: Option<f64> = {
@@ -409,8 +494,15 @@ impl Agent {
         msg: &IncomingMessage,
         messages: &[ChatMessage],
     ) -> Vec<serde_json::Value> {
+        // When running inside a delegate context, suppress tools that
+        // would cause the sub-agent to send messages externally instead
+        // of returning results via its reply text.
+        let is_delegated = msg.channel.starts_with("delegate:");
+        let suppress_in_delegation: &[&str] = &["send_message"];
+
         let mut function_defs: Vec<serde_json::Value> = tool_metas
             .iter()
+            .filter(|meta| !(is_delegated && suppress_in_delegation.contains(&meta.name.as_str())))
             .map(|meta| {
                 serde_json::json!({
                     "name": meta.name,
@@ -428,7 +520,9 @@ impl Agent {
             .filter_map(|fd| fd.get("name").and_then(|n| n.as_str()).map(String::from))
             .collect();
         for meta in &plucked {
-            if !existing_names.contains(&meta.name) {
+            if !(existing_names.contains(&meta.name)
+                || is_delegated && suppress_in_delegation.contains(&meta.name.as_str()))
+            {
                 function_defs.push(serde_json::json!({
                     "name": meta.name,
                     "description": meta.description,

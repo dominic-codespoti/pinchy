@@ -6,14 +6,11 @@
 
 pub mod agent;
 pub mod apply_patch;
-pub mod browser;
-pub mod browser_service;
 pub mod cron;
 pub mod delegate;
 pub mod edit_file;
 pub mod exec_shell;
 pub mod list_files;
-pub mod mcp;
 pub mod memory;
 pub mod read_file;
 pub mod self_update;

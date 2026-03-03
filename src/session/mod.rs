@@ -128,14 +128,32 @@ impl SessionStore {
     ///
     /// Uses `OpenOptions::append` for atomic, line-separated writes.
     pub async fn append(workspace: &Path, id: &str, exchange: &Exchange) -> anyhow::Result<()> {
+        Self::append_batch(workspace, id, std::slice::from_ref(exchange)).await
+    }
+
+    /// Append multiple [`Exchange`]s in a single file-open + write (#13).
+    pub async fn append_batch(
+        workspace: &Path,
+        id: &str,
+        exchanges: &[Exchange],
+    ) -> anyhow::Result<()> {
+        if exchanges.is_empty() {
+            return Ok(());
+        }
+
         let sessions_dir = workspace.join("sessions");
         fs::create_dir_all(&sessions_dir)
             .await
             .context("create sessions dir")?;
 
         let path = sessions_dir.join(format!("{id}.jsonl"));
-        let mut line = serde_json::to_string(exchange).context("serialize Exchange")?;
-        line.push('\n');
+
+        let mut buf = String::new();
+        for ex in exchanges {
+            let line = serde_json::to_string(ex).context("serialize Exchange")?;
+            buf.push_str(&line);
+            buf.push('\n');
+        }
 
         let mut file = fs::OpenOptions::new()
             .create(true)
@@ -144,8 +162,12 @@ impl SessionStore {
             .await
             .with_context(|| format!("open session file {}", path.display()))?;
 
-        file.write_all(line.as_bytes()).await?;
-        debug!(path = %path.display(), role = %exchange.role, "exchange appended");
+        file.write_all(buf.as_bytes()).await?;
+        debug!(
+            path = %path.display(),
+            count = exchanges.len(),
+            "exchanges batch-appended"
+        );
         Ok(())
     }
 
@@ -154,6 +176,9 @@ impl SessionStore {
     /// Load up to `limit` most-recent [`Exchange`]s from the session
     /// file `sessions/<id>.jsonl`.
     ///
+    /// Reads the file backwards to avoid deserializing the entire history
+    /// when only the tail is needed (#19).
+    ///
     /// Returns an empty vec when the file does not exist.
     pub async fn load_history(
         workspace: &Path,
@@ -161,28 +186,58 @@ impl SessionStore {
         limit: usize,
     ) -> anyhow::Result<Vec<Exchange>> {
         let path = workspace.join("sessions").join(format!("{id}.jsonl"));
-        let content = match fs::read_to_string(&path).await {
-            Ok(c) => c,
+        let bytes = match fs::read(&path).await {
+            Ok(b) => b,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
         };
 
-        let mut exchanges: Vec<Exchange> = Vec::new();
-        for line in content.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
+        // Walk backwards through the byte buffer to find the last `limit`
+        // non-empty lines.  We collect byte-range slices first, then
+        // deserialize only those – avoiding allocations for the lines we
+        // don't need.
+        let mut tail_lines: Vec<&[u8]> = Vec::with_capacity(limit);
+        let mut end = bytes.len();
+
+        // Skip trailing newlines / whitespace
+        while end > 0 && bytes[end - 1].is_ascii_whitespace() {
+            end -= 1;
+        }
+
+        while end > 0 && tail_lines.len() < limit {
+            // Find the start of this line
+            let line_end = end;
+            let line_start = match bytes[..end].iter().rposition(|&b| b == b'\n') {
+                Some(pos) => pos + 1,
+                None => 0,
+            };
+            let slice = &bytes[line_start..line_end];
+            let trimmed = slice
+                .iter()
+                .copied()
+                .skip_while(|b| b.is_ascii_whitespace())
+                .count();
+            if trimmed > 0 {
+                tail_lines.push(slice);
             }
-            match serde_json::from_str::<Exchange>(line) {
+            end = if line_start > 0 { line_start - 1 } else { 0 };
+            // Skip whitespace between lines
+            while end > 0 && bytes[end - 1].is_ascii_whitespace() && bytes[end - 1] != b'\n' {
+                end -= 1;
+            }
+        }
+
+        // Reverse so oldest-first order is preserved.
+        tail_lines.reverse();
+
+        let mut exchanges: Vec<Exchange> = Vec::with_capacity(tail_lines.len());
+        for line in tail_lines {
+            match serde_json::from_slice::<Exchange>(line) {
                 Ok(ex) => exchanges.push(ex),
                 Err(e) => {
                     debug!(error = %e, "skipping malformed JSONL line");
                 }
             }
-        }
-
-        if exchanges.len() > limit {
-            exchanges = exchanges.split_off(exchanges.len() - limit);
         }
 
         Ok(exchanges)

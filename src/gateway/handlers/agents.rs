@@ -2,6 +2,20 @@ use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
 
 use super::super::auth::validate_path_segment;
 
+use serde::Deserialize;
+
+/// Deserialize a JSON field that can be missing, `null`, or a value.
+/// - missing key → outer `None` (don't update)
+/// - explicit `null` → `Some(None)` (clear the field)
+/// - a value → `Some(Some(value))`
+fn deserialize_optional_nullable<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Ok(Some(Option::<T>::deserialize(deserializer)?))
+}
+
 /// `GET /api/agents` — list all agent directories.
 pub(crate) async fn api_agents_list() -> impl IntoResponse {
     let agents_dir = crate::utils::agents_dir();
@@ -400,8 +414,9 @@ pub(crate) struct UpdateAgentRequest {
     heartbeat: Option<String>,
     #[serde(default)]
     model: Option<String>,
-    #[serde(default)]
-    heartbeat_secs: Option<u64>,
+    /// `null` → disable heartbeat (set to None), missing → don't update, number → update interval.
+    #[serde(default, deserialize_with = "deserialize_optional_nullable")]
+    heartbeat_secs: Option<Option<u64>>,
     #[serde(default)]
     max_tool_iterations: Option<usize>,
     #[serde(default)]
@@ -507,8 +522,9 @@ pub(crate) async fn api_agent_update(
                         ac.model = Some(model);
                         updated.push("model");
                     }
-                    if let Some(hs) = body.heartbeat_secs {
-                        ac.heartbeat_secs = Some(hs);
+                    if let Some(hs_opt) = body.heartbeat_secs {
+                        // Some(Some(n)) → set interval, Some(None) → disable heartbeat
+                        ac.heartbeat_secs = hs_opt;
                         updated.push("heartbeat_secs");
                     }
                     if let Some(mti) = body.max_tool_iterations {

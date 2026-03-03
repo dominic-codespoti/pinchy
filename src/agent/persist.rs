@@ -15,11 +15,10 @@ impl Agent {
             return;
         };
         let ts_ms = epoch_millis();
-        for m in messages {
-            if !(m.is_tool() || m.is_assistant() && m.tool_calls.is_some()) {
-                continue;
-            }
-            let exchange = Exchange {
+        let exchanges: Vec<Exchange> = messages
+            .iter()
+            .filter(|m| m.is_tool() || (m.is_assistant() && m.tool_calls.is_some()))
+            .map(|m| Exchange {
                 timestamp: ts_ms,
                 role: m.role.clone(),
                 content: m.content.clone(),
@@ -27,10 +26,11 @@ impl Agent {
                 tool_calls: m.tool_calls.clone(),
                 tool_call_id: m.tool_call_id.clone(),
                 images: m.images.clone(),
-            };
-            if let Err(e) = SessionStore::append(&self.workspace, session_id, &exchange).await {
-                warn!(error = %e, role = %m.role, "failed to persist tool message");
-            }
+            })
+            .collect();
+
+        if let Err(e) = SessionStore::append_batch(&self.workspace, session_id, &exchanges).await {
+            warn!(error = %e, count = exchanges.len(), "failed to persist tool messages");
         }
     }
     /// Persist just the user message to the session JSONL.

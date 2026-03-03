@@ -27,32 +27,29 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
 clap = { version = "4", features = ["derive"] }
 serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend", "builder"] }
-tokio-cron-scheduler = "0.13"
+tokio-cron-scheduler = "0.15"
 axum = { version = "0.7", features = ["ws", "json"] }
 tower-http = { version = "0.6", features = ["fs", "cors"] }
 anyhow = "1"
 async-trait = "0.1"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
-cron = "0.13"
-copilot-sdk = { package = "copilot-sdk-supercharged", version = "1.0" }
+cron = "0.15"
 keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", default-features = false, features = ["linux-native"] }
 dirs = "5"
 uuid = { version = "1", features = ["v4"] }
-dialoguer = "0.10"
+dialoguer = "0.12"
 tiktoken-rs = "0.9"
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite = { version = "0.38", features = ["bundled"] }
 tokio-util = { version = "0.7", default-features = false }
 ring = "0.17"
 base64 = "0.22"
 libc = "0.2"
 openssl = { version = "0.10", features = ["vendored"], optional = true }
-rmcp = { version = "0.16", default-features = false, features = ["client", "server", "transport-streamable-http-client-reqwest", "reqwest"] }
-playwright-rs = "0.8"
-schemars = "0.8"
-notify-debouncer-mini = "0.5"
+schemars = "1.2"
+notify-debouncer-mini = "0.7"
 
 [dev-dependencies]
 tempfile = "3"
@@ -61,13 +58,5 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = "0.3"
 
 [features]
-default = ["playwright"]
+default = []
 vendored-openssl = ["openssl"]
-playwright = []
-
-[profile.release]
-strip = true
-lto = "fat"
-codegen-units = 1
-panic = "abort"
-opt-level = "z"
