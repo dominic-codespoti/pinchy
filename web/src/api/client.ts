@@ -39,7 +39,8 @@ const sessionSummarySchema = z.object({
   session_id: z.string(),
   size: z.number().optional(),
   modified: z.number().optional(),
-  title: z.string().optional(),
+  created_at: z.number().optional(),
+  title: z.string().nullable().optional(),
 });
 
 const listSessionsResponseSchema = z.object({
@@ -556,6 +557,31 @@ export async function listDebugModelRequests(): Promise<Record<string, unknown>[
   return res.requests ?? [];
 }
 
+// ── Model discovery ──────────────────────────────────
+
+const modelInfoSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  vendor: z.string().nullable().optional(),
+  supported_endpoints: z.array(z.string()),
+  is_default: z.boolean(),
+});
+
+const modelsResponseSchema = z.object({
+  models: z.array(modelInfoSchema).nullable(),
+  message: z.string().optional(),
+});
+
+export type ModelInfo = z.infer<typeof modelInfoSchema>;
+
+export async function listProviderModels(configModelId: string): Promise<ModelInfo[] | null> {
+  const res = await request<z.infer<typeof modelsResponseSchema>>(
+    `/api/models/${encodeURIComponent(configModelId)}`,
+  );
+  const parsed = modelsResponseSchema.parse(res);
+  return parsed.models;
+}
+
 // ── Query keys ───────────────────────────────────────
 
 export const queryKeys = {
@@ -580,4 +606,5 @@ export const queryKeys = {
   slashCommands: ["slash-commands"] as const,
   memory: (agentId: string) => ["memory", agentId] as const,
   usage: (opts?: { agent?: string }) => opts?.agent ? ["usage", opts.agent] as const : ["usage"] as const,
+  providerModels: (configModelId: string) => ["provider-models", configModelId] as const,
 };

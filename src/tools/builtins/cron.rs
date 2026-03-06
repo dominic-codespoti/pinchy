@@ -42,8 +42,7 @@ pub async fn list_cron_jobs(_workspace: &Path, args: Value) -> anyhow::Result<Va
             }
         }
 
-        let ws = entry.path();
-        let jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
+        let jobs = crate::scheduler::load_persisted_cron_jobs(&agent_id).await;
         for job in &jobs {
             let kind = match &job.kind {
                 crate::scheduler::JobKind::Recurring => "Recurring",
@@ -89,8 +88,8 @@ pub async fn create_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("create_cron_job requires a 'message' string"))?;
 
-    let ws = crate::utils::agent_root(agent_id);
-    if !ws.exists() {
+    let agent_root = crate::utils::agent_root(agent_id);
+    if !agent_root.exists() {
         anyhow::bail!("agent not found: {agent_id}");
     }
 
@@ -123,20 +122,20 @@ pub async fn create_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
     // Try to register via the global scheduler handle.
     match crate::scheduler::scheduler_handle_ref() {
         Some(handle) => {
-            handle.register_job(&ws, entry).await?;
+            handle.register_job(entry).await?;
             Ok(json!({
                 "status": "created",
                 "name": name,
             }))
         }
         None => {
-            // Scheduler not running — persist to disk only so it picks up
-            // on next restart.
-            let mut jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
-            jobs.push(entry);
-            let path = ws.join("cron_jobs.json");
-            let json_str = serde_json::to_string_pretty(&jobs)?;
-            tokio::fs::write(&path, json_str).await?;
+            // Scheduler not running — persist so it picks up on next restart.
+            if let Some(db) = crate::store::global_db() {
+                db.upsert_cron_job(&entry)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+            } else {
+                tracing::warn!("no database available — skipping create_cron_job persistence");
+            }
             Ok(json!({
                 "status": "persisted_offline",
                 "name": name,
@@ -154,18 +153,18 @@ pub async fn delete_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("delete_cron_job requires a 'name' string"))?;
 
-    let ws = crate::utils::agent_root(agent_id);
-    if !ws.exists() {
+    let agent_root = crate::utils::agent_root(agent_id);
+    if !agent_root.exists() {
         anyhow::bail!("agent not found: {agent_id}");
     }
 
-    let jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
+    let jobs = crate::scheduler::load_persisted_cron_jobs(agent_id).await;
     if !jobs.iter().any(|j| j.name == name) {
         anyhow::bail!("cron job '{name}' not found for agent '{agent_id}'");
     }
 
     // Remove from persisted file, live scheduler, and in-memory list.
-    crate::scheduler::remove_persisted_job(&ws, name, agent_id).await;
+    crate::scheduler::remove_persisted_job(name, agent_id).await;
 
     let job_id = format!("{name}@{agent_id}");
     Ok(json!({
@@ -183,12 +182,12 @@ pub async fn update_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("update_cron_job requires a 'name' string"))?;
 
-    let ws = crate::utils::agent_root(agent_id);
-    if !ws.exists() {
+    let agent_root = crate::utils::agent_root(agent_id);
+    if !agent_root.exists() {
         anyhow::bail!("agent not found: {agent_id}");
     }
 
-    let mut jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
+    let mut jobs = crate::scheduler::load_persisted_cron_jobs(agent_id).await;
     let job = jobs
         .iter_mut()
         .find(|j| j.name == name && j.agent_id == agent_id)
@@ -220,9 +219,12 @@ pub async fn update_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
     }
 
     // Persist back.
-    let path = ws.join("cron_jobs.json");
-    let json_str = serde_json::to_string_pretty(&jobs)?;
-    tokio::fs::write(&path, json_str).await?;
+    if let Some(db) = crate::store::global_db() {
+        db.upsert_cron_job(job)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+    } else {
+        tracing::warn!("no database available — skipping update_cron_job persistence");
+    }
 
     let job_id = format!("{name}@{agent_id}");
     Ok(json!({
@@ -241,12 +243,12 @@ pub async fn run_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<Valu
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("run_cron_job requires a 'name' string"))?;
 
-    let ws = crate::utils::agent_root(agent_id);
-    if !ws.exists() {
+    let agent_root = crate::utils::agent_root(agent_id);
+    if !agent_root.exists() {
         anyhow::bail!("agent not found: {agent_id}");
     }
 
-    let jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
+    let jobs = crate::scheduler::load_persisted_cron_jobs(agent_id).await;
     let job = jobs
         .iter()
         .find(|j| j.name == name && j.agent_id == agent_id)
@@ -306,20 +308,11 @@ pub async fn run_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<Valu
     };
 
     // Persist the run record.
-    let runs_path = ws.join("cron_runs.jsonl");
-    let mut line = serde_json::to_string(&run).unwrap_or_default();
-    line.push('\n');
-    let _ = tokio::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&runs_path)
-        .await
-        .map(|mut f| {
-            use tokio::io::AsyncWriteExt;
-            tokio::spawn(async move {
-                let _ = f.write_all(line.as_bytes()).await;
-            })
-        });
+    if let Some(db) = crate::store::global_db() {
+        let _ = db.insert_cron_event(&run);
+    } else {
+        tracing::warn!("no database available — skipping run_cron_job event persistence");
+    }
 
     Ok(json!({
         "status": if delivered { "triggered" } else { "trigger_failed" },
@@ -359,8 +352,7 @@ pub async fn cron_job_history(_workspace: &Path, args: Value) -> anyhow::Result<
             }
         }
 
-        let ws = entry.path();
-        let runs = crate::scheduler::load_cron_runs(&ws).await;
+        let runs = crate::scheduler::load_cron_runs(&agent_id).await;
 
         for run in runs {
             // Filter by job name if specified.

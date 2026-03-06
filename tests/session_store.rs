@@ -180,14 +180,3 @@ async fn load_current_async_works() {
         Some("async-id".to_string())
     );
 }
-
-// ── Session handle ───────────────────────────────────────────
-
-#[test]
-fn session_handle_paths() {
-    let dir = tmp();
-    let s = SessionStore::session(dir.path(), "test-sess");
-    assert_eq!(s.id, "test-sess");
-    assert_eq!(s.workspace, dir.path());
-    assert!(s.file.ends_with("sessions/test-sess.jsonl"));
-}

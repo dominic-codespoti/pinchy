@@ -67,6 +67,26 @@ enum Command {
         #[command(subcommand)]
         action: ServiceAction,
     },
+    /// Create a backup snapshot of PINCHY_HOME
+    Backup {
+        /// Output directory (default: $PINCHY_HOME/backups/)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+        /// List existing backups instead of creating one
+        #[arg(long)]
+        list: bool,
+    },
+    /// Restore a backup snapshot into PINCHY_HOME
+    Restore {
+        /// Path to the backup .tar.gz file
+        file: PathBuf,
+        /// Skip the confirmation prompt
+        #[arg(long)]
+        yes: bool,
+        /// Skip creating a safety backup before restoring
+        #[arg(long)]
+        no_safety: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -181,8 +201,20 @@ enum DebugAction {
     },
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    let worker_threads = std::env::var("TOKIO_WORKER_THREADS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(2);
+
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(worker_threads)
+        .enable_all()
+        .build()?
+        .block_on(async_main())
+}
+
+async fn async_main() -> anyhow::Result<()> {
     // Initialize tracing with layered subscriber (fmt + log broadcast)
     {
         use tracing_subscriber::layer::SubscriberExt;
@@ -290,6 +322,22 @@ async fn main() -> anyhow::Result<()> {
                     ServiceAction::Status => cli::service::status(),
                     ServiceAction::Logs { follow, lines } => cli::service::logs(follow, lines),
                 },
+                Command::Backup { output, list } => {
+                    let home = mini_claw::pinchy_home();
+                    if list {
+                        cli::backup::list(&home).await
+                    } else {
+                        cli::backup::create(&home, output.as_deref()).await
+                    }
+                }
+                Command::Restore {
+                    file,
+                    yes,
+                    no_safety,
+                } => {
+                    let home = mini_claw::pinchy_home();
+                    cli::backup::restore(&home, &file, yes, no_safety).await
+                }
                 Command::Start => unreachable!(),
             };
         }
@@ -315,6 +363,12 @@ async fn main() -> anyhow::Result<()> {
         models = cfg.models.len(),
         "configuration loaded"
     );
+
+    // Open consolidated SQLite store
+    let pinchy_home = mini_claw::pinchy_home();
+    let db = mini_claw::store::PinchyDb::open(&pinchy_home).context("failed to open pinchy.db")?;
+    mini_claw::store::set_global_db(db);
+    info!("pinchy.db opened");
 
     // Load skill registry
     let default_agent_id = cfg
@@ -365,10 +419,18 @@ async fn main() -> anyhow::Result<()> {
 
     // Start the scheduler when agents have heartbeats/cron configured, or
     // when explicitly forced via env var.
-    let has_scheduled_work = cfg
-        .agents
-        .iter()
-        .any(|a| a.heartbeat_secs.is_some() || !a.cron_jobs.is_empty());
+    let has_heartbeats = cfg.agents.iter().any(|a| a.heartbeat_secs.is_some());
+    let has_config_cron = cfg.agents.iter().any(|a| !a.cron_jobs.is_empty());
+    let has_db_cron = mini_claw::store::global_db()
+        .map(|db| {
+            cfg.agents.iter().any(|a| {
+                db.list_cron_jobs(&a.id)
+                    .map(|j| !j.is_empty())
+                    .unwrap_or(false)
+            })
+        })
+        .unwrap_or(false);
+    let has_scheduled_work = has_heartbeats || has_config_cron || has_db_cron;
     if has_scheduled_work || std::env::var("PINCHY_SCHEDULER").as_deref() == Ok("1") {
         let sched_handle = scheduler::start(&cfg).await?;
         scheduler::set_scheduler_handle(sched_handle).await;
@@ -425,7 +487,15 @@ async fn main() -> anyhow::Result<()> {
                 .iter()
                 .filter(|a| a.heartbeat_secs.is_some())
                 .count();
-            let cron_count: usize = cfg.agents.iter().map(|a| a.cron_jobs.len()).sum();
+            let cron_count: usize = mini_claw::store::global_db()
+                .map(|db| {
+                    cfg.agents
+                        .iter()
+                        .filter_map(|a| db.list_cron_jobs(&a.id).ok())
+                        .map(|j| j.len())
+                        .sum()
+                })
+                .unwrap_or(0);
             format!("enabled ({hb_count} heartbeat(s), {cron_count} cron job(s))")
         } else {
             "disabled".to_string()

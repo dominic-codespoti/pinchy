@@ -9,6 +9,7 @@ import {
   X,
   Bot,
   ChevronsUpDown,
+  Trash2,
 } from "lucide-react";
 
 type SessionEntry = {
@@ -16,7 +17,8 @@ type SessionEntry = {
   session_id: string;
   size?: number;
   modified?: number;
-  title?: string;
+  created_at?: number;
+  title?: string | null;
 };
 
 type Props = {
@@ -25,6 +27,7 @@ type Props = {
   currentBackendSession: string | null;
   onSelect: (sessionId: string) => void;
   onNewSession: () => void;
+  onDelete?: (sessionId: string) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
   typing?: boolean;
@@ -76,6 +79,7 @@ export function SessionSidebar({
   currentBackendSession,
   onSelect,
   onNewSession,
+  onDelete,
   collapsed,
   onToggleCollapse,
   typing,
@@ -85,6 +89,7 @@ export function SessionSidebar({
 }: Props) {
   const [filter, setFilter] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const filterRef = useRef<HTMLInputElement>(null);
   const agentPickerRef = useRef<HTMLDivElement>(null);
@@ -312,46 +317,75 @@ export function SessionSidebar({
               const isActive = s.session_id === selectedSession;
               const isBackend = s.session_id === currentBackendSession;
               const isTyping = isBackend && typing;
+              const isConfirming = confirmingDelete === s.session_id;
               return (
-                <button
-                  key={s.session_id}
-                  onClick={() => onSelect(s.session_id)}
-                  className={`w-full text-left rounded-lg px-2.5 py-2 mb-0.5 transition-all duration-150 group relative ${
-                    isActive
-                      ? "bg-emerald-400/[0.08] border border-emerald-400/20"
-                      : "border border-transparent hover:bg-white/[0.04] hover:border-white/[0.06]"
-                  }`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    {/* Live indicator */}
-                    {isBackend && (
+                <div key={s.session_id} className="relative group">
+                  <button
+                    onClick={() => onSelect(s.session_id)}
+                    className={`w-full text-left rounded-lg px-2.5 py-2 mb-0.5 transition-all duration-150 relative ${
+                      isActive
+                        ? "bg-emerald-400/[0.08] border border-emerald-400/20"
+                        : "border border-transparent hover:bg-white/[0.04] hover:border-white/[0.06]"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {/* Live indicator */}
+                      {isBackend && (
+                        <span
+                          className={`h-1.5 w-1.5 rounded-full shrink-0 ${
+                            isTyping ? "bg-emerald-400 animate-pulse" : "bg-emerald-400/60"
+                          }`}
+                        />
+                      )}
                       <span
-                        className={`h-1.5 w-1.5 rounded-full shrink-0 ${
-                          isTyping ? "bg-emerald-400 animate-pulse" : "bg-emerald-400/60"
+                        className={`text-xs truncate flex-1 min-w-0 ${
+                          isActive ? "text-emerald-100 font-medium" : "text-slate-300"
                         }`}
-                      />
-                    )}
-                    <span
-                      className={`text-xs truncate flex-1 min-w-0 ${
-                        isActive ? "text-emerald-100 font-medium" : "text-slate-300"
-                      }`}
-                    >
-                      {shortTitle(s)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 mt-0.5 ml-0">
-                    {s.modified && (
-                      <span className="text-[9px] tabular-nums text-slate-600">
-                        {timeLabel(s.modified)}
+                      >
+                        {shortTitle(s)}
                       </span>
-                    )}
-                    {s.size != null && s.size > 0 && (
-                      <span className="text-[9px] tabular-nums text-slate-700">
-                        {sizeLabel(s.size)}
-                      </span>
-                    )}
-                  </div>
-                </button>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5 ml-0">
+                      {s.modified && (
+                        <span className="text-[9px] tabular-nums text-slate-600">
+                          {timeLabel(s.modified)}
+                        </span>
+                      )}
+                      {s.size != null && s.size > 0 && (
+                        <span className="text-[9px] tabular-nums text-slate-700">
+                          {sizeLabel(s.size)}
+                        </span>
+                      )}
+                    </div>
+                  </button>
+                  {/* Delete button — visible on hover or when confirming */}
+                  {onDelete && (
+                    isConfirming ? (
+                      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 z-10">
+                        <button
+                          onClick={() => { onDelete(s.session_id); setConfirmingDelete(null); }}
+                          className="rounded px-1.5 py-0.5 text-[9px] font-medium bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 transition-colors"
+                        >
+                          Delete
+                        </button>
+                        <button
+                          onClick={() => setConfirmingDelete(null)}
+                          className="rounded px-1 py-0.5 text-[9px] text-slate-500 hover:text-slate-300 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setConfirmingDelete(s.session_id); }}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 rounded p-1 text-slate-600 hover:text-rose-400 hover:bg-rose-400/10 transition-all duration-150 z-10"
+                        title="Delete session"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    )
+                  )}
+                </div>
               );
             })}
           </div>

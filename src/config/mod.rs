@@ -1,5 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use std::sync::OnceLock;
+use std::time::SystemTime;
 
 use anyhow::Context;
 use chrono_tz::{Tz, UTC};
@@ -14,6 +16,31 @@ static CONFIG_LOCK: Mutex<()> = Mutex::const_new(());
 /// other's changes.
 pub async fn config_lock() -> tokio::sync::MutexGuard<'static, ()> {
     CONFIG_LOCK.lock().await
+}
+
+// ---------------------------------------------------------------------------
+// Config cache — avoids re-reading + re-parsing config.yaml every turn.
+// Invalidated automatically when the file's mtime changes.
+// ---------------------------------------------------------------------------
+struct CachedConfig {
+    config: Config,
+    mtime: SystemTime,
+    path: PathBuf,
+}
+
+static CONFIG_CACHE: OnceLock<tokio::sync::Mutex<Option<CachedConfig>>> = OnceLock::new();
+
+fn cache_slot() -> &'static tokio::sync::Mutex<Option<CachedConfig>> {
+    CONFIG_CACHE.get_or_init(|| tokio::sync::Mutex::new(None))
+}
+
+/// Invalidate the config cache.  Call after any config write.
+pub fn invalidate_config_cache() {
+    if let Some(slot) = CONFIG_CACHE.get() {
+        if let Ok(mut guard) = slot.try_lock() {
+            *guard = None;
+        }
+    }
 }
 
 /// A reference to a secret value.
@@ -67,7 +94,7 @@ fn default_true() -> bool {
 }
 
 /// Top-level configuration loaded from `config.yaml`.
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
     /// Model provider definitions.
@@ -140,7 +167,7 @@ pub struct RoutingConfig {
 }
 
 /// A configured LLM provider.
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 pub struct ModelConfig {
     /// Unique identifier for this provider entry (e.g. "openai-default").
     pub id: String,
@@ -171,7 +198,7 @@ pub struct ModelConfig {
 }
 
 /// Channel connector settings.
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ChannelsConfig {
     /// Discord bot configuration. Optional so the daemon can start without it.
@@ -272,7 +299,7 @@ impl<'de> Deserialize<'de> for DefaultChannel {
 }
 
 /// Discord-specific channel config.
-#[derive(Debug, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DiscordConfig {
     /// Bot token – plain string, env-var ref, or secret pointer.
@@ -373,7 +400,42 @@ impl Config {
     }
 
     /// Read and parse a YAML configuration file.
+    ///
+    /// Results are cached by file path and mtime — repeated calls within
+    /// the same second return the cached copy without touching disk.
     pub async fn load(path: &Path) -> anyhow::Result<Config> {
+        // Try cache first: if path + mtime match, return clone.
+        let canonical = path.to_path_buf();
+        if let Ok(meta) = tokio::fs::metadata(&canonical).await {
+            if let Ok(mtime) = meta.modified() {
+                let slot = cache_slot().lock().await;
+                if let Some(ref cached) = *slot {
+                    if cached.path == canonical && cached.mtime == mtime {
+                        return Ok(cached.config.clone());
+                    }
+                }
+                // Release lock before doing the heavy load below.
+                drop(slot);
+
+                let config = Self::load_inner(path).await?;
+
+                // Store in cache.
+                let mut slot = cache_slot().lock().await;
+                *slot = Some(CachedConfig {
+                    config: config.clone(),
+                    mtime,
+                    path: canonical,
+                });
+                return Ok(config);
+            }
+        }
+
+        // Fallback: no metadata available (file missing?), load without caching.
+        Self::load_inner(path).await
+    }
+
+    /// Inner load — reads from disk, parses, validates.
+    async fn load_inner(path: &Path) -> anyhow::Result<Config> {
         let contents = match tokio::fs::read_to_string(path).await {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -595,7 +657,8 @@ impl Config {
         tokio::fs::write(path, &contents)
             .await
             .with_context(|| format!("failed to write config file: {}", path.display()))?;
-        tracing::debug!(path = %path.display(), "configuration saved");
+        invalidate_config_cache();
+        tracing::debug!(path = %path.display(), "configuration saved (cache invalidated)");
         Ok(())
     }
 

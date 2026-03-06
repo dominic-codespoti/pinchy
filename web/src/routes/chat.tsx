@@ -7,6 +7,7 @@ import {
   type SessionMessage,
   type SlashCommand,
   type RawReceipt,
+  deleteSession,
   getCurrentSession,
   getReceipts,
   getSession,
@@ -954,6 +955,19 @@ export function ChatRoute() {
     setSelectedSession(sessionId);
   }, []);
 
+  const handleDeleteSession = useCallback(async (sessionId: string) => {
+    try {
+      await deleteSession(selectedAgent, sessionId);
+      queryClient.invalidateQueries({ queryKey: queryKeys.sessions(selectedAgent) });
+      // If we just deleted the selected session, clear it so auto-select picks the next one
+      if (sessionId === selectedSession) {
+        setSelectedSession("");
+      }
+    } catch {
+      // Silently ignore — the session list will refresh and show the truth
+    }
+  }, [selectedAgent, selectedSession, queryClient]);
+
   return (
     <div className="flex h-full bg-[var(--bg)]">
       {/* ── Session sidebar ─────────────────────── */}
@@ -963,6 +977,7 @@ export function ChatRoute() {
         currentBackendSession={currentSessionQuery.data?.session_id ?? null}
         onSelect={handleSidebarSelect}
         onNewSession={startNewSession}
+        onDelete={handleDeleteSession}
         collapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed((p) => !p)}
         typing={typing}

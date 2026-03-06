@@ -49,12 +49,15 @@ impl CopilotToken {
 /// expected to contain at least a `token` field; `expires_at` and
 /// `endpoints.api` (proxy endpoint) are extracted when present.
 pub async fn exchange_github_for_copilot_token(github_token: &str) -> anyhow::Result<CopilotToken> {
-    let http = reqwest::Client::new();
+    let http = crate::models::get_shared_http_client();
 
     let resp: serde_json::Value = http
         .get("https://api.github.com/copilot_internal/v2/token")
         .header("Authorization", format!("Bearer {github_token}"))
-        .header("User-Agent", "pinchy")
+        .header(
+            "User-Agent",
+            format!("Pinchy/{}", env!("CARGO_PKG_VERSION")),
+        )
         .header("Accept", "application/json")
         .send()
         .await?

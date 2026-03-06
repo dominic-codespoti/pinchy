@@ -18,8 +18,7 @@ pub(crate) async fn api_cron_jobs_all() -> impl IntoResponse {
                 continue;
             }
             let agent_id = entry.file_name().to_string_lossy().to_string();
-            let ws = entry.path();
-            let jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
+            let jobs = crate::scheduler::load_persisted_cron_jobs(&agent_id).await;
             for job in jobs {
                 all_jobs.push(cron_job_to_json(&agent_id, &job));
             }
@@ -34,8 +33,8 @@ pub(crate) async fn api_cron_jobs_by_agent(Path(agent_id): Path<String>) -> impl
     if let Err(e) = validate_path_segment(&agent_id) {
         return e.into_response();
     }
-    let ws = crate::utils::agent_root(&agent_id);
-    if !ws.exists() {
+    let agent_root = crate::utils::agent_root(&agent_id);
+    if !agent_root.exists() {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "agent not found", "agent_id": agent_id })),
@@ -43,7 +42,7 @@ pub(crate) async fn api_cron_jobs_by_agent(Path(agent_id): Path<String>) -> impl
             .into_response();
     }
 
-    let jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
+    let jobs = crate::scheduler::load_persisted_cron_jobs(&agent_id).await;
     let jobs_json: Vec<_> = jobs
         .iter()
         .map(|j| cron_job_to_json(&agent_id, j))
@@ -74,8 +73,8 @@ pub(crate) async fn api_cron_job_runs(Path(job_id): Path<String>) -> impl IntoRe
         return e.into_response();
     }
 
-    let ws = crate::utils::agent_root(agent_id);
-    if !ws.exists() {
+    let agent_root = crate::utils::agent_root(agent_id);
+    if !agent_root.exists() {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "agent not found", "agent_id": agent_id })),
@@ -83,7 +82,7 @@ pub(crate) async fn api_cron_job_runs(Path(job_id): Path<String>) -> impl IntoRe
             .into_response();
     }
 
-    let all_runs = crate::scheduler::load_cron_runs(&ws).await;
+    let all_runs = crate::scheduler::load_cron_runs(agent_id).await;
     let full_job_id = format!("{}@{}", job_name, agent_id);
     let mut runs: Vec<serde_json::Value> = all_runs
         .iter()
@@ -113,8 +112,8 @@ pub(crate) struct CreateCronJobRequest {
 pub(crate) async fn api_cron_jobs_create(
     Json(body): Json<CreateCronJobRequest>,
 ) -> impl IntoResponse {
-    let ws = crate::utils::agent_root(&body.agent_id);
-    if !ws.exists() {
+    let agent_root = crate::utils::agent_root(&body.agent_id);
+    if !agent_root.exists() {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({
@@ -154,7 +153,7 @@ pub(crate) async fn api_cron_jobs_create(
 
     // Try to register via scheduler handle
     match crate::scheduler::scheduler_handle_ref() {
-        Some(handle) => match handle.register_job(&ws, entry).await {
+        Some(handle) => match handle.register_job(entry).await {
             Ok(()) => {
                 let job_id = format!("{}@{}", name, body.agent_id);
                 (
@@ -203,8 +202,8 @@ pub(crate) async fn api_cron_jobs_delete(Path(job_id): Path<String>) -> impl Int
         return e.into_response();
     }
 
-    let ws = crate::utils::agent_root(agent_id);
-    if !ws.exists() {
+    let agent_root = crate::utils::agent_root(agent_id);
+    if !agent_root.exists() {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "agent not found", "agent_id": agent_id })),
@@ -212,41 +211,38 @@ pub(crate) async fn api_cron_jobs_delete(Path(job_id): Path<String>) -> impl Int
             .into_response();
     }
 
-    let mut jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
-    let before = jobs.len();
-    jobs.retain(|j| j.name != job_name);
+    // Remove from DB.
+    let db = match crate::store::global_db() {
+        Some(db) => db,
+        None => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": "database not initialised" })),
+            )
+                .into_response();
+        }
+    };
 
-    if jobs.len() == before {
-        return (
+    match db.remove_cron_job(agent_id, job_name) {
+        Ok(true) => {
+            // Remove from live scheduler + in-memory list.
+            if let Some(handle) = crate::scheduler::scheduler_handle_ref() {
+                handle.remove_job(job_name, agent_id).await;
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "deleted": true, "job_id": job_id })),
+            )
+                .into_response()
+        }
+        Ok(false) => (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "job not found", "job_id": job_id })),
         )
-            .into_response();
-    }
-
-    let path = ws.join("cron_jobs.json");
-    match serde_json::to_string_pretty(&jobs) {
-        Ok(json) => match tokio::fs::write(&path, json).await {
-            Ok(()) => {
-                // Remove from live scheduler + in-memory list.
-                if let Some(handle) = crate::scheduler::scheduler_handle_ref() {
-                    handle.remove_job(job_name, agent_id).await;
-                }
-                (
-                    StatusCode::OK,
-                    Json(serde_json::json!({ "deleted": true, "job_id": job_id })),
-                )
-                    .into_response()
-            }
-            Err(e) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("write failed: {e}") })),
-            )
-                .into_response(),
-        },
+            .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("serialize failed: {e}") })),
+            Json(serde_json::json!({ "error": format!("db delete failed: {e}") })),
         )
             .into_response(),
     }
@@ -289,8 +285,8 @@ pub(crate) async fn api_cron_jobs_update(
         return e.into_response();
     }
 
-    let ws = crate::utils::agent_root(agent_id);
-    if !ws.exists() {
+    let agent_root = crate::utils::agent_root(agent_id);
+    if !agent_root.exists() {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "agent not found", "agent_id": agent_id })),
@@ -298,7 +294,7 @@ pub(crate) async fn api_cron_jobs_update(
             .into_response();
     }
 
-    let mut jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
+    let mut jobs = crate::scheduler::load_persisted_cron_jobs(agent_id).await;
     let job = jobs
         .iter_mut()
         .find(|j| j.name == job_name && j.agent_id == agent_id);
@@ -328,28 +324,22 @@ pub(crate) async fn api_cron_jobs_update(
                 job.retry_delay_secs = body.retry_delay_secs;
             }
 
-            let path = ws.join("cron_jobs.json");
-            match serde_json::to_string_pretty(&jobs) {
-                Ok(json) => match tokio::fs::write(&path, json).await {
-                    Ok(()) => (
-                        StatusCode::OK,
-                        Json(cron_job_to_json(
-                            agent_id,
-                            jobs.iter()
-                                .find(|j| j.name == job_name && j.agent_id == agent_id)
-                                .unwrap(),
-                        )),
-                    )
-                        .into_response(),
-                    Err(e) => (
+            // Persist to DB instead of cron_jobs.json.
+            let db = match crate::store::global_db() {
+                Some(db) => db,
+                None => {
+                    return (
                         StatusCode::INTERNAL_SERVER_ERROR,
-                        Json(serde_json::json!({ "error": format!("write: {e}") })),
+                        Json(serde_json::json!({ "error": "database not initialised" })),
                     )
-                        .into_response(),
-                },
+                        .into_response();
+                }
+            };
+            match db.upsert_cron_job(job) {
+                Ok(()) => (StatusCode::OK, Json(cron_job_to_json(agent_id, job))).into_response(),
                 Err(e) => (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": format!("serialize: {e}") })),
+                    Json(serde_json::json!({ "error": format!("db update failed: {e}") })),
                 )
                     .into_response(),
             }
@@ -423,8 +413,8 @@ pub(crate) async fn api_cron_job_trigger(Path(job_id): Path<String>) -> impl Int
         return e.into_response();
     }
 
-    let ws = crate::utils::agent_root(agent_id);
-    if !ws.exists() {
+    let agent_root = crate::utils::agent_root(agent_id);
+    if !agent_root.exists() {
         return (
             StatusCode::NOT_FOUND,
             Json(serde_json::json!({ "error": "agent not found", "agent_id": agent_id })),
@@ -432,14 +422,14 @@ pub(crate) async fn api_cron_job_trigger(Path(job_id): Path<String>) -> impl Int
             .into_response();
     }
 
-    let jobs = crate::scheduler::load_persisted_cron_jobs(&ws).await;
+    let jobs = crate::scheduler::load_persisted_cron_jobs(agent_id).await;
     let job = jobs
         .iter()
         .find(|j| j.name == job_name && j.agent_id == agent_id);
 
     match job {
         Some(job) => {
-            crate::scheduler::run_persisted_job_tick(&ws, job).await;
+            crate::scheduler::run_persisted_job_tick(job).await;
             (
                 StatusCode::OK,
                 Json(serde_json::json!({

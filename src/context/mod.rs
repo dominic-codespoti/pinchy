@@ -1,87 +1,50 @@
-//! Context window management: token estimation, pruning, and compaction.
+//! Context window management: turn-based compaction and pruning.
 //!
 //! Keeps the conversation history within a configurable budget so sessions
 //! never silently hit provider limits.
 //!
 //! Key design decisions:
 //! - **System messages are pinned** — they are NEVER pruned, compacted,
-//!   or truncated.  SOUL.md / TOOLS.md behavioral rules survive the
+//!   or truncated.  SOUL.md / TOOLS.md behavioural rules survive the
 //!   entire session.
 //! - **Turn-based compaction** — compaction triggers after a turn count
-//!   threshold, not a token count.  This is more predictable and prevents
-//!   the "death by a thousand tokens" problem where many small turns
-//!   bloat context without any single message being large.
-//! - Token budgets are still enforced as a hard safety net after
-//!   turn-based compaction.
+//!   threshold, not a token count.  This is more predictable and avoids
+//!   the need for client-side token counting (e.g. tiktoken-rs).
+//! - Token counts for cost/receipts come from API responses (`TokenUsage`
+//!   via `parse_token_usage()`).  A cheap character-based heuristic is
+//!   available for debug logging only.
 //!
-//! Three layers (applied in order):
+//! Two layers (applied in order):
 //! 1. **Pruning** — strips large tool-result payloads from older
-//!    non-system messages.
+//!    non-system messages (triggers by message count, not tokens).
 //! 2. **Turn-based compaction** — when conversation turns exceed a
 //!    threshold, the oldest non-system turns are summarised into a single
 //!    system message via the LLM.
-//! 3. **Hard truncate** — if still over the token hard limit after
-//!    compaction, drop oldest non-system messages.
 
 use crate::models::{ChatMessage, ModelProvider};
-use tiktoken_rs::o200k_base;
-use tiktoken_rs::CoreBPE;
 use tracing::debug;
 
 // ---------------------------------------------------------------------------
-// Token estimation
+// Token estimation (cheap character heuristic — for debug logging only)
 // ---------------------------------------------------------------------------
 
-/// Cached BPE tokenizer — created once, reused on every call.
-fn bpe() -> &'static CoreBPE {
-    use std::sync::OnceLock;
-    static BPE: OnceLock<CoreBPE> = OnceLock::new();
-    BPE.get_or_init(|| o200k_base().expect("failed to load o200k_base tokeniser"))
-}
-
-/// Accurate token count for a single string using the o200k_base BPE
-/// encoding (GPT-4o / GPT-4.1 / o1 / o3 / o4-mini family).
+/// Cheap character-based token estimate (~3.5 chars per token for English).
+///
+/// This is used **only** for diagnostic logging.  All real token tracking
+/// comes from API response `usage` fields.
 pub fn estimate_tokens(text: &str) -> usize {
-    bpe().encode_with_special_tokens(text).len()
+    // ≈ len/3.5, integer math
+    text.len() * 2 / 7
 }
 
-/// Precomputed token count for the four known role strings (#15).
-fn role_tokens(role: &str) -> usize {
-    use std::sync::OnceLock;
-    static CACHE: OnceLock<[usize; 4]> = OnceLock::new();
-    let counts = CACHE.get_or_init(|| {
-        let enc = bpe();
-        [
-            enc.encode_with_special_tokens("system").len(),
-            enc.encode_with_special_tokens("user").len(),
-            enc.encode_with_special_tokens("assistant").len(),
-            enc.encode_with_special_tokens("tool").len(),
-        ]
-    });
-    match role {
-        "system" => counts[0],
-        "user" => counts[1],
-        "assistant" => counts[2],
-        "tool" => counts[3],
-        other => bpe().encode_with_special_tokens(other).len(),
-    }
-}
-
-/// Total estimated tokens for a slice of messages.
+/// Total estimated tokens for a slice of messages (character heuristic).
+///
+/// Used **only** for debug logging — not for context management decisions.
 pub fn estimate_total(messages: &[ChatMessage]) -> usize {
-    let enc = bpe();
     messages
         .iter()
-        .map(|m| {
-            enc.encode_with_special_tokens(&m.content).len() + role_tokens(&m.role) + 4
-            // per-message overhead
-        })
+        .map(|m| estimate_tokens(&m.content) + 4) // +4 per-message overhead
         .sum()
-}
-
-/// Per-message token cost used by [`hard_truncate`].
-fn message_token_cost(enc: &CoreBPE, m: &ChatMessage) -> usize {
-    enc.encode_with_special_tokens(&m.content).len() + role_tokens(&m.role) + 4
 }
 
 // ---------------------------------------------------------------------------
@@ -89,28 +52,28 @@ fn message_token_cost(enc: &CoreBPE, m: &ChatMessage) -> usize {
 // ---------------------------------------------------------------------------
 
 /// Budget / threshold configuration for context window management.
+///
+/// All triggers are count-based (turns or messages) — no client-side token
+/// counting is involved.
 #[derive(Debug, Clone)]
 pub struct ContextBudget {
-    /// Maximum tokens we ever want to send (hard safety limit).
-    pub max_tokens: usize,
-    /// When estimated tokens exceed this, pruning kicks in (strips old
-    /// tool result payloads).
-    pub prune_threshold: usize,
     /// Maximum number of non-system conversation turns before compaction
     /// kicks in.  A "turn" is a user message + the assistant reply +
     /// any tool messages in between.  System messages are never counted.
     pub max_turns: usize,
     /// Number of recent turns to keep intact during compaction.
     pub compact_keep_recent_turns: usize,
+    /// Number of messages (including system) beyond which tool-result
+    /// pruning kicks in.
+    pub prune_message_threshold: usize,
 }
 
 impl Default for ContextBudget {
     fn default() -> Self {
         Self {
-            max_tokens: 120_000,
-            prune_threshold: 80_000,
             max_turns: 20,
             compact_keep_recent_turns: 8,
+            prune_message_threshold: 30,
         }
     }
 }
@@ -355,7 +318,6 @@ pub async fn compact_if_needed(
     let old_turns = turns;
     let new_len = compacted.len();
     let new_turns = count_turns(&compacted);
-    let new_tokens = estimate_total(&compacted);
     *messages = compacted;
 
     debug!(
@@ -363,7 +325,6 @@ pub async fn compact_if_needed(
         new_messages = new_len,
         old_turns,
         new_turns,
-        new_tokens,
         "turn-based compaction complete"
     );
 
@@ -386,9 +347,9 @@ fn truncate_for_summary(s: &str, max: usize) -> String {
 
 /// Apply the full context management pipeline to a message list:
 ///
-/// 1. If over `prune_threshold` → prune old tool results (system exempt).
+/// 1. If message count exceeds `prune_message_threshold` → prune old
+///    tool results (system messages exempt).
 /// 2. If turn count exceeds `max_turns` → summarise old turns via LLM.
-/// 3. If still over `max_tokens` → hard-truncate non-system messages.
 ///
 /// **System messages are pinned and never modified or removed.**
 pub async fn manage_context(
@@ -396,71 +357,19 @@ pub async fn manage_context(
     budget: &ContextBudget,
     provider: &dyn ModelProvider,
 ) {
-    let total = estimate_total(messages);
-
-    // Step 1: prune tool results if over prune threshold.
-    if total > budget.prune_threshold {
+    // Step 1: prune tool results if message count exceeds threshold.
+    if messages.len() > budget.prune_message_threshold {
+        let before = messages.len();
         prune_tool_results(messages, 10);
         debug!(
-            before = total,
-            after = estimate_total(messages),
-            "post-prune token estimate"
+            before_msgs = before,
+            after_msgs = messages.len(),
+            "post-prune message count"
         );
     }
 
     // Step 2: turn-based compaction.
     compact_if_needed(messages, budget, provider).await;
-
-    // Step 3: hard truncate as last resort (token safety net).
-    let post_compact = estimate_total(messages);
-    if post_compact > budget.max_tokens {
-        hard_truncate(messages, budget.max_tokens);
-    }
-}
-
-/// Last-resort truncation: drop oldest non-system messages until within
-/// budget.  **System messages are never removed.**
-///
-/// Uses `retain` for O(n) removal instead of repeated `Vec::remove` (#11).
-fn hard_truncate(messages: &mut Vec<ChatMessage>, max_tokens: usize) {
-    let enc = bpe();
-    let costs: Vec<usize> = messages
-        .iter()
-        .map(|m| message_token_cost(enc, m))
-        .collect();
-
-    let mut total: usize = costs.iter().sum();
-    let tail_guard = messages.len().saturating_sub(2);
-
-    // Mark which indices to remove (oldest non-system first).
-    let mut remove_set = vec![false; messages.len()];
-    let mut removed = 0usize;
-    for (i, msg) in messages.iter().enumerate() {
-        if total <= max_tokens {
-            break;
-        }
-        if msg.role != "system" && i < tail_guard {
-            remove_set[i] = true;
-            total -= costs[i];
-            removed += 1;
-        }
-    }
-
-    if removed > 0 {
-        let mut idx = 0;
-        messages.retain(|_| {
-            let keep = !remove_set[idx];
-            idx += 1;
-            keep
-        });
-    }
-
-    debug!(
-        remaining = messages.len(),
-        tokens = total,
-        removed,
-        "hard-truncated context (system messages preserved)"
-    );
 }
 
 // ---------------------------------------------------------------------------
@@ -477,13 +386,14 @@ mod tests {
 
     #[test]
     fn estimate_tokens_basic() {
+        // "hello" = 5 chars → 5*2/7 = 1
         let t = estimate_tokens("hello");
         assert!(
             (1..=3).contains(&t),
             "expected 1–3 tokens for 'hello', got {t}"
         );
         let t0 = estimate_tokens("");
-        assert!(t0 <= 1, "expected 0–1 tokens for empty string, got {t0}");
+        assert_eq!(t0, 0);
     }
 
     #[test]
@@ -552,33 +462,6 @@ mod tests {
     }
 
     #[test]
-    fn hard_truncate_preserves_all_system_messages() {
-        let mut msgs = vec![
-            msg("system", "SOUL.md bootstrap — very important rules"),
-            msg("system", "TOOLS.md — tool definitions"),
-            msg("system", "skills prompt"),
-            msg("user", "old question 1"),
-            msg("assistant", "old answer 1"),
-            msg("user", "old question 2"),
-            msg("assistant", "old answer 2"),
-            msg("user", "new question"),
-        ];
-
-        hard_truncate(&mut msgs, 1); // impossibly small budget
-
-        // ALL system messages must survive.
-        let system_msgs: Vec<_> = msgs.iter().filter(|m| m.role == "system").collect();
-        assert_eq!(system_msgs.len(), 3);
-        assert!(system_msgs[0].content.contains("SOUL.md"));
-        assert!(system_msgs[1].content.contains("TOOLS.md"));
-        assert!(system_msgs[2].content.contains("skills"));
-
-        // Should still have at least 1 non-system message (the tail).
-        let non_system: Vec<_> = msgs.iter().filter(|m| m.role != "system").collect();
-        assert!(!non_system.is_empty());
-    }
-
-    #[test]
     fn count_turns_works() {
         let msgs = vec![
             msg("system", "bootstrap"),
@@ -597,6 +480,6 @@ mod tests {
         let b = ContextBudget::default();
         assert_eq!(b.max_turns, 20);
         assert_eq!(b.compact_keep_recent_turns, 8);
-        assert!(b.prune_threshold < b.max_tokens);
+        assert_eq!(b.prune_message_threshold, 30);
     }
 }

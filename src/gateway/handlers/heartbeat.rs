@@ -17,8 +17,8 @@ pub(crate) async fn api_heartbeat_status_all() -> impl IntoResponse {
             if !is_dir {
                 continue;
             }
-            let ws = entry.path();
-            if let Some(status) = crate::scheduler::load_heartbeat_status(&ws).await {
+            let agent_id = entry.file_name().to_string_lossy().to_string();
+            if let Some(status) = crate::scheduler::load_heartbeat_status(&agent_id).await {
                 statuses.push(heartbeat_status_to_json(&status));
             }
         }
@@ -32,8 +32,7 @@ pub(crate) async fn api_heartbeat_status_one(Path(agent_id): Path<String>) -> im
     if let Err(e) = validate_path_segment(&agent_id) {
         return e.into_response();
     }
-    let ws = crate::utils::agent_root(&agent_id);
-    match crate::scheduler::load_heartbeat_status(&ws).await {
+    match crate::scheduler::load_heartbeat_status(&agent_id).await {
         Some(status) => (StatusCode::OK, Json(heartbeat_status_to_json(&status))).into_response(),
         None => (
             StatusCode::NOT_FOUND,

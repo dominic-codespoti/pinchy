@@ -3,8 +3,14 @@
 //!   - Agents create/list
 //!   - Cron list
 
+#![allow(clippy::await_holding_lock)] // ENV_LOCK intentionally serialises tests that set env vars
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
+
+/// Mutex to serialise tests that modify process-wide state (PINCHY_HOME env var,
+/// global DB via OnceLock).
+static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Find a free port by binding to :0 and reading the assigned address.
 async fn free_addr() -> SocketAddr {
@@ -129,6 +135,7 @@ agents:
 
 #[tokio::test]
 async fn agents_create_and_list() {
+    let _lock = ENV_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let config_path = tmp.path().join("config.yaml");
     let agents_dir = tmp.path().join("agents");
@@ -272,6 +279,9 @@ agents: []
 
 #[tokio::test]
 async fn cron_jobs_list() {
+    use mini_claw::scheduler::{JobKind, PersistedCronJob};
+
+    let _lock = ENV_LOCK.lock().unwrap();
     let tmp = tempfile::tempdir().unwrap();
     let config_path = tmp.path().join("config.yaml");
     let agents_dir = tmp.path().join("agents");
@@ -289,36 +299,43 @@ agents: []
         std::env::set_var("PINCHY_HOME", tmp.path());
     }
 
-    // Write some cron jobs for the agent
-    let jobs = serde_json::json!([
-        {
-            "agent_id": "cron-agent",
-            "name": "morning-check",
-            "schedule": "0 0 8 * * *",
-            "message": "Good morning!",
-            "kind": "Recurring"
-        },
-        {
-            "agent_id": "cron-agent",
-            "name": "one-shot",
-            "schedule": "0 30 12 * * *",
-            "message": "Do this once",
-            "kind": "OneShot"
-        }
-    ]);
-    tokio::fs::write(
-        agent_dir.join("cron_jobs.json"),
-        serde_json::to_string_pretty(&jobs).unwrap(),
-    )
-    .await
-    .unwrap();
-
     let _guard = ChdirGuard::new(tmp.path());
 
     let addr = free_addr().await;
     let gw = mini_claw::gateway::start_gateway_with_config(addr, config_path)
         .await
         .unwrap();
+
+    // Insert cron jobs into whatever global DB the gateway initialised.
+    let db = mini_claw::store::global_db().expect("gateway should have initialised DB");
+    db.upsert_cron_job(&PersistedCronJob {
+        agent_id: "cron-agent".into(),
+        name: "morning-check".into(),
+        schedule: "0 0 8 * * *".into(),
+        message: Some("Good morning!".into()),
+        kind: JobKind::Recurring,
+        depends_on: None,
+        max_retries: None,
+        retry_delay_secs: None,
+        condition: None,
+        retry_count: 0,
+        last_status: None,
+    })
+    .unwrap();
+    db.upsert_cron_job(&PersistedCronJob {
+        agent_id: "cron-agent".into(),
+        name: "one-shot".into(),
+        schedule: "0 30 12 * * *".into(),
+        message: Some("Do this once".into()),
+        kind: JobKind::OneShot,
+        depends_on: None,
+        max_retries: None,
+        retry_delay_secs: None,
+        condition: None,
+        retry_count: 0,
+        last_status: None,
+    })
+    .unwrap();
 
     let client = reqwest::Client::new();
 

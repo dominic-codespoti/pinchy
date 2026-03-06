@@ -27,9 +27,9 @@ Pinchy is a single-binary Rust daemon. On start it launches:
 | `tools/builtins/` | Tool implementations: `exec_shell`, `edit_file`, `skill_author`, `delegate`, etc. |
 | `skills/` | `SkillRegistry` — discovers `SKILL.md` manifests, progressive disclosure via `activate_skill` |
 | `memory/` | SQLite + FTS5 persistent memory (`save_memory`, `recall_memory`, `forget_memory`) |
-| `session/` | JSONL-backed session store, session index |
-| `context/` | Context window management — tiktoken (`o200k_base`), pruning, LLM-powered compaction |
-| `scheduler/` | Heartbeat + cron (persisted `cron_jobs.json`, retries, dependencies, per-agent timezone) |
+| `session/` | Session store backed by SQLite (`pinchy.db`) |
+| `context/` | Context window management — turn-based compaction |
+| `scheduler/` | Heartbeat + cron (SQLite `cron_jobs` table, retries, dependencies, per-agent timezone) |
 | `discord/` | Discord `ChannelConnector` |
 | `comm/` | Channel-agnostic `IncomingMessage` / `RichMessage` bus, connector registry |
 | `gateway/` | Axum REST routes + WebSocket + static serving; handler sub-modules |
@@ -44,9 +44,10 @@ Each agent gets a workspace at `agents/<id>/workspace/` containing:
 - `SOUL.md` — personality / system prompt
 - `TOOLS.md` — tool usage instructions
 - `HEARTBEAT.md` — heartbeat prompt
-- `sessions/*.jsonl` — conversation history
 - `memory.db` — SQLite persistent memory
 - `skills/*/SKILL.md` — skill manifests
+
+Sessions, exchanges, receipts, cron jobs, and heartbeat status live in `pinchy.db` (shared across agents).
 
 File tools are sandboxed to the agent workspace unless explicitly configured otherwise.
 

@@ -1,4 +1,4 @@
-.PHONY: dev build web run update install release lint setup
+.PHONY: dev build web run update install release lint setup backup backup-list restore
 
 # Start everything: Vite HMR + Rust backend (auto-rebuild if cargo-watch installed)
 dev:
@@ -42,3 +42,16 @@ lint:
 setup:
 	@ln -sf ../../scripts/pre-commit .git/hooks/pre-commit
 	@echo "✅ Pre-commit hook installed"
+
+# Snapshot PINCHY_HOME into a .tar.gz
+backup:
+	cargo run -- backup
+
+# List existing backups
+backup-list:
+	cargo run -- backup --list
+
+# Restore a backup (usage: make restore F=path/to/backup.tar.gz)
+restore:
+	@test -n "$(F)" || (echo "Usage: make restore F=<backup.tar.gz>" && exit 1)
+	cargo run -- restore "$(F)"

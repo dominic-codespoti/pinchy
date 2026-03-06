@@ -5,6 +5,7 @@ pub(crate) mod debug;
 pub(crate) mod health;
 pub(crate) mod heartbeat;
 pub(crate) mod memory;
+pub(crate) mod models;
 pub(crate) mod receipts;
 pub(crate) mod sessions;
 pub(crate) mod skills;

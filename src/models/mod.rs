@@ -20,6 +20,31 @@ use reqwest::Client;
 use tracing::{debug, warn};
 
 // ---------------------------------------------------------------------------
+// ModelInfo – metadata returned by provider model discovery
+// ---------------------------------------------------------------------------
+
+/// Metadata about a model available from a provider.
+///
+/// Returned by [`ModelProvider::list_models`] for providers that support
+/// model discovery (e.g. Copilot, OpenAI).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ModelInfo {
+    /// The model identifier used in API requests (e.g. "gpt-4o").
+    pub id: String,
+    /// Human-readable display name (e.g. "GPT-4o").
+    pub name: String,
+    /// Vendor of this model (e.g. "OpenAI", "Anthropic").
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub vendor: Option<String>,
+    /// Which API endpoints this model supports (e.g. "/chat/completions", "/responses", "/v1/messages").
+    #[serde(default)]
+    pub supported_endpoints: Vec<String>,
+    /// Whether this model is the default for the provider.
+    #[serde(default)]
+    pub is_default: bool,
+}
+
+// ---------------------------------------------------------------------------
 // ChatMessage – shared message representation
 // ---------------------------------------------------------------------------
 
@@ -175,6 +200,15 @@ pub trait ModelProvider: Send + Sync {
     /// Returns `None` when the provider does not support embeddings.
     /// The default implementation returns `Ok(None)`.
     async fn embed(&self, _texts: &[&str]) -> Result<Option<Vec<Vec<f32>>>, anyhow::Error> {
+        Ok(None)
+    }
+
+    /// Discover available models from this provider.
+    ///
+    /// Returns `Ok(None)` when the provider does not support model
+    /// discovery.  Concrete providers (e.g. Copilot, OpenAI) override
+    /// this to return a list of available models with metadata.
+    async fn list_models(&self) -> Result<Option<Vec<ModelInfo>>, anyhow::Error> {
         Ok(None)
     }
 
@@ -718,6 +752,15 @@ impl ModelProvider for ProviderManager {
         messages: &'a [ChatMessage],
     ) -> Pin<Box<dyn Stream<Item = Result<String, anyhow::Error>> + Send + 'a>> {
         self.stream_chat(messages)
+    }
+
+    async fn list_models(&self) -> Result<Option<Vec<ModelInfo>>, anyhow::Error> {
+        // Delegate to the primary provider.
+        if let Some(primary) = self.providers.first() {
+            primary.list_models().await
+        } else {
+            Ok(None)
+        }
     }
 
     fn as_any(&self) -> &dyn Any {

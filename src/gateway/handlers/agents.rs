@@ -67,7 +67,10 @@ pub(crate) async fn api_agents_list() -> impl IntoResponse {
                     );
                     m.insert(
                         "cron_jobs_count".into(),
-                        serde_json::json!(ac.cron_jobs.len()),
+                        serde_json::json!(crate::store::global_db()
+                            .and_then(|db| db.list_cron_jobs(&id).ok())
+                            .map(|j| j.len())
+                            .unwrap_or(0)),
                     );
                     m.insert(
                         "history_messages".into(),
@@ -207,9 +210,10 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
         .await
         .ok();
 
-    // Count sessions
-    let sessions_dir = base.join("workspace").join("sessions");
-    let session_count = count_files_with_ext(&sessions_dir, "jsonl").await;
+    // Count sessions from DB instead of filesystem.
+    let session_count = crate::store::global_db()
+        .and_then(|db| db.session_count_for_agent(&agent_id).ok())
+        .unwrap_or(0);
 
     let mut result = serde_json::json!({
         "id": agent_id,
@@ -261,19 +265,6 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
     }
 
     (StatusCode::OK, Json(result)).into_response()
-}
-
-/// Count files with a specific extension in a directory.
-async fn count_files_with_ext(dir: &std::path::Path, ext: &str) -> u32 {
-    let mut count = 0;
-    if let Ok(mut rd) = tokio::fs::read_dir(dir).await {
-        while let Ok(Some(entry)) = rd.next_entry().await {
-            if entry.path().extension().map(|e| e == ext).unwrap_or(false) {
-                count += 1;
-            }
-        }
-    }
-    count
 }
 
 /// Request body for POST /api/agents

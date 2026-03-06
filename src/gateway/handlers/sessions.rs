@@ -7,68 +7,42 @@ pub(crate) async fn api_sessions_list(Path(agent_id): Path<String>) -> impl Into
     if let Err(e) = validate_path_segment(&agent_id) {
         return e.into_response();
     }
-    let sessions_dir = crate::utils::agent_workspace(&agent_id).join("sessions");
 
-    if !sessions_dir.exists() {
-        return Json(serde_json::json!({ "sessions": [] })).into_response();
-    }
-
-    // Load the global index to look up titles.
-    let home = crate::pinchy_home();
-    let index_entries = crate::session::index::load_global_index(&home)
-        .await
-        .unwrap_or_default();
-    let title_map: std::collections::HashMap<String, String> = index_entries
-        .into_iter()
-        .filter(|e| e.agent_id == agent_id)
-        .filter_map(|e| e.title.map(|t| (e.session_id, t)))
-        .collect();
-
-    let mut sessions = Vec::new();
-    if let Ok(mut rd) = tokio::fs::read_dir(&sessions_dir).await {
-        while let Ok(Some(entry)) = rd.next_entry().await {
-            let path = entry.path();
-            if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
-                let filename = entry.file_name().to_string_lossy().to_string();
-                let session_id = path
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().to_string())
-                    .unwrap_or_default();
-                let size = tokio::fs::metadata(&path)
-                    .await
-                    .map(|m| m.len())
-                    .unwrap_or(0);
-                let modified = tokio::fs::metadata(&path)
-                    .await
-                    .ok()
-                    .and_then(|m| m.modified().ok())
-                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                let mut entry = serde_json::json!({
-                    "file": filename,
-                    "session_id": session_id,
-                    "size": size,
-                    "modified": modified,
-                });
-                if let Some(title) = title_map.get(&session_id) {
-                    entry["title"] = serde_json::json!(title);
-                }
-                sessions.push(entry);
+    // Prefer PinchyDb when available.
+    if let Some(db) = crate::store::global_db() {
+        let entries = match db.list_sessions_for_agent(&agent_id) {
+            Ok(e) => e,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": format!("{e}") })),
+                )
+                    .into_response();
             }
-        }
+        };
+        let sessions: Vec<serde_json::Value> = entries
+            .into_iter()
+            .map(|e| {
+                // `created_at` is stored as epoch milliseconds; the frontend
+                // sidebar expects `modified` as epoch seconds.
+                let modified_secs = e.created_at / 1000;
+                serde_json::json!({
+                    "file": format!("{}.jsonl", e.session_id),
+                    "session_id": e.session_id,
+                    "created_at": e.created_at,
+                    "modified": modified_secs,
+                    "title": e.title,
+                })
+            })
+            .collect();
+        return Json(serde_json::json!({ "sessions": sessions })).into_response();
     }
 
-    sessions.sort_by(|a, b| {
-        b.get("modified")
-            .and_then(|v| v.as_u64())
-            .cmp(&a.get("modified").and_then(|v| v.as_u64()))
-    });
-
-    Json(serde_json::json!({ "sessions": sessions })).into_response()
+    tracing::warn!("no database available — skipping api_sessions_list");
+    Json(serde_json::json!({ "sessions": [] })).into_response()
 }
 
-/// `GET /api/agents/:id/sessions/:file` — read session JSONL content.
+/// `GET /api/agents/:id/sessions/:file` — read session content.
 pub(crate) async fn api_session_get(
     Path((agent_id, session_file)): Path<(String, String)>,
 ) -> impl IntoResponse {
@@ -78,41 +52,53 @@ pub(crate) async fn api_session_get(
     if let Err(e) = validate_path_segment(&session_file) {
         return e.into_response();
     }
-    // Ensure .jsonl extension
+    let session_id = session_file.trim_end_matches(".jsonl").to_string();
     let filename = if session_file.ends_with(".jsonl") {
         session_file.clone()
     } else {
         format!("{session_file}.jsonl")
     };
 
-    let path = crate::utils::agent_workspace(&agent_id)
-        .join("sessions")
-        .join(&filename);
-
-    match tokio::fs::read_to_string(&path).await {
-        Ok(content) => {
-            let messages: Vec<serde_json::Value> = content
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .filter_map(|l| serde_json::from_str(l).ok())
-                .collect();
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({ "file": filename, "messages": messages })),
-            )
-                .into_response()
+    // Prefer PinchyDb.
+    if let Some(db) = crate::store::global_db() {
+        let exchanges = match db.load_full_history(&session_id) {
+            Ok(ex) => ex,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": format!("{e}") })),
+                )
+                    .into_response();
+            }
+        };
+        if exchanges.is_empty() {
+            // Check if session exists at all.
+            let sessions = db.list_sessions_for_agent(&agent_id).unwrap_or_default();
+            if !sessions.iter().any(|s| s.session_id == session_id) {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({ "error": "session not found", "file": filename })),
+                )
+                    .into_response();
+            }
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "session not found", "file": filename })),
+        let messages: Vec<serde_json::Value> = exchanges
+            .into_iter()
+            .filter_map(|ex| serde_json::to_value(&ex).ok())
+            .collect();
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "file": filename, "messages": messages })),
         )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("{e}") })),
-        )
-            .into_response(),
+            .into_response();
     }
+
+    tracing::warn!("no database available — skipping api_session_get");
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({ "error": "no database available" })),
+    )
+        .into_response()
 }
 
 /// Request body for PUT session
@@ -121,7 +107,7 @@ pub(crate) struct UpdateSessionRequest {
     messages: Vec<serde_json::Value>,
 }
 
-/// `PUT /api/agents/:id/sessions/:file` — overwrite session JSONL content.
+/// `PUT /api/agents/:id/sessions/:file` — overwrite session content.
 pub(crate) async fn api_session_update(
     Path((agent_id, session_file)): Path<(String, String)>,
     Json(body): Json<UpdateSessionRequest>,
@@ -132,54 +118,43 @@ pub(crate) async fn api_session_update(
     if let Err(e) = validate_path_segment(&session_file) {
         return e.into_response();
     }
-    let filename = if session_file.ends_with(".jsonl") {
-        session_file.clone()
-    } else {
-        format!("{session_file}.jsonl")
-    };
+    let session_id = session_file.trim_end_matches(".jsonl").to_string();
 
-    let sessions_dir = crate::utils::agent_workspace(&agent_id).join("sessions");
-
-    if let Err(e) = tokio::fs::create_dir_all(&sessions_dir).await {
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("create dirs: {e}") })),
-        )
-            .into_response();
-    }
-
-    let path = sessions_dir.join(&filename);
-
-    // Serialize messages as JSONL
-    let mut content = String::new();
-    for msg in &body.messages {
-        match serde_json::to_string(msg) {
-            Ok(line) => {
-                content.push_str(&line);
-                content.push('\n');
+    // Try to parse messages into Exchange structs for PinchyDb.
+    if let Some(db) = crate::store::global_db() {
+        let exchanges: Vec<crate::session::Exchange> = body
+            .messages
+            .iter()
+            .filter_map(|m| serde_json::from_value(m.clone()).ok())
+            .collect();
+        match db.replace_exchanges(&session_id, &exchanges) {
+            Ok(()) => {
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "session_id": session_id,
+                        "saved": true,
+                        "count": exchanges.len()
+                    })),
+                )
+                    .into_response();
             }
             Err(e) => {
                 return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({ "error": format!("serialize message: {e}") })),
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": format!("{e}") })),
                 )
                     .into_response();
             }
         }
     }
 
-    match tokio::fs::write(&path, &content).await {
-        Ok(()) => (
-            StatusCode::OK,
-            Json(serde_json::json!({ "file": filename, "saved": true, "count": body.messages.len() })),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("{e}") })),
-        )
-            .into_response(),
-    }
+    tracing::warn!("no database available — skipping api_session_update");
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({ "error": "no database available" })),
+    )
+        .into_response()
 }
 
 /// `GET /api/agents/:id/session/current` — return the current active session id.
@@ -190,8 +165,15 @@ pub(crate) async fn api_session_current(Path(agent_id): Path<String>) -> impl In
     if let Err(e) = validate_path_segment(&agent_id) {
         return e.into_response();
     }
-    let workspace = crate::utils::agent_workspace(&agent_id);
-    let sid = crate::session::SessionStore::resolve_latest(&workspace).await;
+
+    // Prefer PinchyDb.
+    let sid = if let Some(db) = crate::store::global_db() {
+        db.current_session(&agent_id).ok().flatten()
+    } else {
+        tracing::warn!("no database available — skipping api_session_current");
+        None
+    };
+
     let sid_val = match sid {
         Some(s) => serde_json::Value::String(s),
         None => serde_json::Value::Null,
@@ -199,7 +181,7 @@ pub(crate) async fn api_session_current(Path(agent_id): Path<String>) -> impl In
     Json(serde_json::json!({ "session_id": sid_val })).into_response()
 }
 
-/// `DELETE /api/agents/:id/sessions/:file` — delete a session file.
+/// `DELETE /api/agents/:id/sessions/:file` — delete a session.
 pub(crate) async fn api_session_delete(
     Path((agent_id, session_file)): Path<(String, String)>,
 ) -> impl IntoResponse {
@@ -209,46 +191,45 @@ pub(crate) async fn api_session_delete(
     if let Err(e) = validate_path_segment(&session_file) {
         return e.into_response();
     }
-    let filename = if session_file.ends_with(".jsonl") {
-        session_file.clone()
-    } else {
-        format!("{session_file}.jsonl")
-    };
+    let session_id = session_file.trim_end_matches(".jsonl").to_string();
 
-    let workspace = crate::utils::agent_workspace(&agent_id);
-    let sessions_dir = workspace.join("sessions");
-    let path = sessions_dir.join(&filename);
-
-    match tokio::fs::remove_file(&path).await {
-        Ok(()) => {
-            // Also remove the paired receipts file (best-effort).
-            let receipts_name = filename.replace(".jsonl", ".receipts.jsonl");
-            let _ = tokio::fs::remove_file(sessions_dir.join(&receipts_name)).await;
-
-            // If this was the active session, clear CURRENT_SESSION.
-            let session_id = filename.trim_end_matches(".jsonl");
-            let current_path = workspace.join("CURRENT_SESSION");
-            if let Ok(current) = tokio::fs::read_to_string(&current_path).await {
-                if current.trim() == session_id {
-                    let _ = tokio::fs::remove_file(&current_path).await;
-                }
+    // Delete from PinchyDb.
+    if let Some(db) = crate::store::global_db() {
+        // Clear current-session pointer if it matches.
+        if let Ok(Some(ref cur)) = db.current_session(&agent_id) {
+            if *cur == session_id {
+                let _ = db.clear_current_session(&agent_id);
             }
-
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({ "file": filename, "deleted": true })),
-            )
-                .into_response()
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "session not found", "file": filename })),
-        )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("{e}") })),
-        )
-            .into_response(),
+        match db.delete_session(&session_id) {
+            Ok(true) => {
+                return (
+                    StatusCode::OK,
+                    Json(serde_json::json!({ "session_id": session_id, "deleted": true })),
+                )
+                    .into_response();
+            }
+            Ok(false) => {
+                return (
+                    StatusCode::NOT_FOUND,
+                    Json(serde_json::json!({ "error": "session not found", "session_id": session_id })),
+                )
+                    .into_response();
+            }
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({ "error": format!("{e}") })),
+                )
+                    .into_response();
+            }
+        }
     }
+
+    tracing::warn!("no database available — skipping api_session_delete");
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({ "error": "no database available" })),
+    )
+        .into_response()
 }

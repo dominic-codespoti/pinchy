@@ -8,7 +8,8 @@ import { EditorState } from "@codemirror/state";
 import { yaml as yamlLang } from "@codemirror/lang-yaml";
 import { oneDark } from "@codemirror/theme-one-dark";
 
-import { getConfig, getConfigSchema, queryKeys, saveConfig } from "@/api/client";
+import { getConfig, getConfigSchema, queryKeys, saveConfig, listProviderModels } from "@/api/client";
+import type { ModelInfo } from "@/api/client";
 import {
   Input,
   Separator,
@@ -176,6 +177,7 @@ function SchemaField({
             onChange(path, arr.length > 0 ? arr : undefined);
           }}
           placeholder={placeholder}
+          className="min-w-0 flex-1 bg-transparent py-2 text-sm text-slate-100 placeholder:text-slate-500/80 outline-none"
         />
         {desc && <p className="text-[10px] leading-relaxed text-slate-500 mt-1">{desc}</p>}
       </div>
@@ -286,6 +288,117 @@ function CollapsibleSection({
       {description && !collapsed && <p className="text-[10px] text-slate-500 px-5 mt-1">{description}</p>}
       {!collapsed && <div className="p-5 pt-4">{children}</div>}
       {collapsed && <div className="h-2" />}
+    </div>
+  );
+}
+
+// ── Model Combobox ───────────────────────────────────
+
+/** Combobox that lets the user type a model name or pick from discovered models. */
+function ModelCombobox({
+  value,
+  onChange,
+  configModelId,
+  placeholder,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  configModelId: string;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [models, setModels] = useState<ModelInfo[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  const fetchModels = useCallback(async () => {
+    if (!configModelId) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await listProviderModels(configModelId);
+      setModels(result);
+      if (result && result.length > 0) setOpen(true);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to fetch models");
+    } finally {
+      setLoading(false);
+    }
+  }, [configModelId]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const filtered = useMemo(() => {
+    if (!models) return [];
+    if (!value) return models;
+    const lower = value.toLowerCase();
+    return models.filter(
+      (m) => m.id.toLowerCase().includes(lower) || m.name.toLowerCase().includes(lower),
+    );
+  }, [models, value]);
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <div
+        className={[
+          "flex h-10 w-full items-center overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.03] px-3.5",
+          "shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md",
+          "hover:border-white/[0.14] hover:bg-white/[0.05]",
+          "focus-within:border-emerald-400/40 focus-within:bg-white/[0.05] focus-within:shadow-[0_0_0_3px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.04)]",
+          "transition-all duration-200 ease-out",
+        ].join(" ")}
+      >
+        <input
+          value={value}
+          onChange={(e) => {
+            onChange(e.target.value);
+            if (models && models.length > 0) setOpen(true);
+          }}
+          onFocus={() => { if (models && models.length > 0) setOpen(true); }}
+          placeholder={placeholder ?? "e.g. gpt-4o"}
+          className="min-w-0 flex-1 bg-transparent py-2 text-sm text-slate-100 placeholder:text-slate-500/80 outline-none"
+        />
+        <button
+          type="button"
+          onClick={fetchModels}
+          disabled={loading || !configModelId}
+          className="ml-1 flex-shrink-0 text-slate-500 hover:text-slate-200 transition-colors duration-200 disabled:opacity-40"
+          title={configModelId ? "Discover available models" : "Save the model config first (need an ID)"}
+        >
+          {loading ? (
+            <span className="block h-3.5 w-3.5 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />
+          ) : (
+            <Search className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </div>
+      {error && <p className="text-[10px] text-rose-400 mt-1">{error}</p>}
+      {open && filtered.length > 0 && (
+        <ul className="absolute z-50 mt-1 max-h-48 w-full overflow-auto rounded-md border border-white/[0.08] bg-slate-900 shadow-lg">
+          {filtered.map((m) => (
+            <li
+              key={m.id}
+              onClick={() => { onChange(m.id); setOpen(false); }}
+              className={`cursor-pointer px-3 py-1.5 text-xs hover:bg-white/[0.06] flex items-center justify-between ${
+                m.id === value ? "text-emerald-400" : "text-slate-300"
+              }`}
+            >
+              <span>{m.name}</span>
+              {m.vendor && <span className="text-[10px] text-slate-500">{m.vendor}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -633,14 +746,24 @@ export function ConfigRoute() {
                   {formModels.map((model, index) => (
                     <article key={`model-${index}`} className="rounded-lg border border-white/[0.04] bg-white/[0.01] p-4 space-y-3">
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                        {(["id", "provider", "model"] as const).map((field) => (
+                        {(["id", "provider"] as const).map((field) => (
                           <div key={field} className="space-y-1">
                             <label className="text-[9px] uppercase tracking-widest text-slate-600 block">
-                              {field === "id" ? "ID" : field.charAt(0).toUpperCase() + field.slice(1)}
+                              {field === "id" ? "ID" : "Provider"}
                             </label>
-                            <Input value={String(model[field] ?? "")} onChange={(e) => updateModel(index, field, e.target.value)} placeholder={field === "id" ? "e.g. gpt4" : field === "provider" ? "e.g. openai" : "e.g. gpt-4o"} />
+                            <Input value={String(model[field] ?? "")} onChange={(e) => updateModel(index, field, e.target.value)} placeholder={field === "id" ? "e.g. gpt4" : "e.g. openai"} />
                           </div>
                         ))}
+                        <div className="space-y-1">
+                          <label className="text-[9px] uppercase tracking-widest text-slate-600 block">
+                            Model
+                          </label>
+                          <ModelCombobox
+                            value={String(model.model ?? "")}
+                            onChange={(v) => updateModel(index, "model", v)}
+                            configModelId={String(model.id ?? "")}
+                          />
+                        </div>
                       </div>
                       <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                         {(["api_key", "endpoint", "api_version", "embedding_deployment"] as const).map((field) => (

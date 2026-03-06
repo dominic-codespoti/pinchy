@@ -143,7 +143,6 @@ fn spawn_turn(agent_mut: Arc<Mutex<Agent>>, msg: IncomingMessage) {
         let start = std::time::Instant::now();
         let mut guard = agent_mut.lock().await;
         let agent_id = guard.id.clone();
-        let ws = guard.workspace.clone();
 
         let result = guard.run_turn(msg.clone()).await;
         let duration = start.elapsed().as_millis() as u64;
@@ -159,7 +158,6 @@ fn spawn_turn(agent_mut: Arc<Mutex<Agent>>, msg: IncomingMessage) {
             let error = result.as_ref().err().map(|e| e.to_string());
 
             let _ = crate::scheduler::complete_cron_run(
-                &ws,
                 &job_id,
                 msg.timestamp as u64,
                 result.is_ok(),

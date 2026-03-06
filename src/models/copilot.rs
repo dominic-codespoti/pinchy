@@ -11,7 +11,7 @@ use anyhow::Context as _;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, trace, warn};
 
 use super::{ChatMessage, ModelProvider, ProviderResponse};
 use crate::auth::copilot_token;
@@ -40,6 +40,33 @@ pub struct CopilotProvider {
     model_id: String,
     /// Reasoning effort level: "low", "medium", or "high".
     reasoning_effort: Option<String>,
+    /// Cached model metadata from discovery (populated by `list_models`).
+    discovered_models: Arc<Mutex<Option<DiscoveredModels>>>,
+}
+
+/// Cached model discovery results with a TTL.
+struct DiscoveredModels {
+    models: Vec<super::ModelInfo>,
+    fetched_at: std::time::Instant,
+}
+
+impl DiscoveredModels {
+    const TTL: Duration = Duration::from_secs(300); // 5 minutes
+
+    fn is_stale(&self) -> bool {
+        self.fetched_at.elapsed() > Self::TTL
+    }
+}
+
+/// Which API path variant to use for a model on the Copilot proxy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CopilotApiPath {
+    /// Standard OpenAI `/chat/completions`
+    ChatCompletions,
+    /// OpenAI Responses API `/responses`
+    Responses,
+    /// Anthropic Messages API `/v1/messages`
+    Messages,
 }
 
 impl Default for CopilotProvider {
@@ -125,9 +152,10 @@ impl CopilotProvider {
             header_overrides: header_overrides.clone(),
             model_id: model_id.to_string(),
             reasoning_effort,
+            discovered_models: Arc::new(Mutex::new(None)),
         };
 
-        info!(
+        debug!(
             model = %s.model_id,
             header_overrides = ?s.header_overrides,
             "CopilotProvider: constructed"
@@ -195,6 +223,7 @@ impl CopilotProvider {
             header_overrides: None,
             model_id: "gpt-4o".to_string(),
             reasoning_effort: None,
+            discovered_models: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -207,15 +236,25 @@ impl CopilotProvider {
         functions: &[serde_json::Value],
     ) -> Result<(ProviderResponse, Option<super::TokenUsage>), anyhow::Error> {
         // -----------------------------------------------------------------
-        // Proxy HTTP with tools
+        // Proxy HTTP with tools — 3-way dispatch based on model capabilities
         // -----------------------------------------------------------------
         if let Some((ep, bearer)) = self.ensure_fresh_token().await {
-            let result = if is_anthropic_model(&self.model_id) {
-                self.try_anthropic_http_with_tools(&ep, &bearer, messages, functions)
-                    .await
-            } else {
-                self.try_proxy_http_with_tools(&ep, &bearer, messages, functions)
-                    .await
+            let api_path = self.resolve_api_path().await;
+            debug!(model = %self.model_id, ?api_path, "CopilotProvider: routing function-call request");
+
+            let result = match api_path {
+                CopilotApiPath::Messages => {
+                    self.try_anthropic_http_with_tools(&ep, &bearer, messages, functions)
+                        .await
+                }
+                CopilotApiPath::Responses => {
+                    self.try_responses_api_with_tools(&ep, &bearer, messages, functions)
+                        .await
+                }
+                CopilotApiPath::ChatCompletions => {
+                    self.try_proxy_http_with_tools(&ep, &bearer, messages, functions)
+                        .await
+                }
             };
             match result {
                 Ok((resp, usage)) => return Ok((resp, usage)),
@@ -333,7 +372,6 @@ impl CopilotProvider {
                         .get("name")
                         .and_then(|n| n.as_str())
                         .unwrap_or_default();
-
                     if name.is_empty() {
                         warn!("copilot: skipping function with empty name: {func_obj}");
                         return None;
@@ -452,10 +490,11 @@ impl CopilotProvider {
                 });
             } else {
                 // Other Claude models use enabled + budget_tokens.
+                // budget_tokens MUST be < max_tokens (Anthropic validation requirement).
                 let budget: u32 = match effort.as_str() {
                     "low" => 1024,
                     "medium" => 8192,
-                    "high" => 16384,
+                    "high" => 12288,
                     _ => 8192,
                 };
                 body["thinking"] = json!({
@@ -486,7 +525,7 @@ impl CopilotProvider {
             .map(|a| a.len())
             .unwrap_or(0);
         debug!(model = %self.model_id, url = %url, body = %body, "CopilotProvider: trying Anthropic Messages endpoint");
-        info!(
+        debug!(
             model = %self.model_id,
             url = %url,
             msg_count = api_msgs.len(),
@@ -510,7 +549,7 @@ impl CopilotProvider {
         }
 
         let parsed = parse_anthropic_sse(resp).await?;
-        info!(
+        debug!(
             text_len = parsed.text.len(),
             tool_uses = parsed.tool_uses.len(),
             input_tokens = parsed.input_tokens,
@@ -519,6 +558,382 @@ impl CopilotProvider {
             "Anthropic: SSE parse result"
         );
         Ok(anthropic_result_to_response(parsed))
+    }
+
+    // -- OpenAI Responses API path (/responses) ---------------------------
+
+    /// POST to `{base}/responses` with the OpenAI Responses API format.
+    ///
+    /// Converts messages to the responses format: system message goes to
+    /// `instructions`, user/assistant messages go to `input` array.
+    /// Parses the response `output` array for `function_call` items (tool
+    /// calls) or `message` items (text).
+    async fn try_responses_api_with_tools(
+        &self,
+        proxy_ep: &str,
+        bearer: &str,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> anyhow::Result<(super::ProviderResponse, Option<super::TokenUsage>)> {
+        let http = super::get_shared_http_client();
+        let base = proxy_ep.trim_end_matches('/');
+        let url = format!("{base}/responses");
+
+        // Split system messages into `instructions`, the rest into `input`.
+        let mut instructions_parts: Vec<String> = Vec::new();
+        let mut input: Vec<Value> = Vec::new();
+
+        for m in messages {
+            if m.is_system() {
+                instructions_parts.push(m.content.clone());
+                continue;
+            }
+            // Tool result messages: convert to responses API format.
+            if m.is_tool() {
+                if let Some(ref tcid) = m.tool_call_id {
+                    input.push(json!({
+                        "type": "function_call_output",
+                        "call_id": tcid,
+                        "output": m.content,
+                    }));
+                } else {
+                    input.push(json!({"role": "user", "content": m.content}));
+                }
+                continue;
+            }
+            // Assistant with tool_calls: emit function_call items.
+            if m.is_assistant() && m.tool_calls.is_some() {
+                if !m.content.is_empty() {
+                    input.push(json!({"role": "assistant", "content": m.content}));
+                }
+                if let Some(ref tcs) = m.tool_calls {
+                    for tc in tcs {
+                        let func = tc.get("function").unwrap_or(tc);
+                        let name = func.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                        let call_id = tc.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                        let arguments = func
+                            .get("arguments")
+                            .and_then(|a| a.as_str())
+                            .unwrap_or("{}");
+                        input.push(json!({
+                            "type": "function_call",
+                            "call_id": call_id,
+                            "name": name,
+                            "arguments": arguments,
+                        }));
+                    }
+                }
+                continue;
+            }
+            // Regular user / assistant messages.
+            input.push(json!({"role": &m.role, "content": m.content}));
+        }
+
+        let mut body = json!({
+            "model": &self.model_id,
+            "input": input,
+            "stream": false,
+        });
+
+        if !instructions_parts.is_empty() {
+            body["instructions"] = json!(instructions_parts.join("\n\n"));
+        }
+
+        // Inject reasoning effort for OpenAI models (o-series).
+        if let Some(ref effort) = self.reasoning_effort {
+            body["reasoning"] = json!({"effort": effort});
+        }
+
+        if !functions.is_empty() {
+            let tools: Vec<Value> = functions
+                .iter()
+                .filter_map(|f| {
+                    let func_obj = if f.get("type").and_then(|t| t.as_str()) == Some("function")
+                        && f.get("function").is_some()
+                    {
+                        f.get("function").unwrap().clone()
+                    } else {
+                        f.clone()
+                    };
+
+                    let name = func_obj
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or_default();
+                    if name.is_empty() {
+                        warn!("copilot/responses: skipping function with empty name: {func_obj}");
+                        return None;
+                    }
+
+                    Some(json!({
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "description": func_obj.get("description")
+                                .and_then(|d| d.as_str())
+                                .unwrap_or(""),
+                            "parameters": func_obj.get("parameters")
+                                .cloned()
+                                .unwrap_or_else(|| json!({"type": "object"})),
+                        }
+                    }))
+                })
+                .collect();
+
+            if !tools.is_empty() {
+                body["tools"] = Value::Array(tools);
+                body["tool_choice"] = json!("auto");
+            }
+        }
+
+        let headers = copilot_headers(bearer, self.header_overrides.as_ref());
+
+        debug!(
+            model = %self.model_id,
+            url = %url,
+            "CopilotProvider: trying Responses API endpoint"
+        );
+
+        match post_with_retry(&http, &url, &headers, &body).await {
+            Ok(json_val) => {
+                let usage = parse_responses_usage(&json_val);
+
+                // Look for function_call items in the output array.
+                if let Some(output) = json_val.get("output").and_then(|o| o.as_array()) {
+                    let mut func_calls: Vec<super::FunctionCallItem> = Vec::new();
+                    let mut text_parts: Vec<String> = Vec::new();
+
+                    for item in output {
+                        let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                        match item_type {
+                            "function_call" => {
+                                let name = item
+                                    .get("name")
+                                    .and_then(|n| n.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let arguments = item
+                                    .get("arguments")
+                                    .and_then(|a| a.as_str())
+                                    .unwrap_or("{}")
+                                    .to_string();
+                                let call_id = item
+                                    .get("call_id")
+                                    .and_then(|i| i.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                func_calls.push(super::FunctionCallItem {
+                                    id: call_id,
+                                    name,
+                                    arguments,
+                                });
+                            }
+                            "message" => {
+                                // Extract text from content array.
+                                if let Some(content) =
+                                    item.get("content").and_then(|c| c.as_array())
+                                {
+                                    for part in content {
+                                        let ptype =
+                                            part.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                        if ptype == "output_text" {
+                                            if let Some(text) =
+                                                part.get("text").and_then(|t| t.as_str())
+                                            {
+                                                text_parts.push(text.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {
+                                debug!(
+                                    item_type,
+                                    "CopilotProvider/responses: ignoring unknown output item type"
+                                );
+                            }
+                        }
+                    }
+
+                    // Prefer function calls over text.
+                    if !func_calls.is_empty() {
+                        if func_calls.len() == 1 {
+                            let fc = func_calls.into_iter().next().unwrap();
+                            debug!(name = %fc.name, "CopilotProvider/responses: got function_call");
+                            return Ok((
+                                super::ProviderResponse::FunctionCall {
+                                    id: fc.id,
+                                    name: fc.name,
+                                    arguments: fc.arguments,
+                                },
+                                usage,
+                            ));
+                        }
+                        debug!(
+                            count = func_calls.len(),
+                            "CopilotProvider/responses: got multi function_call"
+                        );
+                        return Ok((
+                            super::ProviderResponse::MultiFunctionCall(func_calls),
+                            usage,
+                        ));
+                    }
+
+                    if !text_parts.is_empty() {
+                        let text = text_parts.join("");
+                        debug!(
+                            text_len = text.len(),
+                            "CopilotProvider/responses: got text reply"
+                        );
+                        return Ok((super::ProviderResponse::Final(text), usage));
+                    }
+                }
+
+                // Fallback: check for top-level output_text field.
+                if let Some(text) = json_val.get("output_text").and_then(|t| t.as_str()) {
+                    let text = text.trim();
+                    if !text.is_empty() {
+                        return Ok((super::ProviderResponse::Final(text.to_string()), usage));
+                    }
+                }
+
+                anyhow::bail!(
+                    "Responses API returned 200 but no usable output: {}",
+                    serde_json::to_string(&json_val).unwrap_or_default()
+                );
+            }
+            Err(msg) => {
+                anyhow::bail!(
+                    "Responses API failed: {}",
+                    msg.unwrap_or_else(|| "unknown".into())
+                );
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Model discovery
+    // ------------------------------------------------------------------
+
+    /// Fetch the list of available models from the Copilot proxy
+    /// `GET /models` endpoint and return them as `ModelInfo` entries.
+    async fn fetch_models_from_api(&self) -> anyhow::Result<Vec<super::ModelInfo>> {
+        let (ep, bearer) = self
+            .ensure_fresh_token()
+            .await
+            .context("no valid Copilot token for model discovery")?;
+
+        let http = super::get_shared_http_client();
+        let base = ep.trim_end_matches('/');
+        let url = format!("{base}/models");
+
+        debug!("CopilotProvider: fetching model list from {url}");
+
+        let headers = copilot_headers(&bearer, self.header_overrides.as_ref());
+        let mut req = http.get(&url);
+        for (k, v) in &headers {
+            if let Ok(v_str) = v.to_str() {
+                req = req.header(k.as_str(), v_str);
+            }
+        }
+
+        let resp = req.send().await.context("model list request failed")?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            anyhow::bail!("GET /models returned {status}: {body}");
+        }
+
+        let payload: Value = resp.json().await.context("model list JSON parse error")?;
+
+        // Copilot returns `{ "data": [ { "id": "..", "name": "..",
+        // "capabilities": { "type": "chat"|"embeddings", "family": .. },
+        // ... } ] }`.
+        let data = payload
+            .get("data")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let models: Vec<super::ModelInfo> = data
+            .iter()
+            .filter_map(|m| {
+                let id = m.get("id")?.as_str()?.to_string();
+                let name = m
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(id.as_str())
+                    .to_string();
+                let vendor = m
+                    .get("vendor")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                // Collect supported endpoints from capabilities/limits.
+                let mut endpoints = Vec::new();
+                if let Some(caps) = m.get("capabilities") {
+                    if caps.get("type").and_then(|v| v.as_str()) == Some("chat") {
+                        endpoints.push("chat".to_string());
+                    }
+                }
+                // The proxy also surfaces `supported_api_types` in newer payloads.
+                if let Some(api_types) = m.get("supported_api_types").and_then(|v| v.as_array()) {
+                    for t in api_types {
+                        if let Some(s) = t.as_str() {
+                            if !endpoints.contains(&s.to_string()) {
+                                endpoints.push(s.to_string());
+                            }
+                        }
+                    }
+                }
+
+                let is_default = m
+                    .get("is_default")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+
+                Some(super::ModelInfo {
+                    id,
+                    name,
+                    vendor,
+                    supported_endpoints: endpoints,
+                    is_default,
+                })
+            })
+            .collect();
+
+        debug!(count = models.len(), "CopilotProvider: discovered models");
+        Ok(models)
+    }
+
+    /// Decide which API path to use for the current `model_id`.
+    ///
+    /// 1. If we have discovery data and the model declares
+    ///    `supported_endpoints`, pick the best match.
+    /// 2. Otherwise fall back to `is_anthropic_model()` heuristic.
+    async fn resolve_api_path(&self) -> CopilotApiPath {
+        let guard = self.discovered_models.lock().await;
+        if let Some(ref cached) = *guard {
+            if let Some(info) = cached.models.iter().find(|m| m.id == self.model_id) {
+                let eps = &info.supported_endpoints;
+                // Prefer /responses when available, then /v1/messages, then /chat/completions.
+                if eps.iter().any(|e| e == "responses") {
+                    return CopilotApiPath::Responses;
+                }
+                if eps.iter().any(|e| e == "messages") {
+                    return CopilotApiPath::Messages;
+                }
+                return CopilotApiPath::ChatCompletions;
+            }
+        }
+        drop(guard);
+
+        // Fallback heuristic
+        if is_anthropic_model(&self.model_id) {
+            CopilotApiPath::Messages
+        } else {
+            CopilotApiPath::ChatCompletions
+        }
     }
 }
 
@@ -588,9 +1003,115 @@ impl ModelProvider for CopilotProvider {
         Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>,
     > {
         Box::pin(async_stream::try_stream! {
-            let reply = ModelProvider::send_chat(self, messages).await?;
-            yield reply;
+            if let Some((ep, bearer)) = self.ensure_fresh_token().await {
+                let api_path = self.resolve_api_path().await;
+                debug!(model = %self.model_id, ?api_path, "CopilotProvider: routing stream request");
+                use tokio_stream::StreamExt as _;
+
+                match api_path {
+                    CopilotApiPath::Messages => {
+                        // Anthropic path — use existing SSE streaming via try_anthropic_http
+                        let reply = self.try_anthropic_http(&ep, &bearer, messages).await?;
+                        yield reply;
+                    }
+                    CopilotApiPath::Responses => {
+                        // OpenAI Responses API — SSE streaming
+                        let http = super::get_shared_http_client();
+                        let base = ep.trim_end_matches('/');
+                        let url = format!("{base}/responses");
+
+                        // Build input from messages (system → instructions, rest → input).
+                        let mut instructions_parts = Vec::<String>::new();
+                        let mut input = Vec::<serde_json::Value>::new();
+                        for m in messages {
+                            if m.is_system() {
+                                instructions_parts.push(m.content.clone());
+                            } else {
+                                input.push(serde_json::json!({"role": &m.role, "content": m.content}));
+                            }
+                        }
+
+                        let mut body = serde_json::json!({
+                            "model": &self.model_id,
+                            "input": input,
+                            "stream": true,
+                        });
+                        if !instructions_parts.is_empty() {
+                            body["instructions"] = serde_json::json!(instructions_parts.join("\n\n"));
+                        }
+
+                        let headers = copilot_headers(&bearer, self.header_overrides.as_ref());
+                        let resp = http.post(&url).headers(headers).json(&body).send().await?;
+                        if !resp.status().is_success() {
+                            let status = resp.status();
+                            let text = resp.text().await.unwrap_or_default();
+                            Err(anyhow::anyhow!("Copilot /responses streaming returned {status}: {text}"))?;
+                            return;
+                        }
+
+                        // Parse SSE events for response.output_text.delta
+                        let mut delta_stream = stream_responses_sse_deltas(resp);
+                        while let Some(chunk) = delta_stream.next().await {
+                            yield chunk?;
+                        }
+                    }
+                    CopilotApiPath::ChatCompletions => {
+                        // OpenAI /chat/completions path — real SSE streaming
+                        let http = super::get_shared_http_client();
+                        let body = serde_json::json!({
+                            "model": &self.model_id,
+                            "messages": super::serialize_messages(messages),
+                            "stream": true,
+                        });
+                        let headers = copilot_headers(&bearer, self.header_overrides.as_ref());
+                        let base = ep.trim_end_matches('/');
+                        let url = format!("{base}/chat/completions");
+                        let resp = http.post(&url).headers(headers).json(&body).send().await?;
+                        if !resp.status().is_success() {
+                            let status = resp.status();
+                            let text = resp.text().await.unwrap_or_default();
+                            Err(anyhow::anyhow!("Copilot streaming returned {status}: {text}"))?;
+                            return;
+                        }
+                        let mut delta_stream = super::stream_sse_deltas(resp);
+                        while let Some(chunk) = delta_stream.next().await {
+                            yield chunk?;
+                        }
+                    }
+                }
+            } else {
+                Err(crate::auth::AuthError {
+                    provider: "GitHub Copilot".into(),
+                    hint: "your token may have expired or is invalid — run `/gh-login` to re-authorise".into(),
+                })?;
+            }
         })
+    }
+
+    async fn list_models(&self) -> Result<Option<Vec<super::ModelInfo>>, anyhow::Error> {
+        // Return cached if fresh.
+        {
+            let guard = self.discovered_models.lock().await;
+            if let Some(ref cached) = *guard {
+                if !cached.is_stale() {
+                    return Ok(Some(cached.models.clone()));
+                }
+            }
+        }
+
+        // Fetch from API.
+        let models = self.fetch_models_from_api().await?;
+
+        // Cache the result.
+        {
+            let mut guard = self.discovered_models.lock().await;
+            *guard = Some(DiscoveredModels {
+                models: models.clone(),
+                fetched_at: std::time::Instant::now(),
+            });
+        }
+
+        Ok(Some(models))
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -635,15 +1156,18 @@ fn copilot_headers(
 ) -> reqwest::header::HeaderMap {
     let mut h = reqwest::header::HeaderMap::new();
     h.insert("Authorization", format!("Bearer {bearer}").parse().unwrap());
-    h.insert("User-Agent", "GitHubCopilotChat/0.26.7".parse().unwrap());
     h.insert("Content-Type", "application/json".parse().unwrap());
-    h.insert("Editor-Version", "vscode/1.96.2".parse().unwrap());
-    h.insert(
-        "Editor-Plugin-Version",
-        "copilot-chat/0.26.7".parse().unwrap(),
-    );
+
+    // Minimal headers — Editor-Version is required by the Copilot proxy
+    // for IDE auth. Copilot-Integration-Id is intentionally omitted
+    // (unknown values cause 400 "unknown Copilot-Integration-Id" errors,
+    // and OpenCode doesn't send it at all).
+    let version = env!("CARGO_PKG_VERSION");
+    h.insert("User-Agent", format!("Pinchy/{version}").parse().unwrap());
+    h.insert("Editor-Version", "vscode/1.99.0".parse().unwrap());
+    h.insert("Editor-Plugin-Version", "copilot/1.300.0".parse().unwrap());
     h.insert("Copilot-Integration-Id", "vscode-chat".parse().unwrap());
-    h.insert("Openai-Intent", "conversation-panel".parse().unwrap());
+    h.insert("Openai-Intent", "conversation-edits".parse().unwrap());
 
     if let Some(overrides) = overrides {
         debug!(overrides = ?overrides, "copilot_headers: applying header overrides");
@@ -664,10 +1188,25 @@ fn copilot_headers(
     h
 }
 
+/// Parse the `Retry-After` header from an HTTP response.
+///
+/// Supports the header as an integer (seconds) which is what GitHub's API returns.
+/// Returns `None` if the header is absent or unparseable.
+fn parse_retry_after(resp: &reqwest::Response) -> Option<Duration> {
+    let val = resp
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?;
+    let secs: u64 = val.trim().parse().ok()?;
+    Some(Duration::from_secs(secs))
+}
+
 /// POST a JSON body to `url` with retry logic for transient errors.
 ///
 /// Retries up to `MAX_RETRIES` times on transport errors and 5xx
 /// responses with exponential backoff capped at 30 s (#4).
+/// On 429 (Too Many Requests), honours the `Retry-After` header if present.
 async fn post_with_retry(
     client: &reqwest::Client,
     url: &str,
@@ -714,6 +1253,9 @@ async fn post_with_retry(
             return Ok(json_val);
         }
 
+        // Extract Retry-After before consuming the body
+        let retry_after = parse_retry_after(&resp);
+
         let resp_body = resp.text().await.unwrap_or_default();
         warn!("CopilotProvider: {url} returned HTTP {status}; body: {resp_body}");
 
@@ -721,7 +1263,14 @@ async fn post_with_retry(
             && attempt < MAX_RETRIES
         {
             attempt += 1;
-            let delay = Duration::from_millis(1000 * 2u64.pow(attempt - 1)).min(MAX_DELAY);
+            let delay = if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                // Prefer Retry-After header (seconds) from the API, fall back to exp backoff
+                retry_after
+                    .unwrap_or_else(|| Duration::from_millis(1000 * 2u64.pow(attempt - 1)))
+                    .min(MAX_DELAY)
+            } else {
+                Duration::from_millis(1000 * 2u64.pow(attempt - 1)).min(MAX_DELAY)
+            };
             warn!(
                 "CopilotProvider: retrying {url} (attempt {attempt}/{MAX_RETRIES}) after {delay:?}"
             );
@@ -1271,6 +1820,111 @@ fn anthropic_result_to_response(
 }
 
 // ---------------------------------------------------------------------------
+// OpenAI Responses API helpers
+// ---------------------------------------------------------------------------
+
+/// Parse token usage from an OpenAI Responses API response.
+///
+/// The Responses API returns usage as `{ "input_tokens", "output_tokens",
+/// "total_tokens" }` (note: `input_tokens` not `prompt_tokens`).
+fn parse_responses_usage(json: &Value) -> Option<super::TokenUsage> {
+    let usage = json.get("usage")?;
+    let model = json
+        .get("model")
+        .and_then(|m| m.as_str())
+        .unwrap_or("")
+        .to_string();
+    let input = usage
+        .get("input_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let output = usage
+        .get("output_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let total = usage
+        .get("total_tokens")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(input + output);
+    Some(super::TokenUsage {
+        prompt_tokens: input,
+        completion_tokens: output,
+        total_tokens: total,
+        cached_tokens: 0,
+        reasoning_tokens: 0,
+        model,
+    })
+}
+
+/// Parse an SSE stream from the OpenAI Responses API and yield text
+/// deltas as they arrive.
+///
+/// The Responses API SSE format uses typed events:
+/// - `response.output_text.delta` → `{"delta": "text chunk"}`
+/// - `response.completed` → signals stream end
+fn stream_responses_sse_deltas(
+    resp: reqwest::Response,
+) -> std::pin::Pin<Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send>> {
+    Box::pin(async_stream::try_stream! {
+        use tokio_stream::StreamExt as _;
+        let mut byte_stream = resp.bytes_stream();
+        let mut buffer = String::new();
+        let mut current_event_type = String::new();
+
+        while let Some(chunk) = byte_stream.next().await {
+            let chunk = chunk?;
+            buffer.push_str(&String::from_utf8_lossy(&chunk));
+
+            while let Some(newline_pos) = buffer.find('\n') {
+                let line = buffer[..newline_pos].trim_end().to_string();
+                buffer = buffer[newline_pos + 1..].to_string();
+
+                if line.is_empty() {
+                    // Empty line resets the event type for the next event.
+                    current_event_type.clear();
+                    continue;
+                }
+
+                // Track event type from `event:` lines.
+                if let Some(evt) = line.strip_prefix("event: ").or_else(|| line.strip_prefix("event:")) {
+                    current_event_type = evt.trim().to_string();
+                    continue;
+                }
+
+                // Process `data:` lines.
+                let data = if let Some(d) = line.strip_prefix("data: ") {
+                    d
+                } else if let Some(d) = line.strip_prefix("data:") {
+                    d
+                } else {
+                    continue;
+                };
+
+                if data == "[DONE]" {
+                    return;
+                }
+
+                // Parse text deltas from response.output_text.delta events.
+                if current_event_type == "response.output_text.delta" {
+                    if let Ok(v) = serde_json::from_str::<Value>(data) {
+                        if let Some(delta) = v.get("delta").and_then(|d| d.as_str()) {
+                            if !delta.is_empty() {
+                                yield delta.to_string();
+                            }
+                        }
+                    }
+                }
+
+                // Check for stream completion.
+                if current_event_type == "response.completed" {
+                    return;
+                }
+            }
+        }
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1323,6 +1977,7 @@ mod tests {
             header_overrides: None,
             model_id: "gpt-4o".to_string(),
             reasoning_effort: None,
+            discovered_models: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -1340,6 +1995,7 @@ mod tests {
             header_overrides: None,
             model_id: "gpt-4o".to_string(),
             reasoning_effort: None,
+            discovered_models: Arc::new(Mutex::new(None)),
         }
     }
 

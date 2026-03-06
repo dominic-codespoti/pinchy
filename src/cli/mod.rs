@@ -12,9 +12,9 @@ use anyhow::Context;
 use clap::ValueEnum;
 use std::io::{IsTerminal, Read};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::debug;
 
+pub mod backup;
 pub mod service;
 
 // ── Public types ─────────────────────────────────────────────────────────────
@@ -119,18 +119,14 @@ struct OnboardData {
     browser_path: Option<String>,
 }
 
-/// Create a backup of `path` (sync), following the same `.bak.<unix_ts>`
-/// convention used by [`agent::backup_file`].
+/// Create a backup of `path` (sync), keeping only a single `.bak` copy
+/// (overwrites any previous backup).
 fn sync_backup_file(path: &Path) -> anyhow::Result<()> {
     if !path.exists() {
         return Ok(());
     }
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
     let mut bak_name = path.file_name().unwrap_or_default().to_os_string();
-    bak_name.push(format!(".bak.{ts}"));
+    bak_name.push(".bak");
     let bak_path = path.with_file_name(bak_name);
     std::fs::copy(path, &bak_path)
         .with_context(|| format!("backup {} -> {}", path.display(), bak_path.display()))?;
@@ -361,6 +357,7 @@ pub fn interactive_onboard_tui(
                     sync_backup_file(config_path)?;
                     std::fs::write(config_path, &yaml_out)
                         .with_context(|| format!("write {}", config_path.display()))?;
+                    crate::config::invalidate_config_cache();
 
                     println!(
                         "\nagent '{id}' onboarded — provider: {}, model: {}, browser: {}",
@@ -528,6 +525,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                     let yaml_out = serde_yaml_ng::to_string(&cfg).unwrap_or_default();
                     sync_backup_file(config_path).ok();
                     std::fs::write(config_path, &yaml_out).ok();
+                    crate::config::invalidate_config_cache();
                     println!("  OpenAI model entry written to config.yaml");
                 }
                 println!("  Set OPENAI_API_KEY in your environment:");
@@ -577,6 +575,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                     let yaml_out = serde_yaml_ng::to_string(&cfg).unwrap_or_default();
                     sync_backup_file(config_path).ok();
                     std::fs::write(config_path, &yaml_out).ok();
+                    crate::config::invalidate_config_cache();
                     println!("  Azure model entry written to config.yaml");
                 }
             }
@@ -637,6 +636,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                         let yaml_out = serde_yaml_ng::to_string(&cfg).unwrap_or_default();
                         sync_backup_file(config_path).ok();
                         std::fs::write(config_path, &yaml_out).ok();
+                        crate::config::invalidate_config_cache();
                         println!("  Copilot model entry written to config.yaml");
                     }
                 }
@@ -739,6 +739,7 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                 let yaml_out = serde_yaml_ng::to_string(&cfg).unwrap_or_default();
                 sync_backup_file(config_path).ok();
                 std::fs::write(config_path, &yaml_out).ok();
+                crate::config::invalidate_config_cache();
                 println!("  Timezone set to: {tz_input}");
             }
         } else {

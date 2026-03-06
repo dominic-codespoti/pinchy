@@ -11,7 +11,6 @@ use std::path::Path;
 
 use serde_json::{json, Value};
 
-use crate::session::SessionStore;
 use crate::tools::{register_tool, ToolMeta};
 use crate::utils;
 
@@ -24,80 +23,31 @@ pub async fn session_list(_workspace: &Path, args: Value) -> anyhow::Result<Valu
     let filter_agent = args.get("agent_id").and_then(Value::as_str);
     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(50) as usize;
 
-    let agents_dir = utils::agents_dir();
-    let mut all_sessions: Vec<Value> = Vec::new();
-
-    let mut rd = tokio::fs::read_dir(&agents_dir)
-        .await
-        .map_err(|e| anyhow::anyhow!("cannot read agents dir: {e}"))?;
-
-    while let Ok(Some(entry)) = rd.next_entry().await {
-        let is_dir = entry
-            .file_type()
-            .await
-            .map(|ft| ft.is_dir())
-            .unwrap_or(false);
-        if !is_dir {
-            continue;
-        }
-        let agent_id = entry.file_name().to_string_lossy().to_string();
-
-        if let Some(filter) = filter_agent {
-            if agent_id != filter {
-                continue;
-            }
-        }
-
-        let ws = entry.path().join("workspace");
-        let sessions_dir = ws.join("sessions");
-
-        // Read the current session id.
-        let current = SessionStore::load_current_async(&ws).await;
-
-        let mut sess_rd = match tokio::fs::read_dir(&sessions_dir).await {
-            Ok(rd) => rd,
-            Err(_) => continue,
+    // Prefer PinchyDb when available.
+    if let Some(db) = crate::store::global_db() {
+        let entries = if let Some(aid) = filter_agent {
+            db.list_sessions_for_agent(aid)?
+        } else {
+            db.list_sessions()?
         };
-
-        while let Ok(Some(sentry)) = sess_rd.next_entry().await {
-            let fname = sentry.file_name().to_string_lossy().to_string();
-            if !fname.ends_with(".jsonl") || fname.ends_with(".receipts.jsonl") {
-                continue;
-            }
-            let session_id = fname.trim_end_matches(".jsonl").to_string();
-
-            let meta = sentry.metadata().await.ok();
-            let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-            let modified = meta.as_ref().and_then(|m| m.modified().ok()).and_then(|t| {
-                t.duration_since(std::time::UNIX_EPOCH)
-                    .ok()
-                    .map(|d| d.as_secs())
-            });
-
-            let is_current = current.as_deref() == Some(session_id.as_str());
-
-            all_sessions.push(json!({
-                "agent_id": agent_id,
-                "session_id": session_id,
-                "is_current": is_current,
-                "size_bytes": size,
-                "last_modified": modified,
-            }));
-        }
+        let sessions: Vec<Value> = entries
+            .into_iter()
+            .take(limit)
+            .map(|e| {
+                json!({
+                    "agent_id": e.agent_id,
+                    "session_id": e.session_id,
+                    "is_current": false, // caller can check separately
+                    "created_at": e.created_at,
+                    "title": e.title,
+                })
+            })
+            .collect();
+        return Ok(json!({ "sessions": sessions }));
     }
 
-    // Sort by last_modified descending.
-    all_sessions.sort_by(|a, b| {
-        let a_mod = a["last_modified"].as_u64().unwrap_or(0);
-        let b_mod = b["last_modified"].as_u64().unwrap_or(0);
-        b_mod.cmp(&a_mod)
-    });
-
-    all_sessions.truncate(limit);
-
-    Ok(json!({
-        "sessions": all_sessions,
-    }))
+    tracing::warn!("no database available — skipping session_list");
+    Ok(json!({ "sessions": [] }))
 }
 
 // ── session_status ───────────────────────────────────────────
@@ -108,23 +58,28 @@ pub async fn session_list(_workspace: &Path, args: Value) -> anyhow::Result<Valu
 pub async fn session_status(workspace: &Path, args: Value) -> anyhow::Result<Value> {
     // If agent_id is given, use that agent's workspace.  Otherwise use
     // the calling agent's workspace.
-    let (ws, agent_id) = if let Some(aid) = args.get("agent_id").and_then(Value::as_str) {
+    let agent_id = if let Some(aid) = args.get("agent_id").and_then(Value::as_str) {
         let root = utils::agent_root(aid);
         if !root.exists() {
             anyhow::bail!("session_status: agent not found: {aid}");
         }
-        (root.join("workspace"), aid.to_string())
+        aid.to_string()
     } else {
         // Derive agent_id from workspace path.
-        let aid = workspace
+        workspace
             .parent()
             .and_then(|p| p.file_name())
             .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_else(|| "unknown".into());
-        (workspace.to_path_buf(), aid)
+            .unwrap_or_else(|| "unknown".into())
     };
 
-    let current = SessionStore::load_current_async(&ws).await;
+    // Resolve current session: prefer PinchyDb.
+    let current = if let Some(db) = crate::store::global_db() {
+        db.current_session(&agent_id).ok().flatten()
+    } else {
+        tracing::warn!("no database available — skipping session_status current lookup");
+        None
+    };
 
     let session_id = match &current {
         Some(id) => id.clone(),
@@ -137,10 +92,13 @@ pub async fn session_status(workspace: &Path, args: Value) -> anyhow::Result<Val
         }
     };
 
-    // Load history to get stats.
-    let history = SessionStore::load_history(&ws, &session_id, 1000)
-        .await
-        .unwrap_or_default();
+    // Load history to get stats: prefer PinchyDb.
+    let history = if let Some(db) = crate::store::global_db() {
+        db.load_full_history(&session_id).unwrap_or_default()
+    } else {
+        tracing::warn!("no database available — skipping session_status history load");
+        Vec::new()
+    };
 
     let message_count = history.len();
     let last_message = history.last().map(|ex| {
@@ -344,18 +302,21 @@ pub async fn session_spawn(_workspace: &Path, args: Value) -> anyhow::Result<Val
         .map(String::from)
         .unwrap_or_else(crate::session::index::new_session_id);
 
-    // Set as the current session.
-    SessionStore::set_current(&ws, &session_id).await?;
-
-    // Write to global index.
     let title = args.get("title").and_then(Value::as_str);
-    let _ = crate::session::index::append_global_index(
-        &crate::pinchy_home(),
-        &session_id,
-        agent_id,
-        title,
-    )
-    .await;
+
+    // Persist to PinchyDb if available.
+    if let Some(db) = crate::store::global_db() {
+        let entry = crate::session::index::IndexEntry {
+            session_id: session_id.clone(),
+            agent_id: agent_id.to_string(),
+            created_at: crate::agent::types::epoch_millis(),
+            title: title.map(String::from),
+        };
+        let _ = db.insert_session(&entry);
+        let _ = db.set_current_session(agent_id, &session_id);
+    } else {
+        tracing::warn!("no database available — skipping session_spawn persistence");
+    }
 
     // Optionally send an initial message to kick off the session.
     let message_sent = if let Some(message) = args.get("message").and_then(Value::as_str) {

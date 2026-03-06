@@ -9,7 +9,6 @@ use crate::config::Config;
 use crate::models::{
     build_provider_manager, ChatMessage, ModelProvider, ProviderManager, ProviderResponse,
 };
-use crate::session::SessionStore;
 use crate::tools;
 
 use super::debug::emit_model_request_debug;
@@ -57,12 +56,13 @@ async fn generate_and_set_session_title(
         return;
     }
 
-    let home = crate::pinchy_home();
-    if let Err(e) =
-        crate::session::index::update_index_title(&home, &session_id, &agent_id, &title).await
-    {
-        warn!(error = %e, "failed to update session title in index");
-        return;
+    // Prefer PinchyDb; fall back to file index.
+    if let Some(db) = crate::store::global_db() {
+        if let Err(e) = db.update_session_title(&session_id, &title) {
+            warn!(error = %e, "failed to update session title in db");
+        }
+    } else {
+        tracing::warn!("no database available — skipping title update");
     }
 
     // Push a WS event so the UI updates live.
@@ -101,8 +101,13 @@ impl Agent {
 
     async fn load_history(&self, max_messages: usize) -> anyhow::Result<Vec<ChatMessage>> {
         if let Some(ref session_id) = self.current_session {
-            let exchanges =
-                SessionStore::load_history(&self.workspace, session_id, max_messages).await?;
+            // Prefer PinchyDb; fall back to JSONL.
+            let exchanges = if let Some(ref db) = self.db {
+                db.load_history(session_id, max_messages)?
+            } else {
+                tracing::warn!("no database available — skipping history load");
+                return Ok(Vec::new());
+            };
             return Ok(exchanges
                 .into_iter()
                 .filter(|ex| ex.role == "user" || ex.role == "assistant" || ex.role == "tool")
@@ -147,7 +152,13 @@ impl Agent {
             }));
             Some(prev)
         } else {
-            self.current_session = SessionStore::load_current_async(&self.workspace).await;
+            // Reload current session from db (or file fallback).
+            self.current_session = if let Some(ref db) = self.db {
+                db.current_session(&self.id).ok().flatten()
+            } else {
+                tracing::warn!("no database available — skipping session reload");
+                None
+            };
             if self.current_session.is_none() {
                 let new_id = self.start_session().await;
                 info!(agent = %self.id, session = %new_id, "auto-created new session");
@@ -184,10 +195,8 @@ impl Agent {
             }
         }
 
-        let manager = self.build_provider_manager(turn_cfg.as_ref());
-        crate::models::set_global_providers(std::sync::Arc::new(
-            self.build_provider_manager(turn_cfg.as_ref()),
-        ));
+        let manager = std::sync::Arc::new(self.build_provider_manager(turn_cfg.as_ref()));
+        crate::models::set_global_providers(manager.clone());
 
         let result = self
             .run_turn_with_provider(msg, &manager, turn_cfg.as_ref())
@@ -244,13 +253,13 @@ impl Agent {
             "session": self.current_session,
         }));
 
-        // Detect first turn: if the session JSONL file doesn't exist yet
-        // (or is empty), this is the first message and we should auto-name.
+        // Detect first turn: no exchanges in session yet → auto-name.
         let is_first_turn = if let Some(ref sid) = self.current_session {
-            let session_path = self.workspace.join("sessions").join(format!("{sid}.jsonl"));
-            match tokio::fs::metadata(&session_path).await {
-                Ok(m) => m.len() == 0,
-                Err(_) => true, // file doesn't exist yet
+            if let Some(ref db) = self.db {
+                db.exchange_count(sid).unwrap_or(0) == 0
+            } else {
+                tracing::warn!("no database available — skipping first-turn check");
+                false
             }
         } else {
             false

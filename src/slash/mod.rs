@@ -14,7 +14,6 @@ use std::sync::{Arc, RwLock};
 use tracing::debug;
 
 use crate::models::ModelProvider;
-use crate::session::SessionStore;
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -204,29 +203,21 @@ pub fn register_builtin_commands(registry: &Registry) {
             Box::pin(async move {
                 let session_id = crate::session::index::new_session_id();
 
-                // Create the empty session file.
-                let sessions_dir = ctx.workspace.join("sessions");
-                tokio::fs::create_dir_all(&sessions_dir)
-                    .await
-                    .map_err(|e| SlashError::Handler(format!("create sessions dir: {e}")))?;
-                tokio::fs::write(sessions_dir.join(format!("{session_id}.jsonl")), b"")
-                    .await
-                    .map_err(|e| SlashError::Handler(format!("create session file: {e}")))?;
-
-                // Set as current session.
-                SessionStore::set_current(&ctx.workspace, &session_id)
-                    .await
-                    .map_err(|e| SlashError::Handler(format!("set_current failed: {e}")))?;
-
-                // Append to global index.
-                crate::session::index::append_global_index(
-                    &ctx.pinchy_home,
-                    &session_id,
-                    &ctx.agent_id,
-                    None,
-                )
-                .await
-                .map_err(|e| SlashError::Handler(format!("append global index: {e}")))?;
+                // Persist to PinchyDb if available.
+                if let Some(db) = crate::store::global_db() {
+                    let entry = crate::session::index::IndexEntry {
+                        session_id: session_id.clone(),
+                        agent_id: ctx.agent_id.clone(),
+                        created_at: crate::agent::types::epoch_millis(),
+                        title: None,
+                    };
+                    db.insert_session(&entry)
+                        .map_err(|e| SlashError::Handler(format!("insert session: {e}")))?;
+                    db.set_current_session(&ctx.agent_id, &session_id)
+                        .map_err(|e| SlashError::Handler(format!("set current session: {e}")))?;
+                } else {
+                    tracing::warn!("no database available — skipping /new session creation");
+                }
 
                 debug!(session_id = %session_id, "new session started via /new");
                 Ok(SlashResponse::Text(format!(
@@ -241,15 +232,16 @@ pub fn register_builtin_commands(registry: &Registry) {
         cmd("end", "End the current conversation session", "/end"),
         Arc::new(|ctx, _args| {
             Box::pin(async move {
-                if SessionStore::load_current_async(&ctx.workspace)
-                    .await
-                    .is_none()
-                {
-                    return Ok(SlashResponse::Text("no active session".to_string()));
+                if let Some(db) = crate::store::global_db() {
+                    if db.current_session(&ctx.agent_id).ok().flatten().is_none() {
+                        return Ok(SlashResponse::Text("no active session".to_string()));
+                    }
+                    db.clear_current_session(&ctx.agent_id)
+                        .map_err(|e| SlashError::Handler(format!("clear current: {e}")))?;
+                } else {
+                    tracing::warn!("no database available — skipping /end");
+                    return Ok(SlashResponse::Text("no database available".to_string()));
                 }
-                SessionStore::clear_current(&ctx.workspace)
-                    .await
-                    .map_err(|e| SlashError::Handler(format!("clear_current failed: {e}")))?;
                 debug!("session ended via /end");
                 Ok(SlashResponse::Text("session ended".to_string()))
             })
@@ -261,17 +253,15 @@ pub fn register_builtin_commands(registry: &Registry) {
         cmd("session", "Show the current session id", "/session"),
         Arc::new(|ctx, _args| {
             Box::pin(async move {
-                let path = ctx.workspace.join("CURRENT_SESSION");
-                match tokio::fs::read_to_string(&path).await {
-                    Ok(id) => {
-                        let id = id.trim().to_string();
-                        if id.is_empty() {
-                            Ok(SlashResponse::Text("no active session".to_string()))
-                        } else {
-                            Ok(SlashResponse::Text(format!("current session: {id}")))
-                        }
-                    }
-                    Err(_) => Ok(SlashResponse::Text("no active session".to_string())),
+                let sid = if let Some(db) = crate::store::global_db() {
+                    db.current_session(&ctx.agent_id).ok().flatten()
+                } else {
+                    tracing::warn!("no database available — skipping /session lookup");
+                    None
+                };
+                match sid {
+                    Some(id) => Ok(SlashResponse::Text(format!("current session: {id}"))),
+                    None => Ok(SlashResponse::Text("no active session".to_string())),
                 }
             })
         }),
@@ -282,23 +272,20 @@ pub fn register_builtin_commands(registry: &Registry) {
         cmd("list_sessions", "List all saved sessions", "/list_sessions"),
         Arc::new(|ctx, _args| {
             Box::pin(async move {
-                let dir = ctx.workspace.join("sessions");
-                let mut rd = match tokio::fs::read_dir(&dir).await {
-                    Ok(rd) => rd,
-                    Err(_) => {
-                        return Ok(SlashResponse::Text("no sessions found".to_string()));
-                    }
+                let names: Vec<String> = if let Some(db) = crate::store::global_db() {
+                    db.list_sessions_for_agent(&ctx.agent_id)
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|e| {
+                            let label = e.title.as_deref().unwrap_or(&e.session_id);
+                            format!("{} ({})", e.session_id, label)
+                        })
+                        .collect()
+                } else {
+                    tracing::warn!("no database available — skipping /list_sessions");
+                    Vec::new()
                 };
-                let mut names = Vec::new();
-                while let Ok(Some(entry)) = rd.next_entry().await {
-                    let p = entry.path();
-                    if p.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                        if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
-                            names.push(stem.to_string());
-                        }
-                    }
-                }
-                names.sort();
+
                 if names.is_empty() {
                     Ok(SlashResponse::Text("no sessions found".to_string()))
                 } else {
@@ -331,18 +318,28 @@ pub fn register_builtin_commands(registry: &Registry) {
                         "usage: /switch_session <id>".to_string(),
                     ));
                 }
-                let session_file = ctx
-                    .workspace
-                    .join("sessions")
-                    .join(format!("{session_id}.jsonl"));
-                if !session_file.exists() {
+
+                // Check the session exists.
+                let exists = if let Some(db) = crate::store::global_db() {
+                    db.load_full_history(&session_id).map(|h| !h.is_empty()).unwrap_or(false)
+                } else {
+                    tracing::warn!("no database available — cannot verify session exists");
+                    false
+                };
+
+                if !exists {
                     return Ok(SlashResponse::Text(format!(
                         "session '{session_id}' not found — use /list_sessions to see available sessions"
                     )));
                 }
-                SessionStore::set_current(&ctx.workspace, &session_id)
-                    .await
-                    .map_err(|e| SlashError::Handler(format!("set_current failed: {e}")))?;
+
+                if let Some(db) = crate::store::global_db() {
+                    db.set_current_session(&ctx.agent_id, &session_id)
+                        .map_err(|e| SlashError::Handler(format!("set_current failed: {e}")))?;
+                } else {
+                    tracing::warn!("no database available — skipping /switch_session");
+                    return Ok(SlashResponse::Text("no database available".to_string()));
+                }
                 debug!(session_id = %session_id, "session switched via /switch_session");
                 Ok(SlashResponse::Text(format!(
                     "switched to session: {session_id}"
@@ -485,8 +482,7 @@ pub fn register_builtin_commands(registry: &Registry) {
                 match sub {
                     "check" => {
                         let agent_id = args.args.get(1).cloned().unwrap_or(ctx.agent_id.clone());
-                        let ws = ctx.agent_root.clone();
-                        match crate::scheduler::load_heartbeat_status(&ws).await {
+                        match crate::scheduler::load_heartbeat_status(&agent_id).await {
                             Some(s) => {
                                 let health = match &s.health {
                                     crate::scheduler::HeartbeatHealth::OK => "OK",
@@ -504,7 +500,7 @@ pub fn register_builtin_commands(registry: &Registry) {
                     }
                     _ => {
                         // status
-                        match crate::scheduler::load_heartbeat_status(&ctx.agent_root).await {
+                        match crate::scheduler::load_heartbeat_status(&ctx.agent_id).await {
                             Some(s) => {
                                 let health = match &s.health {
                                     crate::scheduler::HeartbeatHealth::OK => "OK",
@@ -535,7 +531,7 @@ pub fn register_builtin_commands(registry: &Registry) {
                 let sub = args.args.first().map(|s| s.as_str()).unwrap_or("list");
                 match sub {
                     "list" => {
-                        let jobs = crate::scheduler::load_persisted_cron_jobs(&ctx.agent_root).await;
+                        let jobs = crate::scheduler::load_persisted_cron_jobs(&ctx.agent_id).await;
                         if jobs.is_empty() {
                             Ok(SlashResponse::Text("no cron jobs found".to_string()))
                         } else {
@@ -552,7 +548,7 @@ pub fn register_builtin_commands(registry: &Registry) {
                         if job_id.is_empty() {
                             return Ok(SlashResponse::Text("usage: /cron status <job_id>".to_string()));
                         }
-                        let runs = crate::scheduler::load_cron_runs(&ctx.agent_root).await;
+                        let runs = crate::scheduler::load_cron_runs(&ctx.agent_id).await;
                         let matching: Vec<_> = runs.iter().filter(|r| r.job_id == job_id).collect();
                         if matching.is_empty() {
                             return Ok(SlashResponse::Text(format!("no runs found for {job_id}")));
@@ -575,7 +571,7 @@ pub fn register_builtin_commands(registry: &Registry) {
                             return Ok(SlashResponse::Text("usage: /cron delete <name@agent_id>".to_string()));
                         }
                         let (name, agent_id) = job_id.split_once('@').unwrap_or((&job_id, &ctx.agent_id));
-                        crate::scheduler::remove_persisted_job(&ctx.agent_root, name, agent_id).await;
+                        crate::scheduler::remove_persisted_job(name, agent_id).await;
                         Ok(SlashResponse::Text(format!("deleted cron job: {job_id}")))
                     }
                     "add" => {
@@ -596,11 +592,11 @@ pub fn register_builtin_commands(registry: &Registry) {
                             return Ok(SlashResponse::Text("usage: /cron run <name@agent_id>".to_string()));
                         }
                         let (job_name, agent_id) = job_id.split_once('@').unwrap_or((&job_id, &ctx.agent_id));
-                        let jobs = crate::scheduler::load_persisted_cron_jobs(&ctx.agent_root).await;
+                        let jobs = crate::scheduler::load_persisted_cron_jobs(&ctx.agent_id).await;
                         let job = jobs.iter().find(|j| j.name == job_name && j.agent_id == agent_id);
                         match job {
                             Some(job) => {
-                                crate::scheduler::run_persisted_job_tick(&ctx.agent_root, job).await;
+                                crate::scheduler::run_persisted_job_tick(job).await;
                                 Ok(SlashResponse::Text(format!("triggered cron job: {job_id}")))
                             }
                             None => Ok(SlashResponse::Text(format!("cron job not found: {job_id}"))),
@@ -649,13 +645,23 @@ pub fn register_builtin_commands(registry: &Registry) {
         ),
         Arc::new(|ctx, _args| {
             Box::pin(async move {
-                let session_id = SessionStore::load_current_async(&ctx.workspace)
-                    .await
-                    .ok_or_else(|| SlashError::Handler("no active session".to_string()))?;
+                let session_id = if let Some(db) = crate::store::global_db() {
+                    db.current_session(&ctx.agent_id)
+                        .ok()
+                        .flatten()
+                        .ok_or_else(|| SlashError::Handler("no active session".to_string()))?
+                } else {
+                    tracing::warn!("no database available — skipping /compact");
+                    return Err(SlashError::Handler("no database available".to_string()));
+                };
 
-                let history = SessionStore::load_history(&ctx.workspace, &session_id, 200)
-                    .await
-                    .map_err(|e| SlashError::Handler(format!("load history: {e}")))?;
+                let history = if let Some(db) = crate::store::global_db() {
+                    db.load_history(&session_id, 200)
+                        .map_err(|e| SlashError::Handler(format!("load history: {e}")))?
+                } else {
+                    tracing::warn!("no database available — skipping /compact history load");
+                    Vec::new()
+                };
 
                 if history.len() < 4 {
                     return Ok(SlashResponse::Text(

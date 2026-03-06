@@ -529,7 +529,7 @@ export function SessionDetailRoute() {
   );
 }
 
-function formatSessionLabel(sessionId: string, title?: string): string {
+function formatSessionLabel(sessionId: string, title?: string | null): string {
   if (title) return title;
   if (sessionId.startsWith("cron_")) return "cron: " + sessionId.replace(/_/g, " ");
   return "chat: " + sessionId;

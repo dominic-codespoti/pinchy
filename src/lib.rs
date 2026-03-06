@@ -19,6 +19,7 @@ pub mod secrets;
 pub mod session;
 pub mod skills;
 pub mod slash;
+pub mod store;
 pub mod tools;
 pub mod utils;
 pub mod watcher;

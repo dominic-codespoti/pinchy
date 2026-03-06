@@ -1,7 +1,7 @@
 //! Basic integration test for the scheduler heartbeat.
 
 use mini_claw::config::{AgentConfig, ChannelsConfig, Config, CronJobConfig, ModelConfig};
-use mini_claw::scheduler::{HeartbeatHealth, HeartbeatStatus};
+use mini_claw::scheduler::{HeartbeatHealth, HeartbeatStatus, PersistedCronJob};
 use tempfile::TempDir;
 
 /// Create a minimal config pointing at the temp agent workspace.
@@ -144,26 +144,35 @@ async fn heartbeat_persists_status_json() {
 
 #[tokio::test]
 async fn cron_merge_persisted_jobs_on_startup() {
-    // Write a persisted cron_jobs.json with one job before starting the
-    // scheduler.  Verify that the scheduler merges it with config jobs.
+    // Seed a persisted cron job into DB before starting the scheduler.
+    // Verify that the scheduler merges it with config-defined jobs.
     let tmp = TempDir::new().expect("failed to create temp dir");
     let agent_dir = tmp.path();
 
-    // Persist a runtime job.
-    let persisted = serde_json::json!([{
-        "agent_id": "merge-agent",
-        "name": "persisted-job",
-        "schedule": "0 0 * * * *",
-        "message": "hello from persisted"
-    }]);
-    std::fs::write(
-        agent_dir.join("cron_jobs.json"),
-        serde_json::to_string_pretty(&persisted).unwrap(),
-    )
-    .unwrap();
+    // Set up a temporary DB.
+    let db = mini_claw::store::PinchyDb::open(tmp.path()).expect("open db");
+    mini_claw::store::set_global_db(db.clone());
 
-    // Config has a different job with the same name → persisted should win,
-    // plus an entirely new config-only job.
+    // Insert a persisted job into DB.
+    let persisted = PersistedCronJob {
+        agent_id: "merge-agent".into(),
+        name: "persisted-job".into(),
+        schedule: "0 0 * * * *".into(),
+        message: Some("hello from persisted".into()),
+        kind: mini_claw::scheduler::JobKind::Recurring,
+        depends_on: None,
+        max_retries: None,
+        retry_delay_secs: None,
+        condition: None,
+        retry_count: 0,
+        last_status: None,
+    };
+    db.upsert_cron_job(&persisted)
+        .expect("insert persisted job");
+
+    // Config has a different job with the same name → DB version should
+    // win (already exists), plus an entirely new config-only job that
+    // gets seeded into DB.
     let cfg = Config {
         models: vec![ModelConfig {
             id: "test-model".into(),
@@ -188,7 +197,7 @@ async fn cron_merge_persisted_jobs_on_startup() {
             cron_jobs: vec![
                 CronJobConfig {
                     name: "persisted-job".into(),
-                    schedule: "0 30 * * * *".into(), // different schedule
+                    schedule: "0 30 * * * *".into(), // different schedule — DB wins
                     message: Some("from config".into()),
                 },
                 CronJobConfig {

@@ -49,7 +49,7 @@ impl OpenAICompatProvider {
         model: String,
         header_overrides: Option<std::collections::HashMap<String, String>>,
     ) -> Self {
-        tracing::info!(
+        tracing::debug!(
             endpoint = %endpoint,
             model = %model,
             header_overrides = ?header_overrides,
@@ -127,7 +127,6 @@ impl ModelProvider for OpenAICompatProvider {
         if !self.api_key.is_empty() {
             req = req.bearer_auth(&self.api_key);
         }
-        req = self.apply_headers(req);
         let resp = req.send().await?;
 
         let status = resp.status();
@@ -137,8 +136,12 @@ impl ModelProvider for OpenAICompatProvider {
         }
 
         let json: serde_json::Value = resp.json().await?;
+        let content = json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
 
-        Ok(super::extract_content(&json))
+        Ok(content)
     }
 
     async fn send_chat_with_functions(
@@ -154,16 +157,14 @@ impl ModelProvider for OpenAICompatProvider {
         });
 
         if !functions.is_empty() {
-            let tools = super::wrap_in_function_tools(functions);
-            body["tools"] = serde_json::Value::Array(tools);
-            body["tool_choice"] = json!("auto");
+            body["functions"] = serde_json::Value::Array(functions.to_vec());
+            body["function_call"] = json!("auto");
         }
 
         let mut req = self.client.post(&self.endpoint).json(&body);
         if !self.api_key.is_empty() {
             req = req.bearer_auth(&self.api_key);
         }
-        req = self.apply_headers(req);
         let resp = req.send().await?;
 
         let status = resp.status();
@@ -179,10 +180,12 @@ impl ModelProvider for OpenAICompatProvider {
             return Ok((pr, usage));
         }
 
-        Ok((
-            ProviderResponse::Final(super::extract_content(&json)),
-            usage,
-        ))
+        let content = json["choices"][0]["message"]["content"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+
+        Ok((ProviderResponse::Final(content), usage))
     }
 
     fn send_chat_stream<'a>(
@@ -190,6 +193,60 @@ impl ModelProvider for OpenAICompatProvider {
         messages: &'a [ChatMessage],
     ) -> Pin<Box<dyn Stream<Item = Result<String, anyhow::Error>> + Send + 'a>> {
         self.send_chat_stream_sse(messages)
+    }
+
+    async fn list_models(&self) -> Result<Option<Vec<super::ModelInfo>>, anyhow::Error> {
+        let base = self
+            .endpoint
+            .trim_end_matches('/')
+            .trim_end_matches("/chat/completions")
+            .trim_end_matches('/');
+        let url = format!("{base}/models");
+
+        let mut req = self.client.get(&url);
+        if !self.api_key.is_empty() {
+            req = req.header("Authorization", format!("Bearer {}", self.api_key));
+        }
+        if let Some(ref overrides) = self.header_overrides {
+            for (k, v) in overrides {
+                req = req.header(k.as_str(), v.as_str());
+            }
+        }
+
+        let resp = match req.send().await {
+            Ok(r) => r,
+            Err(_) => return Ok(None),
+        };
+
+        if !resp.status().is_success() {
+            return Ok(None);
+        }
+
+        let payload: serde_json::Value = resp.json().await?;
+        let data = payload
+            .get("data")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let models: Vec<super::ModelInfo> = data
+            .iter()
+            .filter_map(|m| {
+                let id = m.get("id")?.as_str()?.to_string();
+                Some(super::ModelInfo {
+                    name: id.clone(),
+                    id,
+                    vendor: m
+                        .get("owned_by")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    supported_endpoints: vec!["chat".to_string()],
+                    is_default: false,
+                })
+            })
+            .collect();
+
+        Ok(Some(models))
     }
 
     fn as_any(&self) -> &dyn Any {

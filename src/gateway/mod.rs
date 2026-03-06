@@ -140,6 +140,13 @@ pub async fn start_gateway_with_config(
     addr: SocketAddr,
     config_path: std::path::PathBuf,
 ) -> std::io::Result<Gateway> {
+    // Ensure the global DB is initialised (idempotent via OnceLock).
+    if crate::store::global_db().is_none() {
+        if let Ok(db) = crate::store::PinchyDb::open(&crate::pinchy_home()) {
+            crate::store::set_global_db(db);
+        }
+    }
+
     let (events_tx, _) = broadcast::channel::<String>(256);
     let (commands_tx, commands_rx) = mpsc::channel::<String>(256);
 
@@ -281,6 +288,11 @@ pub async fn start_gateway_with_config(
         .route(
             "/debug/model-requests/:request_id",
             get(handlers::debug::api_debug_model_request_get),
+        )
+        // Model discovery
+        .route(
+            "/models/:config_model_id",
+            get(handlers::models::api_models_list),
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),

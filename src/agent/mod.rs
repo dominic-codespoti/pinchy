@@ -40,16 +40,13 @@ mod file_helpers {
     use tokio::fs;
     use tracing::debug;
 
-    use super::types::epoch_secs;
-
     pub async fn backup_file(path: &std::path::Path) -> anyhow::Result<()> {
         match fs::metadata(path).await {
             Ok(_) => {}
             Err(_) => return Ok(()),
         }
-        let ts = epoch_secs();
         let mut bak_name = path.file_name().unwrap_or_default().to_os_string();
-        bak_name.push(format!(".bak.{ts}"));
+        bak_name.push(".bak");
         let bak_path = path.with_file_name(bak_name);
         fs::copy(path, &bak_path)
             .await
@@ -86,6 +83,14 @@ mod tests {
         (dir, agent)
     }
 
+    fn temp_agent_with_db() -> (TempDir, Agent) {
+        let dir = TempDir::new().unwrap();
+        let db = crate::store::PinchyDb::open_memory().unwrap();
+        let mut agent = Agent::new("test-agent", dir.path().to_path_buf());
+        agent.db = Some(db);
+        (dir, agent)
+    }
+
     #[tokio::test]
     async fn bootstrap_reads_existing_files() {
         let (dir, agent) = temp_agent();
@@ -106,7 +111,7 @@ mod tests {
 
     #[tokio::test]
     async fn run_turn_persists_session() {
-        let (dir, mut agent) = temp_agent();
+        let (_dir, mut agent) = temp_agent_with_db();
 
         let msg = crate::comm::IncomingMessage {
             agent_id: Some("test-agent".into()),
@@ -121,29 +126,23 @@ mod tests {
         let reply = agent.run_turn(msg).await.unwrap();
         assert!(!reply.is_empty());
 
-        let sessions = dir.path().join("workspace").join("sessions");
-        let mut entries: Vec<_> = std::fs::read_dir(&sessions)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| {
-                let name = e.file_name().to_string_lossy().to_string();
-                name.ends_with(".jsonl") && !name.ends_with(".receipts.jsonl")
-            })
-            .collect();
-        assert_eq!(entries.len(), 1);
+        // Verify exchanges were persisted to the DB.
+        let db = agent.db.as_ref().unwrap();
+        let sid = agent
+            .current_session
+            .as_deref()
+            .expect("session should be set");
+        let history = db.load_history(sid, 100).unwrap();
+        assert!(
+            history.len() >= 2,
+            "expected at least user + assistant exchanges"
+        );
 
-        let path = entries.remove(0).path();
-        assert!(path.extension().unwrap() == "jsonl");
+        let first = &history[0];
+        assert_eq!(first.role, "user");
+        assert_eq!(first.content, "hello world");
 
-        let data = std::fs::read_to_string(&path).unwrap();
-        let lines: Vec<&str> = data.trim().lines().collect();
-        assert_eq!(lines.len(), 2);
-
-        let first: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-        assert_eq!(first["role"], "user");
-        assert_eq!(first["content"], "hello world");
-
-        let second: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
-        assert_eq!(second["role"], "assistant");
+        let second = &history[1];
+        assert_eq!(second.role, "assistant");
     }
 }

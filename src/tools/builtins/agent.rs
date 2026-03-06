@@ -49,7 +49,13 @@ pub async fn list_agents(_workspace: &Path, _args: Value) -> anyhow::Result<Valu
                 let m = obj.as_object_mut().unwrap();
                 m.insert("model".into(), json!(ac.model));
                 m.insert("heartbeat_secs".into(), json!(ac.heartbeat_secs));
-                m.insert("cron_jobs_count".into(), json!(ac.cron_jobs.len()));
+                m.insert(
+                    "cron_jobs_count".into(),
+                    json!(crate::store::global_db()
+                        .and_then(|db| db.list_cron_jobs(&id).ok())
+                        .map(|j| j.len())
+                        .unwrap_or(0)),
+                );
             }
         }
 

@@ -7,7 +7,7 @@
 
 pub mod index;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Context as _;
 use serde::{Deserialize, Serialize};
@@ -41,38 +41,15 @@ pub struct Exchange {
     pub images: Vec<String>,
 }
 
-// ── Session ──────────────────────────────────────────────────
-
-/// Handle representing a concrete session within an agent workspace.
-#[derive(Debug, Clone)]
-pub struct Session {
-    /// Unique session identifier (nonce / user-supplied id).
-    pub id: String,
-    /// Root of the owning agent's workspace.
-    pub workspace: PathBuf,
-    /// Full path to the backing JSONL file (`sessions/<id>.jsonl`).
-    pub file: PathBuf,
-}
-
-impl Session {
-    /// Create a `Session` handle (does NOT touch the filesystem).
-    pub fn new(id: impl Into<String>, workspace: impl Into<PathBuf>) -> Self {
-        let id = id.into();
-        let workspace = workspace.into();
-        let file = workspace.join("sessions").join(format!("{id}.jsonl"));
-        Self {
-            id,
-            workspace,
-            file,
-        }
-    }
-}
-
 // ── SessionStore ─────────────────────────────────────────────
 
 /// Stateless helper that operates on session data inside an agent
 /// workspace.  All methods are async and take `workspace: &Path` so
 /// the store itself carries no mutable state.
+///
+/// **Note:** Most callers now prefer `PinchyDb` (via `crate::store::global_db()`).
+/// These file-based methods remain as fallbacks for when the database is
+/// unavailable.
 pub struct SessionStore;
 
 impl SessionStore {
@@ -241,11 +218,6 @@ impl SessionStore {
         }
 
         Ok(exchanges)
-    }
-
-    /// Return a [`Session`] handle for an existing or new session.
-    pub fn session(workspace: &Path, id: &str) -> Session {
-        Session::new(id, workspace)
     }
 
     /// Resolve the "latest" session for an agent workspace.
@@ -494,13 +466,5 @@ mod tests {
             .await
             .unwrap();
         assert!(history.is_empty());
-    }
-
-    #[tokio::test]
-    async fn session_handle() {
-        let dir = tmp();
-        let s = SessionStore::session(dir.path(), "my-sess");
-        assert_eq!(s.id, "my-sess");
-        assert!(s.file.ends_with("sessions/my-sess.jsonl"));
     }
 }

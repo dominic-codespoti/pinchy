@@ -3,7 +3,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::Config;
 use crate::models::TokenUsage;
-use crate::session::SessionStore;
+use crate::store::PinchyDb;
 
 // ---------------------------------------------------------------------------
 // Constants & tiny helpers
@@ -140,15 +140,20 @@ pub struct Agent {
     pub fallback_models: Vec<String>,
     pub model_config_ref: Option<String>,
     pub reasoning_effort: Option<String>,
+    pub db: Option<PinchyDb>,
 }
 
 impl Agent {
     pub fn new(id: impl Into<String>, agent_root: impl Into<PathBuf>) -> Self {
+        let id = id.into();
         let agent_root = agent_root.into();
         let workspace = agent_root.join("workspace");
-        let current_session = SessionStore::load_current(&workspace);
+        let db = crate::store::global_db().cloned();
+        let current_session = db
+            .as_ref()
+            .and_then(|d| d.current_session(&id).ok().flatten());
         Self {
-            id: id.into(),
+            id,
             agent_root,
             workspace,
             provider: DEFAULT_PROVIDER.to_string(),
@@ -159,6 +164,7 @@ impl Agent {
             fallback_models: Vec::new(),
             model_config_ref: None,
             reasoning_effort: None,
+            db,
         }
     }
 
@@ -177,7 +183,10 @@ impl Agent {
                 })
             })
             .unwrap_or_else(|| (DEFAULT_PROVIDER.to_string(), DEFAULT_MODEL_ID.to_string()));
-        let current_session = SessionStore::load_current(&workspace);
+        let db = crate::store::global_db().cloned();
+        let current_session = db
+            .as_ref()
+            .and_then(|d| d.current_session(&agent_cfg.id).ok().flatten());
         Self {
             id: agent_cfg.id.clone(),
             agent_root,
@@ -190,22 +199,31 @@ impl Agent {
             fallback_models: agent_cfg.fallback_models.clone(),
             model_config_ref: agent_cfg.model.clone(),
             reasoning_effort: agent_cfg.reasoning_effort.clone(),
+            db,
         }
     }
 
     pub async fn start_session(&mut self) -> String {
         let id = crate::session::index::new_session_id();
         let _ = tokio::fs::create_dir_all(&self.workspace).await;
-        let path = self.workspace.join("CURRENT_SESSION");
-        let _ = tokio::fs::write(&path, &id).await;
         self.current_session = Some(id.clone());
 
-        // Register in the global session index so auto-created sessions
-        // are visible alongside /new-created ones.
-        let home = crate::pinchy_home();
-        if let Err(e) = crate::session::index::append_global_index(&home, &id, &self.id, None).await
-        {
-            tracing::warn!(error = %e, "failed to append auto-created session to global index");
+        // Persist to PinchyDb if available; fall back to files.
+        if let Some(ref db) = self.db {
+            let entry = crate::session::index::IndexEntry {
+                session_id: id.clone(),
+                agent_id: self.id.clone(),
+                created_at: epoch_millis(),
+                title: None,
+            };
+            if let Err(e) = db.insert_session(&entry) {
+                tracing::warn!(error = %e, "failed to insert session into db");
+            }
+            if let Err(e) = db.set_current_session(&self.id, &id) {
+                tracing::warn!(error = %e, "failed to set current session in db");
+            }
+        } else {
+            tracing::warn!("no database available — skipping operation");
         }
 
         id

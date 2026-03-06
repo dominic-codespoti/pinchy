@@ -107,14 +107,29 @@ fn round_trip_new_fields() {
 
 // ── Dependency checking ─────────────────────────────────────────────────
 
+/// Ensure a global DB is available for dependency tests.
+/// Because `OnceLock` only allows a single set, all tests in this binary
+/// share the same DB.
+fn ensure_test_db() -> &'static mini_claw::store::PinchyDb {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let tmp = std::env::temp_dir().join("pinchy_sched_test");
+        let _ = std::fs::create_dir_all(&tmp);
+        let db = mini_claw::store::PinchyDb::open(&tmp).expect("open test db");
+        mini_claw::store::set_global_db(db);
+    });
+    mini_claw::store::global_db().expect("test DB should be set")
+}
+
 #[tokio::test]
 async fn dependency_met_when_dep_succeeded() {
-    let tmp = TempDir::new().unwrap();
+    let db = ensure_test_db();
 
-    // Write a SUCCESS run for "dep_job".
+    // Insert a SUCCESS run for "dep_job".
     let run = JobRun {
         id: "r1".into(),
-        job_id: "dep_job@test-agent".into(),
+        job_id: "dep_job@dep-test-agent".into(),
         scheduled_at: 100,
         executed_at: Some(100),
         completed_at: Some(101),
@@ -123,34 +138,32 @@ async fn dependency_met_when_dep_succeeded() {
         error: None,
         duration_ms: Some(1000),
     };
-    let line = serde_json::to_string(&run).unwrap();
-    std::fs::write(tmp.path().join("cron_runs.jsonl"), format!("{line}\n")).unwrap();
+    db.insert_cron_event(&run).unwrap();
 
     let deps = Some(vec!["dep_job".to_string()]);
     assert!(
-        check_dependencies(tmp.path(), &deps, "test-agent").await,
+        check_dependencies(&deps, "dep-test-agent").await,
         "dependency should be met when dep has SUCCESS run"
     );
 }
 
 #[tokio::test]
 async fn dependency_blocks_when_dep_not_run() {
-    let tmp = TempDir::new().unwrap();
-
+    let _db = ensure_test_db();
     let deps = Some(vec!["missing_job".to_string()]);
     assert!(
-        !check_dependencies(tmp.path(), &deps, "test-agent").await,
+        !check_dependencies(&deps, "dep-test-agent").await,
         "dependency should block when dep has never run"
     );
 }
 
 #[tokio::test]
 async fn dependency_blocks_when_dep_failed() {
-    let tmp = TempDir::new().unwrap();
+    let db = ensure_test_db();
 
     let run = JobRun {
-        id: "r1".into(),
-        job_id: "dep_job@test-agent".into(),
+        id: "r2".into(),
+        job_id: "failed_dep@dep-fail-agent".into(),
         scheduled_at: 100,
         executed_at: Some(100),
         completed_at: Some(101),
@@ -159,32 +172,32 @@ async fn dependency_blocks_when_dep_failed() {
         error: Some("boom".into()),
         duration_ms: Some(500),
     };
-    let line = serde_json::to_string(&run).unwrap();
-    std::fs::write(tmp.path().join("cron_runs.jsonl"), format!("{line}\n")).unwrap();
+    db.insert_cron_event(&run).unwrap();
 
-    let deps = Some(vec!["dep_job".to_string()]);
+    let deps = Some(vec!["failed_dep".to_string()]);
     assert!(
-        !check_dependencies(tmp.path(), &deps, "test-agent").await,
+        !check_dependencies(&deps, "dep-fail-agent").await,
         "dependency should block when dep's last run is FAILED"
     );
 }
 
 #[tokio::test]
 async fn dependency_none_always_passes() {
-    let tmp = TempDir::new().unwrap();
-    assert!(check_dependencies(tmp.path(), &None, "a").await);
-    assert!(check_dependencies(tmp.path(), &Some(vec![]), "a").await);
+    let _db = ensure_test_db();
+    assert!(check_dependencies(&None, "a").await);
+    assert!(check_dependencies(&Some(vec![]), "a").await);
 }
 
 // ── OneShot job removal ─────────────────────────────────────────────────
 
 #[tokio::test]
 async fn oneshot_job_removed_after_success() {
+    let db = ensure_test_db();
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path();
 
-    // Pre-populate cron_jobs.json with a OneShot job that fires every second.
-    let jobs = vec![PersistedCronJob {
+    // Insert a OneShot job into the DB.
+    let job = PersistedCronJob {
         agent_id: "os-agent".into(),
         name: "oneshot-test".into(),
         schedule: "* * * * * *".into(),
@@ -196,12 +209,8 @@ async fn oneshot_job_removed_after_success() {
         condition: None,
         retry_count: 0,
         last_status: None,
-    }];
-    std::fs::write(
-        ws.join("cron_jobs.json"),
-        serde_json::to_string_pretty(&jobs).unwrap(),
-    )
-    .unwrap();
+    };
+    db.upsert_cron_job(&job).unwrap();
 
     let cfg = test_config(ws, "os-agent");
     let handle = mini_claw::scheduler::start(&cfg)
@@ -211,8 +220,8 @@ async fn oneshot_job_removed_after_success() {
     // Wait for the oneshot job to fire and be removed.
     tokio::time::sleep(std::time::Duration::from_secs(4)).await;
 
-    // The job should no longer be in cron_jobs.json.
-    let remaining = load_persisted_cron_jobs(ws).await;
+    // The job should no longer be in the DB.
+    let remaining = load_persisted_cron_jobs("os-agent").await;
     assert!(
         remaining.iter().all(|j| j.name != "oneshot-test"),
         "oneshot job should be removed after success; remaining: {:?}",
@@ -220,7 +229,7 @@ async fn oneshot_job_removed_after_success() {
     );
 
     // Verify there was at least one successful run.
-    let runs = load_cron_runs(ws).await;
+    let runs = load_cron_runs("os-agent").await;
     assert!(
         runs.iter()
             .any(|r| r.job_id == "oneshot-test@os-agent" && r.status == JobStatus::SUCCESS),
@@ -234,13 +243,14 @@ async fn oneshot_job_removed_after_success() {
 
 #[tokio::test]
 async fn retry_records_multiple_failures() {
+    let db = ensure_test_db();
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path();
 
     // Block session writing by creating `sessions` as a file (not a dir).
     std::fs::write(ws.join("sessions"), "blocker").unwrap();
 
-    let jobs = vec![PersistedCronJob {
+    let job = PersistedCronJob {
         agent_id: "retry-agent".into(),
         name: "retry-test".into(),
         schedule: "* * * * * *".into(),
@@ -252,12 +262,8 @@ async fn retry_records_multiple_failures() {
         condition: None,
         retry_count: 0,
         last_status: None,
-    }];
-    std::fs::write(
-        ws.join("cron_jobs.json"),
-        serde_json::to_string_pretty(&jobs).unwrap(),
-    )
-    .unwrap();
+    };
+    db.upsert_cron_job(&job).unwrap();
 
     let cfg = test_config(ws, "retry-agent");
     let handle = mini_claw::scheduler::start(&cfg)
@@ -267,7 +273,7 @@ async fn retry_records_multiple_failures() {
     // Wait for initial fire + at least one retry (1s base delay * 2^0 = 1s).
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-    let runs = load_cron_runs(ws).await;
+    let runs = load_cron_runs("retry-agent").await;
     let failed_runs: Vec<_> = runs
         .iter()
         .filter(|r| {
@@ -286,13 +292,14 @@ async fn retry_records_multiple_failures() {
 
 #[tokio::test]
 async fn retry_succeeds_after_initial_failures() {
+    let db = ensure_test_db();
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path();
 
     // Block session writing initially.
     std::fs::write(ws.join("sessions"), "blocker").unwrap();
 
-    let jobs = vec![PersistedCronJob {
+    let job = PersistedCronJob {
         agent_id: "rs-agent".into(),
         name: "rs-test".into(),
         schedule: "* * * * * *".into(),
@@ -304,12 +311,8 @@ async fn retry_succeeds_after_initial_failures() {
         condition: None,
         retry_count: 0,
         last_status: None,
-    }];
-    std::fs::write(
-        ws.join("cron_jobs.json"),
-        serde_json::to_string_pretty(&jobs).unwrap(),
-    )
-    .unwrap();
+    };
+    db.upsert_cron_job(&job).unwrap();
 
     let cfg = test_config(ws, "rs-agent");
     let handle = mini_claw::scheduler::start(&cfg)
@@ -325,7 +328,7 @@ async fn retry_succeeds_after_initial_failures() {
     // Wait for the retry to succeed.
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-    let runs = load_cron_runs(ws).await;
+    let runs = load_cron_runs("rs-agent").await;
     let target_runs: Vec<_> = runs
         .iter()
         .filter(|r| r.job_id == "rs-test@rs-agent")
@@ -349,11 +352,12 @@ async fn retry_succeeds_after_initial_failures() {
 
 #[tokio::test]
 async fn dependency_prevents_job_execution() {
+    let db = ensure_test_db();
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path();
 
     // Job that depends on "precursor" which hasn't run.
-    let jobs = vec![PersistedCronJob {
+    let job = PersistedCronJob {
         agent_id: "dep-agent".into(),
         name: "dependent".into(),
         schedule: "* * * * * *".into(),
@@ -365,12 +369,8 @@ async fn dependency_prevents_job_execution() {
         condition: None,
         retry_count: 0,
         last_status: None,
-    }];
-    std::fs::write(
-        ws.join("cron_jobs.json"),
-        serde_json::to_string_pretty(&jobs).unwrap(),
-    )
-    .unwrap();
+    };
+    db.upsert_cron_job(&job).unwrap();
 
     let cfg = test_config(ws, "dep-agent");
     let handle = mini_claw::scheduler::start(&cfg)
@@ -380,7 +380,7 @@ async fn dependency_prevents_job_execution() {
     // Wait for the job to attempt a few times.
     tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
-    let runs = load_cron_runs(ws).await;
+    let runs = load_cron_runs("dep-agent").await;
     let dep_runs: Vec<_> = runs
         .iter()
         .filter(|r| r.job_id == "dependent@dep-agent")

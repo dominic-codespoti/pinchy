@@ -23,25 +23,40 @@ fn pjob(agent_id: &str, name: &str, schedule: &str, message: Option<&str>) -> Pe
     }
 }
 
-/// Helper: write heartbeat_status.json into an agent workspace.
-fn write_heartbeat_status(dir: &Path, status: &HeartbeatStatus) {
-    let json = serde_json::to_string_pretty(status).unwrap();
-    std::fs::write(dir.join("heartbeat_status.json"), json).unwrap();
+/// Ensure a global DB is available for all tests in this binary.
+fn ensure_test_db() -> &'static mini_claw::store::PinchyDb {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let tmp = std::env::temp_dir().join("pinchy_slash_sched_test");
+        let _ = std::fs::create_dir_all(&tmp);
+        let db = mini_claw::store::PinchyDb::open(&tmp).expect("open test db");
+        mini_claw::store::set_global_db(db);
+    });
+    mini_claw::store::global_db().expect("test DB should be set")
 }
 
-/// Helper: write cron_jobs.json into an agent workspace.
-fn write_cron_jobs(dir: &Path, jobs: &[PersistedCronJob]) {
-    let json = serde_json::to_string_pretty(jobs).unwrap();
-    std::fs::write(dir.join("cron_jobs.json"), json).unwrap();
+/// Helper: seed heartbeat status into DB.
+fn seed_heartbeat_db(status: &HeartbeatStatus) {
+    let db = ensure_test_db();
+    db.upsert_heartbeat_status(status)
+        .expect("upsert heartbeat");
 }
 
-/// Helper: write cron_runs.jsonl (append-only format).
-fn write_cron_runs(dir: &Path, runs: &[JobRun]) {
-    let lines: Vec<String> = runs
-        .iter()
-        .map(|r| serde_json::to_string(r).unwrap())
-        .collect();
-    std::fs::write(dir.join("cron_runs.jsonl"), lines.join("\n") + "\n").unwrap();
+/// Helper: seed cron jobs into DB.
+fn seed_cron_jobs_db(jobs: &[PersistedCronJob]) {
+    let db = ensure_test_db();
+    for job in jobs {
+        db.upsert_cron_job(job).expect("upsert cron job");
+    }
+}
+
+/// Helper: seed cron run events into DB.
+fn seed_cron_runs_db(runs: &[JobRun]) {
+    let db = ensure_test_db();
+    for run in runs {
+        db.insert_cron_event(run).expect("insert cron event");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +99,7 @@ async fn slash_heartbeat_status_returns_table() {
         message_preview: Some("all good".to_string()),
         latest_session: None,
     };
-    write_heartbeat_status(&agent_ws, &status);
+    seed_heartbeat_db(&status);
 
     let ctx = make_slash_ctx("test-agent", &agent_ws);
     let reg = make_registry();
@@ -116,7 +131,7 @@ async fn slash_heartbeat_check_returns_details() {
         message_preview: Some("heartbeat ok".to_string()),
         latest_session: None,
     };
-    write_heartbeat_status(&agent_ws, &status);
+    seed_heartbeat_db(&status);
 
     let ctx = make_slash_ctx("check-agent", &agent_ws);
     let reg = make_registry();
@@ -166,7 +181,7 @@ async fn slash_cron_list_shows_jobs() {
         ),
         pjob("cron-agent", "hourly-ping", "0 0 * * * *", None),
     ];
-    write_cron_jobs(&agent_ws, &jobs);
+    seed_cron_jobs_db(&jobs);
 
     let ctx = make_slash_ctx("cron-agent", &agent_ws);
     let reg = make_registry();
@@ -211,7 +226,7 @@ async fn slash_cron_status_shows_runs() {
         "0 0 * * * *",
         Some("test message"),
     )];
-    write_cron_jobs(&agent_ws, &jobs);
+    seed_cron_jobs_db(&jobs);
 
     let runs = vec![
         JobRun {
@@ -237,7 +252,7 @@ async fn slash_cron_status_shows_runs() {
             duration_ms: Some(2000),
         },
     ];
-    write_cron_runs(&agent_ws, &runs);
+    seed_cron_runs_db(&runs);
 
     let ctx = make_slash_ctx("runs-agent", &agent_ws);
     let reg = make_registry();
@@ -266,7 +281,7 @@ async fn slash_cron_delete_removes_job() {
         pjob("del-agent", "keep-me", "0 0 * * * *", None),
         pjob("del-agent", "delete-me", "0 30 * * * *", Some("bye")),
     ];
-    write_cron_jobs(&agent_ws, &jobs);
+    seed_cron_jobs_db(&jobs);
 
     let ctx = make_slash_ctx("del-agent", &agent_ws);
     let reg = make_registry();
@@ -280,7 +295,7 @@ async fn slash_cron_delete_removes_job() {
     assert!(text.contains("deleted"), "should confirm deletion");
 
     // Verify file was updated
-    let remaining = mini_claw::scheduler::load_persisted_cron_jobs(&agent_ws).await;
+    let remaining = mini_claw::scheduler::load_persisted_cron_jobs("del-agent").await;
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].name, "keep-me");
 }

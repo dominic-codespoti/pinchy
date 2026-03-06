@@ -5,7 +5,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
-use tokio::io::AsyncWriteExt;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::{interval, Duration};
@@ -89,7 +88,7 @@ pub struct JobRun {
     pub duration_ms: Option<u64>,
 }
 
-/// A single persisted cron job entry written to `cron_jobs.json`.
+/// A cron job entry persisted in the `cron_jobs` SQLite table.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PersistedCronJob {
     pub agent_id: String,
@@ -130,13 +129,9 @@ fn resolve_heartbeat_secs(config_value: Option<u64>, default: u64) -> u64 {
 }
 
 impl SchedulerHandle {
-    /// Register a new cron job at runtime.  The job is persisted to
-    /// `<workspace>/cron_jobs.json` and scheduled immediately.
-    pub async fn register_job(
-        &self,
-        workspace: &Path,
-        mut entry: PersistedCronJob,
-    ) -> anyhow::Result<()> {
+    /// Register a new cron job at runtime.  The job is persisted and
+    /// scheduled immediately.
+    pub async fn register_job(&self, mut entry: PersistedCronJob) -> anyhow::Result<()> {
         entry.schedule = normalize_cron_schedule(&entry.schedule);
         let agent_id = entry.agent_id.clone();
         let name = entry.name.clone();
@@ -161,12 +156,13 @@ impl SchedulerHandle {
             jobs.retain(|j| !(j.name == entry.name && j.agent_id == entry.agent_id));
             jobs.push(entry.clone());
 
-            let path = workspace.join("cron_jobs.json");
-            let json = serde_json::to_string_pretty(&*jobs)
-                .context("failed to serialize cron_jobs.json")?;
-            tokio::fs::write(&path, json)
-                .await
-                .with_context(|| format!("failed to write {}", path.display()))?;
+            // Prefer PinchyDb.
+            if let Some(db) = crate::store::global_db() {
+                db.upsert_cron_job(&entry)
+                    .map_err(|e| anyhow::anyhow!("{e}"))?;
+            } else {
+                warn!("no database available — skipping register_job persistence");
+            }
         }
 
         // Schedule -------------------------------------------------------
@@ -314,23 +310,52 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
         heartbeat_handles.push(handle);
     }
 
-    // --- Cron jobs (config-defined + persisted from cron_jobs.json) ---
+    // --- Cron jobs (DB is the single source of truth) ---
 
-    // Collect persisted jobs per agent root.
-    let mut all_persisted: Vec<(PathBuf, Vec<PersistedCronJob>)> = Vec::new();
-    for agent in &config.agents {
-        let agent_root = PathBuf::from(&agent.root);
-        let pjobs = load_persisted_cron_jobs(&agent_root).await;
-        if !pjobs.is_empty() {
-            all_persisted.push((agent_root, pjobs));
+    // Seed config-defined cron jobs into DB so config.yaml acts as a
+    // declarative bootstrap.  Existing DB entries are left as-is (the
+    // user may have updated schedule/message via the API).
+    if let Some(db) = crate::store::global_db() {
+        for agent in &config.agents {
+            for job_cfg in &agent.cron_jobs {
+                // Only insert if no DB row exists for this (agent, name) pair.
+                let existing = db.list_cron_jobs(&agent.id).unwrap_or_default();
+                if !existing.iter().any(|j| j.name == job_cfg.name) {
+                    let entry = PersistedCronJob {
+                        agent_id: agent.id.clone(),
+                        name: job_cfg.name.clone(),
+                        schedule: normalize_cron_schedule(&job_cfg.schedule),
+                        message: job_cfg.message.clone(),
+                        kind: JobKind::Recurring,
+                        depends_on: None,
+                        max_retries: None,
+                        retry_delay_secs: None,
+                        condition: None,
+                        retry_count: 0,
+                        last_status: None,
+                    };
+                    if let Err(e) = db.upsert_cron_job(&entry) {
+                        warn!(agent = %agent.id, job = %job_cfg.name,
+                              error = %e, "failed to seed config cron job into DB");
+                    } else {
+                        debug!(agent = %agent.id, job = %job_cfg.name,
+                               "seeded config cron job into DB");
+                    }
+                }
+            }
         }
     }
 
-    let has_cron = config.agents.iter().any(|a| !a.cron_jobs.is_empty());
-    let has_persisted = !all_persisted.is_empty();
+    // Load all cron jobs from DB (the single source of truth).
+    let mut all_jobs: Vec<PersistedCronJob> = Vec::new();
+    for agent in &config.agents {
+        let pjobs = load_persisted_cron_jobs(&agent.id).await;
+        all_jobs.extend(pjobs);
+    }
+
     let persisted_jobs_list = Arc::new(Mutex::new(Vec::<PersistedCronJob>::new()));
 
-    let (cron_sched, cron_sched_for_handle, job_uuids_map) = if has_cron || has_persisted {
+    let (cron_sched, cron_sched_for_handle, job_uuids_map) = if !all_jobs.is_empty() {
         let sched = JobScheduler::new()
             .await
             .context("failed to create cron scheduler")?;
@@ -338,118 +363,31 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
         let job_uuids_map: Arc<Mutex<HashMap<String, uuid::Uuid>>> =
             Arc::new(Mutex::new(HashMap::new()));
 
-        // Register config-defined jobs.
-        for agent in &config.agents {
-            for job_cfg in &agent.cron_jobs {
-                let agent_id = agent.id.clone();
-                let job_name = job_cfg.name.clone();
-                let message = job_cfg
-                    .message
-                    .clone()
-                    .unwrap_or_else(|| format!("[cron:{}]", job_name));
-                let schedule = job_cfg.schedule.clone();
+        // Register all jobs from DB using the unified persisted-job path.
+        for pjob in &all_jobs {
+            let mut pj = pjob.clone();
+            pj.schedule = normalize_cron_schedule(&pj.schedule);
 
-                debug!(agent = %agent_id, job = %job_name, schedule = %schedule,
-                      "registering cron job");
+            debug!(agent = %pj.agent_id, job = %pj.name, schedule = %pj.schedule,
+                   "registering cron job from DB");
 
-                let job = Job::new_async_tz(
-                    schedule.as_str(),
-                    resolve_agent_timezone(config, &agent_id),
-                    move |_uuid, _lock| {
-                        let agent_id = agent_id.clone();
-                        let job_name = job_name.clone();
-                        let message = message.clone();
-                        Box::pin(async move {
-                            let now = SystemTime::now()
-                                .duration_since(UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs();
+            let schedule = pj.schedule.clone();
+            let job = Job::new_async_tz(
+                schedule.as_str(),
+                resolve_agent_timezone(config, &pj.agent_id),
+                move |_uuid, _lock| {
+                    let pj = pj.clone();
+                    Box::pin(async move {
+                        run_persisted_job_tick(&pj).await;
+                    })
+                },
+            )
+            .context("failed to create cron job")?;
 
-                            debug!(agent = %agent_id, job = %job_name, "cron job fired");
+            let uuid = sched.add(job).await.context("failed to add cron job")?;
 
-                            let session_id = format!(
-                                "cron_{}_{}",
-                                job_name.replace(
-                                    |c: char| !c.is_alphanumeric() && c != '-' && c != '_',
-                                    "_"
-                                ),
-                                now,
-                            );
-
-                            let msg = comm::IncomingMessage {
-                                agent_id: Some(agent_id.clone()),
-                                channel: format!("cron:{job_name}"),
-                                author: format!("cron:{job_name}"),
-                                content: message.clone(),
-                                timestamp: now as i64,
-                                session_id: Some(session_id),
-                                images: Vec::new(),
-                            };
-
-                            if let Err(e) = comm::sender().send(msg) {
-                                error!(
-                                    agent = %agent_id, job = %job_name,
-                                    error = %e, "failed to dispatch cron message"
-                                );
-                            }
-
-                            gateway::publish_event_json(&serde_json::json!({
-                                "type": "cron",
-                                "agent": agent_id,
-                                "job": job_name,
-                                "timestamp": now,
-                            }));
-                        })
-                    },
-                )
-                .context("failed to create cron job")?;
-
-                let uuid = sched
-                    .add(job)
-                    .await
-                    .context("failed to add cron job to scheduler")?;
-
-                let job_key = format!("{}@{}", job_cfg.name, agent.id);
-                job_uuids_map.lock().await.insert(job_key, uuid);
-            }
-        }
-
-        // Register persisted jobs (from cron_jobs.json).
-        for (workspace, pjobs) in &all_persisted {
-            for pjob in pjobs {
-                let ws = workspace.clone();
-                let mut pj = pjob.clone();
-                pj.schedule = normalize_cron_schedule(&pj.schedule);
-
-                debug!(agent = %pj.agent_id, job = %pj.name, schedule = %pj.schedule,
-                       "registering persisted cron job");
-
-                let schedule = pj.schedule.clone();
-                let job = Job::new_async_tz(
-                    schedule.as_str(),
-                    resolve_agent_timezone(config, &pj.agent_id),
-                    move |_uuid, _lock| {
-                        let ws = ws.clone();
-                        let pj = pj.clone();
-                        Box::pin(async move {
-                            run_persisted_job_tick(&ws, &pj).await;
-                        })
-                    },
-                )
-                .context("failed to create persisted cron job")?;
-
-                let uuid = sched
-                    .add(job)
-                    .await
-                    .context("failed to add persisted cron job")?;
-
-                let job_key = format!("{}@{}", pjob.name, pjob.agent_id);
-                job_uuids_map.lock().await.insert(job_key, uuid);
-            }
-            persisted_jobs_list
-                .lock()
-                .await
-                .extend(pjobs.iter().cloned());
+            let job_key = format!("{}@{}", pjob.name, pjob.agent_id);
+            job_uuids_map.lock().await.insert(job_key, uuid);
         }
 
         sched
@@ -527,9 +465,13 @@ async fn run_heartbeat(agent_id: &str, workspace: &Path, interval_secs: u64) {
             error!(agent = %agent_id, error = %e, "heartbeat: failed to write HEARTBEAT_OK");
         }
 
-        // --- Persist heartbeat_status.json for API consumers ------------
-        let agent_workspace = workspace.join("workspace");
-        let latest_session = crate::session::SessionStore::resolve_latest(&agent_workspace).await;
+        // --- Persist heartbeat status -----------------------------------
+        let latest_session = if let Some(db) = crate::store::global_db() {
+            db.current_session(agent_id).ok().flatten()
+        } else {
+            warn!(agent = %agent_id, "no database available — skipping heartbeat latest_session lookup");
+            None
+        };
         let status = HeartbeatStatus {
             agent_id: agent_id.to_string(),
             enabled: true,
@@ -540,36 +482,33 @@ async fn run_heartbeat(agent_id: &str, workspace: &Path, interval_secs: u64) {
             message_preview: Some(preview.clone()),
             latest_session,
         };
-        let status_path = workspace.join("heartbeat_status.json");
-        if let Err(e) = tokio::fs::write(
-            &status_path,
-            serde_json::to_string_pretty(&status).unwrap_or_default(),
-        )
-        .await
-        {
-            error!(agent = %agent_id, error = %e, "heartbeat: failed to write heartbeat_status.json");
+
+        if let Some(db) = crate::store::global_db() {
+            if let Err(e) = db.upsert_heartbeat_status(&status) {
+                error!(agent = %agent_id, error = %e, "heartbeat: failed to upsert heartbeat_status in db");
+            }
+        } else {
+            warn!(agent = %agent_id, "no database available — skipping heartbeat status persistence");
         }
 
-        // --- Write event to cron_events/ --------------------------------
-        let events_dir = workspace.join("cron_events");
-        if let Err(e) = tokio::fs::create_dir_all(&events_dir).await {
-            error!(agent = %agent_id, error = %e, "heartbeat: failed to create cron_events/");
-        } else {
-            let event_file = events_dir.join(format!("heartbeat_{}.json", now));
-            let event = serde_json::json!({
-                "type": "heartbeat",
-                "agent_id": agent_id,
-                "ts": now,
-                "preview": preview,
-            });
-            if let Err(e) = tokio::fs::write(
-                &event_file,
-                serde_json::to_string_pretty(&event).unwrap_or_default(),
-            )
-            .await
-            {
-                error!(agent = %agent_id, error = %e, "heartbeat: failed to write event file");
+        // --- Write event to cron_events (db or file) --------------------
+        if let Some(db) = crate::store::global_db() {
+            let event = crate::scheduler::JobRun {
+                id: format!("heartbeat-{}-{}", agent_id, now),
+                job_id: format!("heartbeat@{}", agent_id),
+                scheduled_at: now,
+                executed_at: Some(now),
+                completed_at: Some(now),
+                status: JobStatus::SUCCESS,
+                output_preview: Some(preview.clone()),
+                error: None,
+                duration_ms: Some(0),
+            };
+            if let Err(e) = db.insert_cron_event(&event) {
+                error!(agent = %agent_id, error = %e, "heartbeat: failed to insert cron event in db");
             }
+        } else {
+            warn!(agent = %agent_id, "no database available — skipping heartbeat cron event persistence");
         }
 
         // --- Comm bus notification -------------------------------------
@@ -595,12 +534,6 @@ async fn run_heartbeat(agent_id: &str, workspace: &Path, interval_secs: u64) {
             "agent": agent_id,
             "timestamp": now,
         }));
-
-        // NOTE: The heartbeat message was already dispatched on the comm
-        // bus above, which triggers a real agent turn and persists the
-        // exchange in the agent's current session.  The legacy
-        // `append_session_message` call that wrote to an orphaned
-        // `<agent_root>/sessions/` directory has been removed.
     }
 }
 
@@ -621,107 +554,45 @@ pub fn scheduler_handle_ref() -> Option<&'static SchedulerHandle> {
     SCHEDULER_HANDLE.get()
 }
 
-/// Load the heartbeat status for an agent whose workspace root is `ws`.
-pub async fn load_heartbeat_status(ws: &Path) -> Option<HeartbeatStatus> {
-    let agent_id = ws.file_name()?.to_string_lossy().to_string();
-
-    // Agent directory must exist.
-    if !ws.is_dir() {
-        return None;
+/// Load the heartbeat status for a given agent.
+pub async fn load_heartbeat_status(agent_id: &str) -> Option<HeartbeatStatus> {
+    if let Some(db) = crate::store::global_db() {
+        return db.load_heartbeat_status(agent_id).ok().flatten();
     }
 
-    // Prefer heartbeat_status.json if it exists (written by run_heartbeat).
-    let status_path = ws.join("heartbeat_status.json");
-    if let Ok(json) = tokio::fs::read_to_string(&status_path).await {
-        if let Ok(status) = serde_json::from_str::<HeartbeatStatus>(&json) {
-            return Some(status);
-        }
-    }
-
-    // Fallback: reconstruct from HEARTBEAT_OK + HEARTBEAT.md
-    let ok_path = ws.join("HEARTBEAT_OK");
-    let heartbeat_md = ws.join("HEARTBEAT.md");
-    let enabled = heartbeat_md.exists();
-    let has_ok = ok_path.exists();
-
-    // If neither heartbeat file exists, there's no heartbeat data.
-    if !enabled && !has_ok {
-        return None;
-    }
-
-    let last_tick = tokio::fs::read_to_string(&ok_path)
-        .await
-        .ok()
-        .and_then(|s| s.trim().parse::<u64>().ok());
-    let health = match last_tick {
-        Some(_) => HeartbeatHealth::OK,
-        None if enabled => HeartbeatHealth::MISSED,
-        None => HeartbeatHealth::OK,
-    };
-    let preview = tokio::fs::read_to_string(&heartbeat_md)
-        .await
-        .ok()
-        .map(|s| s.chars().take(200).collect());
-
-    Some(HeartbeatStatus {
-        agent_id,
-        enabled,
-        health,
-        last_tick,
-        next_tick: None,
-        interval_secs: None,
-        message_preview: preview,
-        latest_session: crate::session::SessionStore::resolve_latest(&ws.join("workspace")).await,
-    })
+    warn!(agent = %agent_id, "no database available — skipping load_heartbeat_status");
+    None
 }
 
-/// Load persisted cron job entries from `<ws>/workspace/cron_jobs.json`.
-pub async fn load_persisted_cron_jobs(ws: &Path) -> Vec<PersistedCronJob> {
-    let path = ws.join("cron_jobs.json");
-    match tokio::fs::read_to_string(&path).await {
-        Ok(json) => match serde_json::from_str(&json) {
-            Ok(jobs) => jobs,
-            Err(e) => {
-                tracing::warn!(path = %path.display(), error = %e, "corrupt cron_jobs.json — returning empty list");
-                Vec::new()
-            }
-        },
-        Err(_) => Vec::new(),
+/// Load persisted cron job entries from db.
+pub async fn load_persisted_cron_jobs(agent_id: &str) -> Vec<PersistedCronJob> {
+    if let Some(db) = crate::store::global_db() {
+        return db.list_cron_jobs(agent_id).unwrap_or_default();
     }
+
+    warn!("no database available — skipping load_persisted_cron_jobs");
+    Vec::new()
 }
 
-/// Load cron run records from `<ws>/workspace/cron_runs.json`.
-pub async fn load_cron_runs(ws: &Path) -> Vec<JobRun> {
-    let path = ws.join("cron_runs.json");
-    let jsonl_path = ws.join("cron_runs.jsonl");
-    // Try JSON array first, then fall back to JSONL.
-    if let Ok(json) = tokio::fs::read_to_string(&path).await {
-        return serde_json::from_str(&json).unwrap_or_default();
+/// Load cron run records for a given agent.
+pub async fn load_cron_runs(agent_id: &str) -> Vec<JobRun> {
+    if let Some(db) = crate::store::global_db() {
+        return db.list_cron_events_for_agent(agent_id).unwrap_or_default();
     }
-    if let Ok(text) = tokio::fs::read_to_string(&jsonl_path).await {
-        return text
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .filter_map(|l| serde_json::from_str(l).ok())
-            .collect();
-    }
+
+    warn!("no database available — skipping load_cron_runs");
     Vec::new()
 }
 
 /// Check whether all dependency jobs have at least one SUCCESS run.
 /// Returns `true` if there are no dependencies or all are satisfied.
-pub async fn check_dependencies(
-    workspace: &Path,
-    depends_on: &Option<Vec<String>>,
-    agent_id: &str,
-) -> bool {
+pub async fn check_dependencies(depends_on: &Option<Vec<String>>, agent_id: &str) -> bool {
     let deps = match depends_on {
         Some(d) if !d.is_empty() => d,
         _ => return true,
     };
 
-    let runs = load_cron_runs(workspace).await;
-
+    let runs = load_cron_runs(agent_id).await;
     for dep in deps {
         let full_id = format!("{}@{}", dep, agent_id);
         // Check if the most recent run for this dep is SUCCESS.
@@ -738,52 +609,45 @@ pub async fn check_dependencies(
 // Persisted cron job execution helpers
 // ---------------------------------------------------------------------------
 
-/// Persist a cron run record to `<workspace>/cron_runs.jsonl`.
-async fn persist_cron_run(workspace: &Path, run: &JobRun) -> anyhow::Result<()> {
-    let path = workspace.join("cron_runs.jsonl");
-    let mut line = serde_json::to_string(run).context("failed to serialize cron run")?;
-    line.push('\n');
+/// Persist a cron run record to PinchyDb.
+async fn persist_cron_run(run: &JobRun) -> anyhow::Result<()> {
+    // Prefer PinchyDb.
+    if let Some(db) = crate::store::global_db() {
+        return db
+            .insert_cron_event(run)
+            .map_err(|e| anyhow::anyhow!("{e}"));
+    }
 
-    let mut file = tokio::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-        .await
-        .with_context(|| format!("failed to open {}", path.display()))?;
-    file.write_all(line.as_bytes())
-        .await
-        .context("failed to write cron run")?;
+    warn!("no database available — skipping persist_cron_run");
     Ok(())
 }
 
-/// Remove a job (by name + agent_id) from `cron_jobs.json` and the live scheduler.
-pub async fn remove_persisted_job(workspace: &Path, name: &str, agent_id: &str) {
+/// Remove a job (by name + agent_id) from PinchyDb and the live scheduler.
+pub async fn remove_persisted_job(name: &str, agent_id: &str) {
     // Remove from live scheduler + in-memory list.
     if let Some(handle) = scheduler_handle_ref() {
         handle.remove_job(name, agent_id).await;
     }
 
-    let path = workspace.join("cron_jobs.json");
-    let jobs = load_persisted_cron_jobs(workspace).await;
-    let remaining: Vec<_> = jobs
-        .into_iter()
-        .filter(|j| !(j.name == name && j.agent_id == agent_id))
-        .collect();
-    if let Ok(json) = serde_json::to_string_pretty(&remaining) {
-        let _ = tokio::fs::write(&path, json).await;
+    // Prefer PinchyDb.
+    if let Some(db) = crate::store::global_db() {
+        let _ = db.remove_cron_job(agent_id, name);
+        return;
     }
+
+    warn!("no database available — skipping remove_persisted_job");
 }
 
 /// Execute a single persisted cron job tick: check dependencies, run,
 /// record result, handle oneshot removal.
-pub async fn run_persisted_job_tick(workspace: &Path, job: &PersistedCronJob) {
+pub async fn run_persisted_job_tick(job: &PersistedCronJob) {
     let agent_id = &job.agent_id;
     let job_name = &job.name;
     let job_id = format!("{}@{}", job_name, agent_id);
     let now = now_secs();
 
     // Check dependencies first.
-    if !check_dependencies(workspace, &job.depends_on, agent_id).await {
+    if !check_dependencies(&job.depends_on, agent_id).await {
         let run = JobRun {
             id: format!("{}-{}", job_id, now),
             job_id: job_id.clone(),
@@ -795,7 +659,7 @@ pub async fn run_persisted_job_tick(workspace: &Path, job: &PersistedCronJob) {
             error: Some("dependency not satisfied".into()),
             duration_ms: Some(0),
         };
-        let _ = persist_cron_run(workspace, &run).await;
+        let _ = persist_cron_run(&run).await;
         return;
     }
 
@@ -845,7 +709,7 @@ pub async fn run_persisted_job_tick(workspace: &Path, job: &PersistedCronJob) {
         error: result.err().map(|e| e.to_string()),
         duration_ms: Some(elapsed_ms),
     };
-    let _ = persist_cron_run(workspace, &run).await;
+    let _ = persist_cron_run(&run).await;
 
     // Gateway notification.
     gateway::publish_event_json(&serde_json::json!({
@@ -857,7 +721,7 @@ pub async fn run_persisted_job_tick(workspace: &Path, job: &PersistedCronJob) {
 
     // OneShot: remove from persisted jobs on success.
     if job.kind == JobKind::OneShot && status == JobStatus::SUCCESS {
-        remove_persisted_job(workspace, job_name, agent_id).await;
+        remove_persisted_job(job_name, agent_id).await;
     }
 }
 
@@ -866,7 +730,6 @@ pub async fn run_persisted_job_tick(workspace: &Path, job: &PersistedCronJob) {
 /// This is called by the agent turn completion logic to update the history
 /// with real duration and output.
 pub async fn complete_cron_run(
-    workspace: &Path,
     job_id: &String,
     timestamp: u64,
     success: bool,
@@ -876,6 +739,8 @@ pub async fn complete_cron_run(
 ) -> anyhow::Result<()> {
     // Reconstruct the same ID used by `run_persisted_job_tick`.
     let run_id = format!("{}-{}", job_id, timestamp);
+
+    let status_label = if success { "SUCCESS" } else { "FAILED" };
 
     let run = JobRun {
         id: run_id,
@@ -897,27 +762,14 @@ pub async fn complete_cron_run(
         duration_ms: Some(duration_ms),
     };
 
-    // By appending to the JSONL, it will supersede the RUNNING record
-    // in the `load_cron_runs` deduplication.
-    persist_cron_run(workspace, &run).await?;
+    // Persist the run event.
+    persist_cron_run(&run).await?;
 
-    // Also update the `last_status` on the job config itself.
-    let path = workspace.join("cron_jobs.json");
-    let mut jobs = load_persisted_cron_jobs(workspace).await;
-
-    for job in &mut jobs {
-        let full_id = format!("{}@{}", job.name, job.agent_id);
-        if full_id == *job_id {
-            job.last_status = Some(if success {
-                "SUCCESS".to_string()
-            } else {
-                "FAILED".to_string()
-            });
-        }
-    }
-
-    if let Ok(json) = serde_json::to_string_pretty(&jobs) {
-        let _ = tokio::fs::write(&path, json).await;
+    // Update the `last_status` on the job config itself.
+    if let Some(db) = crate::store::global_db() {
+        let _ = db.update_cron_job_status(job_id, status_label);
+    } else {
+        warn!("no database available — skipping complete_cron_run status update");
     }
 
     Ok(())
@@ -1038,9 +890,6 @@ pub async fn run_janitor_pass(config: &JanitorConfig) -> usize {
         // 4) Legacy heartbeat session log (orphaned at <agent_root>/sessions/).
         total += cleanup_legacy_heartbeat_log(agent_root).await;
     }
-
-    // 5) Global session index pruning.
-    total += prune_global_index().await;
 
     total
 }
@@ -1163,70 +1012,6 @@ async fn cleanup_legacy_heartbeat_log(agent_root: &Path) -> usize {
     let _ = tokio::fs::remove_dir(&legacy_dir).await;
 
     deleted
-}
-
-/// Prune entries from the global sessions index whose session files no
-/// longer exist on disk.
-async fn prune_global_index() -> usize {
-    let home = crate::pinchy_home();
-    let index_path = home.join("sessions").join("index.jsonl");
-
-    let content = match tokio::fs::read_to_string(&index_path).await {
-        Ok(c) => c,
-        Err(_) => return 0,
-    };
-
-    let mut kept = Vec::new();
-    let mut pruned = 0usize;
-
-    for line in content.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let entry: serde_json::Value = match serde_json::from_str(line) {
-            Ok(v) => v,
-            Err(_) => {
-                // Keep unparseable lines to be safe.
-                kept.push(line.to_string());
-                continue;
-            }
-        };
-
-        // Check if the session file still exists.
-        let still_exists = if let (Some(agent_id), Some(session_id)) = (
-            entry.get("agent_id").and_then(|v| v.as_str()),
-            entry.get("session_id").and_then(|v| v.as_str()),
-        ) {
-            let agent_root = home.join("agents").join(agent_id);
-            let session_path = agent_root
-                .join("workspace")
-                .join("sessions")
-                .join(format!("{session_id}.jsonl"));
-            session_path.exists()
-        } else {
-            true // Can't determine — keep it.
-        };
-
-        if still_exists {
-            kept.push(line.to_string());
-        } else {
-            pruned += 1;
-        }
-    }
-
-    if pruned > 0 {
-        let mut output = kept.join("\n");
-        if !output.is_empty() {
-            output.push('\n');
-        }
-        let _ = tokio::fs::write(&index_path, output).await;
-        info!(
-            pruned,
-            "janitor: pruned stale entries from global session index"
-        );
-    }
-
-    pruned
 }
 
 /// Normalize a cron schedule expression to the 6-field format required by

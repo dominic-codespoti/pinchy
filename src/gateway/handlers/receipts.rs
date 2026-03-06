@@ -7,27 +7,23 @@ pub(crate) async fn api_receipts_list(Path(agent_id): Path<String>) -> impl Into
     if let Err(e) = validate_path_segment(&agent_id) {
         return e.into_response();
     }
-    let sessions_dir = crate::pinchy_home()
-        .join("agents")
-        .join(&agent_id)
-        .join("workspace")
-        .join("sessions");
 
-    let mut receipt_files: Vec<String> = Vec::new();
-    if let Ok(mut rd) = tokio::fs::read_dir(&sessions_dir).await {
-        while let Ok(Some(entry)) = rd.next_entry().await {
-            let name = entry.file_name().to_string_lossy().to_string();
-            if name.ends_with(".receipts.jsonl") {
-                receipt_files.push(name);
-            }
-        }
+    // When PinchyDb is available, return session ids that have receipts.
+    if let Some(db) = crate::store::global_db() {
+        let sessions = db.list_sessions_for_agent(&agent_id).unwrap_or_default();
+        let receipt_files: Vec<String> = sessions
+            .into_iter()
+            .map(|s| format!("{}.receipts.jsonl", s.session_id))
+            .collect();
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "receipts": receipt_files })),
+        )
+            .into_response();
     }
-    receipt_files.sort();
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({ "receipts": receipt_files })),
-    )
-        .into_response()
+
+    tracing::warn!("no database available — skipping api_receipts_list");
+    (StatusCode::OK, Json(serde_json::json!({ "receipts": [] }))).into_response()
 }
 
 /// `GET /api/agents/:id/receipts/:session_id` — return parsed receipts
@@ -41,41 +37,34 @@ pub(crate) async fn api_receipts_by_session(
     if let Err(e) = validate_path_segment(&session_id) {
         return e.into_response();
     }
+    let sid = session_id
+        .trim_end_matches(".receipts.jsonl")
+        .trim_end_matches(".jsonl")
+        .to_string();
     let filename = if session_id.ends_with(".receipts.jsonl") {
         session_id.clone()
     } else {
         format!("{session_id}.receipts.jsonl")
     };
 
-    let path = crate::pinchy_home()
-        .join("agents")
-        .join(&agent_id)
-        .join("workspace")
-        .join("sessions")
-        .join(&filename);
-
-    match tokio::fs::read_to_string(&path).await {
-        Ok(content) => {
-            let receipts: Vec<serde_json::Value> = content
-                .lines()
-                .filter(|l| !l.trim().is_empty())
-                .filter_map(|l| serde_json::from_str(l).ok())
-                .collect();
-            (
-                StatusCode::OK,
-                Json(serde_json::json!({ "file": filename, "receipts": receipts })),
-            )
-                .into_response()
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "receipts not found", "file": filename })),
+    // Prefer PinchyDb.
+    if let Some(db) = crate::store::global_db() {
+        let receipts = db.list_receipts_for_session(&sid).unwrap_or_default();
+        let receipts_json: Vec<serde_json::Value> = receipts
+            .iter()
+            .filter_map(|r| serde_json::to_value(r).ok())
+            .collect();
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({ "file": filename, "receipts": receipts_json })),
         )
-            .into_response(),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("{e}") })),
-        )
-            .into_response(),
+            .into_response();
     }
+
+    tracing::warn!("no database available — skipping api_receipts_by_session");
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(serde_json::json!({ "error": "no database available" })),
+    )
+        .into_response()
 }

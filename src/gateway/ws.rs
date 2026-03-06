@@ -9,7 +9,6 @@ use tracing::warn;
 
 use super::handlers::agents::collect_agent_ids;
 use super::AppState;
-use crate::session::SessionStore;
 
 /// `GET /ws` — upgrade to WebSocket.
 pub(crate) async fn ws_handler(
@@ -78,24 +77,32 @@ async fn handle_ws(mut socket: WebSocket, state: AppState) {
 
         // For each agent, send the latest session's messages.
         for agent_id in &agent_ids {
-            let workspace = crate::utils::agent_workspace(agent_id);
-            let session_id = SessionStore::resolve_latest(&workspace).await;
+            // Resolve current session + load history via PinchyDb.
+            let (session_id, exchanges) = if let Some(db) = crate::store::global_db() {
+                let sid = db.current_session(agent_id).ok().flatten();
+                let exs = sid
+                    .as_ref()
+                    .and_then(|s| db.load_history(s, 200).ok())
+                    .unwrap_or_default();
+                (sid, exs)
+            } else {
+                warn!("no database available — skipping WS session replay");
+                (None, Vec::new())
+            };
 
             if let Some(ref sid) = session_id {
-                if let Ok(exchanges) = SessionStore::load_history(&workspace, sid, 200).await {
-                    for ex in &exchanges {
-                        let evt = serde_json::json!({
-                            "type": "session_message",
-                            "agent": agent_id,
-                            "session": sid,
-                            "role": ex.role,
-                            "content": ex.content,
-                            "timestamp": ex.timestamp,
-                        });
-                        if let Ok(json) = serde_json::to_string(&evt) {
-                            if socket.send(Message::Text(json)).await.is_err() {
-                                return; // client disconnected
-                            }
+                for ex in &exchanges {
+                    let evt = serde_json::json!({
+                        "type": "session_message",
+                        "agent": agent_id,
+                        "session": sid,
+                        "role": ex.role,
+                        "content": ex.content,
+                        "timestamp": ex.timestamp,
+                    });
+                    if let Ok(json) = serde_json::to_string(&evt) {
+                        if socket.send(Message::Text(json)).await.is_err() {
+                            return; // client disconnected
                         }
                     }
                 }

@@ -13,6 +13,13 @@ Restart=always
 RestartSec=5
 Environment=PINCHY_HOME=/opt/pinchy/.pinchy
 Environment=RUST_LOG=info
+Environment=TOKIO_WORKER_THREADS=2
+
+# Resource limits (Pi-friendly)
+MemoryMax=512M
+CPUQuota=75%
+IOWeight=50
+TasksMax=64
 
 # Hardening
 NoNewPrivileges=true

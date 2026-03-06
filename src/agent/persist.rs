@@ -1,9 +1,8 @@
-use tokio::fs;
 use tracing::{debug, warn};
 
 use crate::comm::IncomingMessage;
 use crate::models::ChatMessage;
-use crate::session::{Exchange, SessionStore};
+use crate::session::Exchange;
 
 use super::types::{epoch_millis, Agent, TurnReceipt};
 
@@ -29,11 +28,16 @@ impl Agent {
             })
             .collect();
 
-        if let Err(e) = SessionStore::append_batch(&self.workspace, session_id, &exchanges).await {
-            warn!(error = %e, count = exchanges.len(), "failed to persist tool messages");
+        if let Some(ref db) = self.db {
+            if let Err(e) = db.append_exchanges(session_id, &exchanges) {
+                warn!(error = %e, count = exchanges.len(), "failed to persist tool messages to db");
+            }
+        } else {
+            tracing::warn!("no database available — skipping persist");
         }
     }
-    /// Persist just the user message to the session JSONL.
+
+    /// Persist just the user message to the session.
     /// Called at the start of a turn, before tool loop execution.
     pub async fn persist_user_message(&self, msg: &IncomingMessage) -> anyhow::Result<()> {
         let ts_ms = epoch_millis();
@@ -52,7 +56,11 @@ impl Agent {
         };
 
         if let Some(ref session_id) = self.current_session {
-            SessionStore::append(&self.workspace, session_id, &user_exchange).await?;
+            if let Some(ref db) = self.db {
+                db.append_exchange(session_id, &user_exchange)?;
+            } else {
+                tracing::warn!("no database available — skipping persist");
+            }
         }
 
         crate::gateway::publish_event_json(&serde_json::json!({
@@ -67,7 +75,7 @@ impl Agent {
         Ok(())
     }
 
-    /// Persist just the final assistant reply to the session JSONL.
+    /// Persist just the final assistant reply to the session.
     /// Called after the tool loop completes.
     pub async fn persist_assistant_reply(&self, reply: &str) -> anyhow::Result<()> {
         let ts_ms = epoch_millis();
@@ -83,7 +91,11 @@ impl Agent {
         };
 
         if let Some(ref session_id) = self.current_session {
-            SessionStore::append(&self.workspace, session_id, &assistant_exchange).await?;
+            if let Some(ref db) = self.db {
+                db.append_exchange(session_id, &assistant_exchange)?;
+            } else {
+                tracing::warn!("no database available — skipping persist");
+            }
         } else {
             warn!("persist_assistant_reply called with no current session — skipping");
         }
@@ -101,40 +113,14 @@ impl Agent {
     }
 
     pub async fn persist_receipt(&self, receipt: &TurnReceipt) {
-        let receipts_dir = self.workspace.join("sessions");
-        if fs::create_dir_all(&receipts_dir).await.is_err() {
-            return;
-        }
-
-        let filename = match &self.current_session {
-            Some(sid) => format!("{sid}.receipts.jsonl"),
-            None => "receipts.jsonl".into(),
-        };
-        let path = receipts_dir.join(filename);
-
-        let line = match serde_json::to_string(receipt) {
-            Ok(l) => l,
-            Err(e) => {
-                warn!(error = %e, "failed to serialise turn receipt");
-                return;
+        if let Some(ref db) = self.db {
+            if let Err(e) = db.insert_receipt(receipt) {
+                warn!(error = %e, "failed to persist receipt to db");
+            } else {
+                debug!("turn receipt persisted to db");
             }
-        };
-
-        use tokio::io::AsyncWriteExt;
-        match fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&path)
-            .await
-        {
-            Ok(mut f) => {
-                let _ = f.write_all(line.as_bytes()).await;
-                let _ = f.write_all(b"\n").await;
-                debug!(path = %path.display(), "turn receipt persisted");
-            }
-            Err(e) => {
-                warn!(error = %e, "failed to open receipts file");
-            }
+        } else {
+            tracing::warn!("no database available — skipping persist");
         }
     }
 }
