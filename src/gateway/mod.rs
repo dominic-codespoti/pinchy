@@ -11,10 +11,13 @@ mod ws;
 
 use async_trait::async_trait;
 use axum::{
+    http::{header, StatusCode, Uri},
     middleware,
+    response::{IntoResponse, Response},
     routing::{delete, get, post, put},
     Router,
 };
+use rust_embed::Embed;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -308,25 +311,25 @@ pub async fn start_gateway_with_config(
     );
 
     let (static_root, index_file, ui_label) = resolve_ui_paths();
+    let use_filesystem = ui_label != "missing";
     info!(
         root = %static_root.display(),
         index = %index_file.display(),
         ui = %ui_label,
+        embedded_fallback = !use_filesystem,
         "serving web UI"
     );
-    let static_service =
-        ServeDir::new(static_root.clone()).not_found_service(ServeFile::new(index_file.clone()));
-    let react_mount_service = ServeDir::new(static_root.clone());
 
-    let app = Router::new()
+    // Check that embedded assets are actually present (build may have
+    // been done without the React UI).
+    let has_embedded = WebUiAssets::get("index.html").is_some();
+    if !use_filesystem && !has_embedded {
+        warn!("No UI assets on disk or embedded — dashboard will 404");
+    }
+
+    let mut app = Router::new()
         .nest("/api", api_router)
-        // Webhook endpoint outside auth — uses its own per-agent ?secret= param
         .nest("/api", webhook_router)
-        // Serve SPA entry on "/" explicitly to avoid directory-root 404 behavior.
-        .route_service("/", ServeFile::new(index_file))
-        // Support Vite builds with `base: "/react/"` for hashed assets.
-        .nest_service("/react", react_mount_service)
-        // WebSocket — behind the same auth middleware as /api
         .route("/ws", get(ws::ws_handler))
         .route("/ws/logs", get(ws::ws_logs_handler))
         .layer(middleware::from_fn_with_state(
@@ -339,8 +342,24 @@ pub async fn start_gateway_with_config(
                 .allow_methods(Any)
                 .allow_headers(Any),
         )
-        .with_state(state)
-        .fallback_service(static_service);
+        .with_state(state);
+
+    if use_filesystem {
+        // Dev / deployed-with-files: serve from disk (supports HMR proxy, etc.)
+        let static_service = ServeDir::new(static_root.clone())
+            .not_found_service(ServeFile::new(index_file.clone()));
+        let react_mount_service = ServeDir::new(static_root.clone());
+        app = app
+            .route_service("/", ServeFile::new(index_file))
+            .nest_service("/react", react_mount_service)
+            .fallback_service(static_service);
+    } else if has_embedded {
+        // Installed via `cargo install` or crates.io: serve from embedded assets.
+        info!("using embedded web UI assets");
+        app = app
+            .route("/", get(embedded_static))
+            .fallback(embedded_static);
+    }
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let bound_addr = listener.local_addr()?;
@@ -610,4 +629,56 @@ pub fn spawn_command_forwarder(mut commands_rx: mpsc::Receiver<String>) {
         }
         debug!("gateway command forwarder stopped (channel closed)");
     });
+}
+
+// ---------------------------------------------------------------------------
+// Embedded web UI assets (built by `cd web && pnpm build`)
+// ---------------------------------------------------------------------------
+
+#[derive(Embed)]
+#[folder = "static/react/"]
+#[prefix = ""]
+struct WebUiAssets;
+
+/// Serve a file from the embedded web UI assets.
+async fn embedded_static(uri: Uri) -> Response {
+    let path = uri.path().trim_start_matches('/');
+    // Strip the /react/ prefix if present (for nested mount).
+    let path = path.strip_prefix("react/").unwrap_or(path);
+    // Serve the requested file, or fall back to index.html for SPA routing.
+    let path = if path.is_empty() { "index.html" } else { path };
+
+    match WebUiAssets::get(path) {
+        Some(content) => {
+            let mime = mime_from_path(path);
+            ([(header::CONTENT_TYPE, mime)], content.data.to_vec()).into_response()
+        }
+        None => {
+            // SPA fallback: serve index.html for unknown paths.
+            match WebUiAssets::get("index.html") {
+                Some(content) => {
+                    let body = content.data.to_vec();
+                    ([(header::CONTENT_TYPE, "text/html; charset=utf-8")], body).into_response()
+                }
+                None => (StatusCode::NOT_FOUND, "UI assets not embedded").into_response(),
+            }
+        }
+    }
+}
+
+fn mime_from_path(path: &str) -> &'static str {
+    match path.rsplit('.').next() {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "application/javascript",
+        Some("css") => "text/css",
+        Some("json") => "application/json",
+        Some("png") => "image/png",
+        Some("svg") => "image/svg+xml",
+        Some("ico") => "image/x-icon",
+        Some("woff2") => "font/woff2",
+        Some("woff") => "font/woff",
+        Some("ttf") => "font/ttf",
+        Some("map") => "application/json",
+        _ => "application/octet-stream",
+    }
 }

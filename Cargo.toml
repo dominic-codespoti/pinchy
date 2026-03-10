@@ -9,6 +9,14 @@ homepage = "https://github.com/dominic-codespoti/pinchy"
 keywords = ["agent", "ai", "raspberry-pi", "discord", "copilot"]
 categories = ["command-line-utilities"]
 build = "build.rs"
+include = [
+    "src/**/*",
+    "build.rs",
+    "Cargo.toml",
+    "LICENSE",
+    "README.md",
+    "static/react/**/*",
+]
 
 [[bin]]
 name = "pinchy"
@@ -38,6 +46,7 @@ cron = "0.15"
 keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native"] }
 tar = "0.4"
 flate2 = "1"
+rust-embed = "8.11.0"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", default-features = false, features = ["linux-native"] }
