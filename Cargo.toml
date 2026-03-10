@@ -17,7 +17,6 @@ include = [
     "README.md",
     "static/react/**/*",
 ]
-
 [[bin]]
 name = "pinchy"
 path = "src/main.rs"
