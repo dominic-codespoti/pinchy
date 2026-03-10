@@ -444,14 +444,22 @@ fn resolve_ui_paths() -> (PathBuf, PathBuf, &'static str) {
         );
     }
 
-    let manifest_react_index =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("static/react/index.html");
-    if manifest_react_index.exists() {
-        return (
-            Path::new(env!("CARGO_MANIFEST_DIR")).join("static/react"),
-            manifest_react_index,
-            "react",
-        );
+    // Only use CARGO_MANIFEST_DIR if it looks like a real project checkout
+    // (not the crates.io registry cache, which is fragile and may be pruned).
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let is_registry_cache = manifest_dir
+        .to_str()
+        .map(|s| s.contains(".cargo/registry"))
+        .unwrap_or(false);
+    if !is_registry_cache {
+        let manifest_react_index = manifest_dir.join("static/react/index.html");
+        if manifest_react_index.exists() {
+            return (
+                manifest_dir.join("static/react"),
+                manifest_react_index,
+                "react",
+            );
+        }
     }
 
     // Check next to the running executable (common for deployed binaries).
@@ -493,7 +501,7 @@ fn resolve_ui_paths() -> (PathBuf, PathBuf, &'static str) {
     }
 
     let manifest_legacy_index = Path::new(env!("CARGO_MANIFEST_DIR")).join("static/index.html");
-    if manifest_legacy_index.exists() {
+    if !is_registry_cache && manifest_legacy_index.exists() {
         warn!(
             "React UI not built (missing static/react/index.html), falling back to legacy static/"
         );
