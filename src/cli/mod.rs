@@ -1462,6 +1462,27 @@ pub async fn self_update(no_pull: bool, restart: bool) -> anyhow::Result<()> {
         let _ = Command::new("cp")
             .args([binary.to_str().unwrap(), "/opt/pinchy/pinchy"])
             .status();
+
+        // Also copy web UI assets so the dashboard works.
+        let src_react = repo_root.join("static").join("react");
+        if src_react.join("index.html").exists() {
+            let dest_react = std::path::Path::new("/opt/pinchy/static/react");
+            println!("📦 Copying web UI to {}…", dest_react.display());
+            let _ = Command::new("mkdir")
+                .args(["-p", dest_react.to_str().unwrap()])
+                .status();
+            let s = Command::new("cp")
+                .args(["-r", src_react.to_str().unwrap(), "/opt/pinchy/static/"])
+                .status();
+            if s.is_ok() {
+                println!("  ✓ Web UI copied");
+            }
+        } else {
+            println!(
+                "  ⚠ Web UI not found at {} — dashboard may 404",
+                src_react.display()
+            );
+        }
     }
 
     if restart {

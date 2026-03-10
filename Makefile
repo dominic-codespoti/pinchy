@@ -26,6 +26,8 @@ update:
 # Full deploy: update + install + restart service
 install: update
 	sudo cp target/release/pinchy /opt/pinchy/pinchy
+	sudo mkdir -p /opt/pinchy/static
+	sudo cp -r static/react /opt/pinchy/static/
 	sudo systemctl restart pinchy
 	@echo "✅ Installed and restarted"
 

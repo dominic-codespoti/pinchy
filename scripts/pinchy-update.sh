@@ -44,6 +44,13 @@ if [[ -d "$BIN_DIR" ]] && [[ "$BIN_DIR" != "$REPO" ]]; then
     log "Installing binary to $BIN_DIR…"
     cp "$NEW_BIN" "$OLD_BIN.new"
     mv "$OLD_BIN.new" "$OLD_BIN"
+
+    # Copy web UI assets alongside the binary
+    if [[ -d "$REPO/static/react" ]]; then
+        log "Copying web UI to $BIN_DIR/static/react…"
+        mkdir -p "$BIN_DIR/static"
+        cp -r "$REPO/static/react" "$BIN_DIR/static/"
+    fi
 fi
 
 # 5. Restart service (systemd Restart=always handles this too)

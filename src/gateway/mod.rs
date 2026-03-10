@@ -435,6 +435,32 @@ fn resolve_ui_paths() -> (PathBuf, PathBuf, &'static str) {
         );
     }
 
+    // Check next to the running executable (common for deployed binaries).
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe
+            .canonicalize()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        {
+            let exe_react_index = exe_dir.join("static/react/index.html");
+            if exe_react_index.exists() {
+                return (exe_dir.join("static/react"), exe_react_index, "react");
+            }
+        }
+    }
+
+    // Check inside PINCHY_HOME (e.g. ~/.pinchy/static/react/).
+    {
+        let home_react_index = crate::pinchy_home().join("static/react/index.html");
+        if home_react_index.exists() {
+            return (
+                crate::pinchy_home().join("static/react"),
+                home_react_index,
+                "react",
+            );
+        }
+    }
+
     let cwd_legacy_index = Path::new("static/index.html");
     if cwd_legacy_index.exists() {
         warn!(

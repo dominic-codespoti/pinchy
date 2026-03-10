@@ -104,6 +104,43 @@ pub fn install(user: Option<&str>) -> Result<()> {
     }
     println!("  ✓ Installed binary to {}", bin_dest.display());
 
+    // 2b. Copy web UI assets (static/react/) next to the binary.
+    //     Look relative to the source binary first, then CARGO_MANIFEST_DIR,
+    //     then CWD.
+    {
+        let candidate_roots: Vec<PathBuf> = [
+            src.parent().map(|d| d.to_path_buf()),
+            Some(PathBuf::from(env!("CARGO_MANIFEST_DIR"))),
+            std::env::current_dir().ok(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
+        let dest_static = install_dir.join("static").join("react");
+        let mut copied = false;
+        for root in &candidate_roots {
+            let src_react = root.join("static").join("react");
+            if src_react.join("index.html").exists() {
+                if let Err(e) = copy_dir_all(&src_react, &dest_static) {
+                    eprintln!(
+                        "  ⚠ Failed to copy web UI from {}: {e}",
+                        src_react.display()
+                    );
+                } else {
+                    println!("  ✓ Copied web UI to {}", dest_static.display());
+                    copied = true;
+                }
+                break;
+            }
+        }
+        if !copied {
+            println!("  ⚠ Web UI (static/react/) not found — the dashboard will return 404.");
+            println!("    Build it with: cd web && pnpm run build");
+            println!("    Then copy static/react/ to {}", dest_static.display());
+        }
+    }
+
     // 3. Set ownership
     let chown = std::process::Command::new("chown")
         .args([
@@ -223,6 +260,22 @@ pub fn logs(follow: bool, lines: usize) -> Result<()> {
         .context("failed to run journalctl")?;
     if !status.success() {
         bail!("journalctl exited with {status}");
+    }
+    Ok(())
+}
+
+/// Recursively copy a directory tree.
+fn copy_dir_all(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        let dest_path = dst.join(entry.file_name());
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dest_path)?;
+        } else {
+            std::fs::copy(entry.path(), &dest_path)?;
+        }
     }
     Ok(())
 }
