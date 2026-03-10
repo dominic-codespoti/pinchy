@@ -1,4 +1,4 @@
-.PHONY: dev build web run update install release lint setup backup backup-list restore
+.PHONY: dev build web run update install release lint setup backup backup-list restore publish
 
 # Start everything: Vite HMR + Rust backend (auto-rebuild if cargo-watch installed)
 dev:
@@ -6,6 +6,7 @@ dev:
 
 # Build React frontend into static/react/
 web:
+	@cd web && [ -d node_modules ] || pnpm install --frozen-lockfile
 	@cd web && pnpm run build
 
 # Build Rust backend (rebuilds frontend first)
@@ -57,3 +58,8 @@ backup-list:
 restore:
 	@test -n "$(F)" || (echo "Usage: make restore F=<backup.tar.gz>" && exit 1)
 	cargo run -- restore "$(F)"
+
+# Publish to crates.io (builds web first, uses --allow-dirty for gitignored build artifacts)
+publish: web
+	cargo publish --allow-dirty
+	@echo "✅ Published to crates.io"
