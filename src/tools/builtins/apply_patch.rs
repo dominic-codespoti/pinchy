@@ -1,6 +1,6 @@
 //! Apply unified-diff patches to workspace files.
 
-use crate::tools::{register_tool, ToolMeta};
+use crate::tools::{register_tool, sandbox_path, ToolMeta};
 use serde_json::Value;
 use std::path::Path;
 
@@ -14,34 +14,16 @@ pub async fn apply_patch(workspace: &Path, args: Value) -> anyhow::Result<Value>
     let mut errors = Vec::new();
 
     for file_patch in parse_patches(patch_text) {
-        let target = if file_patch.path.starts_with('/') {
-            std::path::PathBuf::from(&file_patch.path)
-        } else {
-            workspace.join(&file_patch.path)
+        let target = match sandbox_path(workspace, &file_patch.path) {
+            Ok(p) => p,
+            Err(e) => {
+                errors.push(serde_json::json!({
+                    "file": file_patch.path,
+                    "error": e.to_string()
+                }));
+                continue;
+            }
         };
-
-        // Security: ensure the target is inside the workspace
-        let canonical_ws = workspace
-            .canonicalize()
-            .unwrap_or_else(|_| workspace.to_path_buf());
-        let canonical_target = if target.exists() {
-            target.canonicalize().unwrap_or_else(|_| target.clone())
-        } else {
-            // For new files, check the parent
-            let parent = target.parent().unwrap_or(workspace);
-            let parent_canon = parent
-                .canonicalize()
-                .unwrap_or_else(|_| parent.to_path_buf());
-            parent_canon.join(target.file_name().unwrap_or_default())
-        };
-
-        if !canonical_target.starts_with(&canonical_ws) {
-            errors.push(serde_json::json!({
-                "file": file_patch.path,
-                "error": "path escapes workspace"
-            }));
-            continue;
-        }
 
         match apply_file_patch(&target, &file_patch).await {
             Ok(()) => applied.push(file_patch.path.clone()),

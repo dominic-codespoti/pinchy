@@ -8,11 +8,38 @@ pub(crate) async fn api_config_schema() -> impl IntoResponse {
     (StatusCode::OK, Json(schema)).into_response()
 }
 
+/// Recursively redact sensitive fields from a JSON value.
+fn redact_sensitive(val: &mut serde_json::Value) {
+    const SENSITIVE_KEYS: &[&str] = &["api_key", "webhook_secret", "token"];
+    match val {
+        serde_json::Value::Object(map) => {
+            for (k, v) in map.iter_mut() {
+                if SENSITIVE_KEYS.iter().any(|s| k.contains(s)) {
+                    if v.is_string() && !v.as_str().unwrap_or("").is_empty() {
+                        *v = serde_json::Value::String("****".to_string());
+                    }
+                } else {
+                    redact_sensitive(v);
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                redact_sensitive(v);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// `GET /api/config` — return the current config as JSON.
 pub(crate) async fn api_config_get(State(state): State<AppState>) -> impl IntoResponse {
     match crate::config::Config::load(&state.config_path).await {
         Ok(cfg) => match serde_json::to_value(&cfg) {
-            Ok(v) => (StatusCode::OK, Json(v)).into_response(),
+            Ok(mut v) => {
+                redact_sensitive(&mut v);
+                (StatusCode::OK, Json(v)).into_response()
+            }
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({ "error": format!("serialize: {e}") })),

@@ -18,19 +18,39 @@ fn default_secrets_dir() -> PathBuf {
     PathBuf::from(".secrets")
 }
 
+/// Derive a 32-byte key from a passphrase using PBKDF2-HMAC-SHA256.
+fn derive_key_pbkdf2(passphrase: &str) -> [u8; 32] {
+    let salt = b"pinchy-secrets-v1";
+    let iterations = std::num::NonZeroU32::new(600_000).unwrap();
+    let mut key = [0u8; 32];
+    ring::pbkdf2::derive(
+        ring::pbkdf2::PBKDF2_HMAC_SHA256,
+        iterations,
+        salt,
+        passphrase.as_bytes(),
+        &mut key,
+    );
+    key
+}
+
+/// Derive a 32-byte key from a passphrase using legacy SHA-256 (for migration).
+fn derive_key_sha256(passphrase: &str) -> [u8; 32] {
+    use ring::digest;
+    let hash = digest::digest(&digest::SHA256, passphrase.as_bytes());
+    let mut key = [0u8; 32];
+    key.copy_from_slice(hash.as_ref());
+    key
+}
+
 /// Derive or load the 32-byte encryption key.
 ///
 /// Priority:
-/// 1. `PINCHY_SECRET_KEY` env var (hashed with SHA-256 to get 32 bytes)
+/// 1. `PINCHY_SECRET_KEY` env var (derived via PBKDF2-HMAC-SHA256)
 /// 2. `.secrets/.key` file (raw 32 bytes, created if missing)
 fn load_or_create_key(secrets_dir: &Path) -> anyhow::Result<[u8; 32]> {
-    // 1. Check env var.
+    // 1. Check env var — use PBKDF2.
     if let Ok(passphrase) = std::env::var("PINCHY_SECRET_KEY") {
-        use ring::digest;
-        let hash = digest::digest(&digest::SHA256, passphrase.as_bytes());
-        let mut key = [0u8; 32];
-        key.copy_from_slice(hash.as_ref());
-        return Ok(key);
+        return Ok(derive_key_pbkdf2(&passphrase));
     }
 
     // 2. File-based key.
@@ -196,14 +216,24 @@ pub fn get_secret_file(dir: Option<&Path>, key: &str) -> anyhow::Result<Option<S
     let encoded = std::fs::read_to_string(&path)
         .with_context(|| format!("read secret {}", path.display()))?;
 
-    // Try decrypting; if it fails, try reading as legacy plaintext and
-    // auto-migrate to encrypted format.
+    // Try decrypting with current (PBKDF2) key first.
     match decrypt(&enc_key, &encoded) {
         Ok(plaintext) => {
             let val = String::from_utf8(plaintext).context("secret is not valid UTF-8")?;
             Ok(Some(val))
         }
         Err(_) => {
+            // Try legacy SHA-256 key if passphrase-derived (migration path).
+            if let Ok(passphrase) = std::env::var("PINCHY_SECRET_KEY") {
+                let legacy_key = derive_key_sha256(&passphrase);
+                if let Ok(plaintext) = decrypt(&legacy_key, &encoded) {
+                    let val =
+                        String::from_utf8(plaintext).context("secret is not valid UTF-8")?;
+                    // Re-encrypt with PBKDF2 key.
+                    set_secret_file(dir, key, &val)?;
+                    return Ok(Some(val));
+                }
+            }
             // Legacy plaintext fallback — auto-migrate.
             let val = encoded.trim_end().to_string();
             // Re-save encrypted.

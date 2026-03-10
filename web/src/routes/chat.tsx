@@ -1,6 +1,7 @@
 import React, { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Marked } from "marked";
+import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
 
 import {
@@ -1803,5 +1804,5 @@ function MarkdownBlock({ content }: { content: string }) {
     });
   }, [html]);
 
-  return <div ref={containerRef} dangerouslySetInnerHTML={{ __html: html }} />;
+  return <div ref={containerRef} dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(html) }} />;
 }

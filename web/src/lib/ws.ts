@@ -4,7 +4,13 @@ import { useUiStore } from "@/state/ui";
 
 export function wsUrl(path = "/ws"): string {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
-  return `${proto}://${window.location.host}${path}`;
+  let url = `${proto}://${window.location.host}${path}`;
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("token");
+  if (token) {
+    url += `${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
+  }
+  return url;
 }
 
 export function sendOneShot(command: string, targetAgent: string): Promise<void> {

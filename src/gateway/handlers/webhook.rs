@@ -45,7 +45,12 @@ pub(crate) async fn api_webhook_ingest(
     if let Some(ac) = agent_cfg {
         if let Some(ref expected_secret) = ac.webhook_secret {
             let provided = query.secret.as_deref().unwrap_or("");
-            if provided != expected_secret {
+            if ring::constant_time::verify_slices_are_equal(
+                provided.as_bytes(),
+                expected_secret.as_bytes(),
+            )
+            .is_err()
+            {
                 return (
                     StatusCode::UNAUTHORIZED,
                     Json(serde_json::json!({ "error": "invalid or missing webhook secret" })),

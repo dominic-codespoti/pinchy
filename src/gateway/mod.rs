@@ -11,6 +11,7 @@ mod ws;
 
 use async_trait::async_trait;
 use axum::{
+    body::Body,
     http::{header, StatusCode, Uri},
     middleware,
     response::{IntoResponse, Response},
@@ -24,7 +25,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{debug, error, info, warn};
 
@@ -336,12 +337,30 @@ pub async fn start_gateway_with_config(
             state.clone(),
             auth::auth_middleware,
         ))
-        .layer(
+        .layer({
+            use axum::http::HeaderValue;
+            use tower_http::cors::AllowOrigin;
+
+            let cors_origin = std::env::var("PINCHY_CORS_ORIGIN").ok();
+            let allow_origin = if let Some(ref origin) = cors_origin {
+                AllowOrigin::exact(HeaderValue::from_str(origin).unwrap_or_else(|_| {
+                    HeaderValue::from_static("http://localhost:3131")
+                }))
+            } else {
+                // Reflect only the gateway's own address (localhost variants).
+                let origins: Vec<HeaderValue> = vec![
+                    HeaderValue::from_str(&format!("http://{addr}")).unwrap_or_else(|_| HeaderValue::from_static("http://localhost:3131")),
+                    HeaderValue::from_str(&format!("http://localhost:{}", addr.port())).unwrap_or_else(|_| HeaderValue::from_static("http://localhost:3131")),
+                    HeaderValue::from_str(&format!("http://127.0.0.1:{}", addr.port())).unwrap_or_else(|_| HeaderValue::from_static("http://localhost:3131")),
+                ];
+                AllowOrigin::list(origins)
+            };
+
             CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
-        )
+                .allow_origin(allow_origin)
+                .allow_methods(tower_http::cors::Any)
+                .allow_headers(tower_http::cors::Any)
+        })
         .with_state(state);
 
     if use_filesystem {
@@ -360,6 +379,9 @@ pub async fn start_gateway_with_config(
             .route("/", get(embedded_static))
             .fallback(embedded_static);
     }
+
+    // Add Content-Security-Policy header to all responses.
+    app = app.layer(axum::middleware::from_fn(csp_middleware));
 
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let bound_addr = listener.local_addr()?;
@@ -390,9 +412,20 @@ pub async fn spawn_gateway_if_enabled() -> Option<Gateway> {
         return None;
     }
 
-    let addr: SocketAddr = match std::env::var("PINCHY_GATEWAY_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:3131".to_string())
-        .parse()
+    let has_token = std::env::var("PINCHY_API_TOKEN")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .is_some();
+    let default_addr = if std::env::var("PINCHY_GATEWAY_ADDR").is_ok() {
+        // Explicit address set — use it as-is.
+        std::env::var("PINCHY_GATEWAY_ADDR").unwrap()
+    } else if has_token {
+        "0.0.0.0:3131".to_string()
+    } else {
+        warn!("No PINCHY_API_TOKEN set — binding to 127.0.0.1 for safety. Set PINCHY_GATEWAY_ADDR=0.0.0.0:3131 to override.");
+        "127.0.0.1:3131".to_string()
+    };
+    let addr: SocketAddr = match default_addr.parse()
     {
         Ok(a) => a,
         Err(e) => {
@@ -432,6 +465,21 @@ pub async fn spawn_gateway_if_enabled() -> Option<Gateway> {
         }
     }
     None
+}
+
+/// Middleware that adds a Content-Security-Policy header to every response.
+async fn csp_middleware(
+    req: axum::http::Request<Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let mut response = next.run(req).await;
+    response.headers_mut().insert(
+        axum::http::header::HeaderName::from_static("content-security-policy"),
+        axum::http::header::HeaderValue::from_static(
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' ws: wss:; img-src 'self' data:",
+        ),
+    );
+    response
 }
 
 fn resolve_ui_paths() -> (PathBuf, PathBuf, &'static str) {

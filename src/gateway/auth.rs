@@ -35,7 +35,15 @@ pub(crate) async fn auth_middleware(
     let provided = header_token.or(query_token);
 
     match provided {
-        Some(ref token) if token == expected => next.run(req).await,
+        Some(ref token)
+            if ring::constant_time::verify_slices_are_equal(
+                token.as_bytes(),
+                expected.as_bytes(),
+            )
+            .is_ok() =>
+        {
+            next.run(req).await
+        }
         Some(_) => (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({"error": "invalid token"})),

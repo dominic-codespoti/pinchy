@@ -522,10 +522,15 @@ async fn async_main() -> anyhow::Result<()> {
         println!("  │  Discord:   {:<25}│", discord_status);
         println!("  └──────────────────────────────────────┘");
 
-        // Print the full frontend URL with token baked in.
+        // Print the full frontend URL with masked token.
         if let Some(ref url) = gw_url {
             if let Some(ref token) = api_token {
-                println!("  🔗 {url}/?token={token}");
+                let masked = if token.len() > 4 {
+                    format!("{}***", &token[..4])
+                } else {
+                    "***".to_string()
+                };
+                println!("  🔗 {url}/?token={masked}");
             } else {
                 println!("  🔗 {url}/");
             }
