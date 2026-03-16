@@ -15,12 +15,16 @@ pub(crate) async fn ws_handler(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_ws(socket, state))
+    ws.max_message_size(1024 * 1024) // 1 MB max message
+        .max_frame_size(256 * 1024) // 256 KB max frame
+        .on_upgrade(move |socket| handle_ws(socket, state))
 }
 
 /// `GET /ws/logs` — upgrade to WebSocket for live log streaming.
 pub(crate) async fn ws_logs_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(handle_ws_logs)
+    ws.max_message_size(64 * 1024) // 64 KB — logs are read-only
+        .max_frame_size(64 * 1024)
+        .on_upgrade(handle_ws_logs)
 }
 
 /// Per-connection WebSocket logic for log streaming.

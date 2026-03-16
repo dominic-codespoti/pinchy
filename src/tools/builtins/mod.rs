@@ -16,5 +16,6 @@ pub mod read_file;
 pub mod self_update;
 pub mod send_message;
 pub mod session;
+pub mod session_yield;
 pub mod skill_author;
 pub mod write_file;

@@ -318,6 +318,20 @@ pub async fn compact_if_needed(
     let old_turns = turns;
     let new_len = compacted.len();
     let new_turns = count_turns(&compacted);
+
+    // Sanity check: the compacted context should be smaller than the
+    // original.  If the LLM summary is longer than the content it replaced,
+    // compaction is counter-productive — revert silently.
+    let old_chars: usize = messages.iter().map(|m| m.content.len()).sum();
+    let new_chars: usize = compacted.iter().map(|m| m.content.len()).sum();
+    if new_chars >= old_chars {
+        debug!(
+            old_chars,
+            new_chars, "compaction produced larger context — reverting"
+        );
+        return false;
+    }
+
     *messages = compacted;
 
     debug!(
@@ -325,6 +339,8 @@ pub async fn compact_if_needed(
         new_messages = new_len,
         old_turns,
         new_turns,
+        old_chars,
+        new_chars,
         "turn-based compaction complete"
     );
 

@@ -6,6 +6,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use subtle::ConstantTimeEq;
 
 use super::AppState;
 
@@ -35,7 +36,9 @@ pub(crate) async fn auth_middleware(
     let provided = header_token.or(query_token);
 
     match provided {
-        Some(ref token) if token == expected => next.run(req).await,
+        Some(ref token) if constant_time_eq(token.as_bytes(), expected.as_bytes()) => {
+            next.run(req).await
+        }
         Some(_) => (
             StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({"error": "invalid token"})),
@@ -47,6 +50,16 @@ pub(crate) async fn auth_middleware(
         )
             .into_response(),
     }
+}
+
+/// Constant-time comparison of two byte slices.
+///
+/// Prevents timing side-channel attacks on API token verification.
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    a.ct_eq(b).into()
 }
 
 /// Validate that a user-supplied path segment is safe to use in filesystem paths.

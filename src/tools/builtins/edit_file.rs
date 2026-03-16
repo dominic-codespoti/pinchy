@@ -137,16 +137,24 @@ fn do_line_replace(existing: &str, args: &Value) -> anyhow::Result<String> {
     let mut lines: Vec<&str> = existing.split('\n').collect();
     let total_lines = lines.len();
 
-    let start =
-        args.get("start_line")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("edit_file: missing `start_line`"))? as usize;
+    // Default to full-file replace when start_line is omitted.
+    let start = args
+        .get("start_line")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .unwrap_or(1);
 
     let end = args
         .get("end_line")
         .and_then(|v| v.as_u64())
         .map(|v| v as usize)
-        .unwrap_or(start);
+        .unwrap_or_else(|| {
+            if args.get("start_line").is_some() {
+                start // single-line edit when start_line explicit
+            } else {
+                total_lines // full-file replace when both omitted
+            }
+        });
 
     if start < 1 || end < start || end > total_lines {
         anyhow::bail!(

@@ -4,6 +4,7 @@
 //! token via the internal Copilot API, and caches the result on disk.
 
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
@@ -121,6 +122,7 @@ pub fn cache_copilot_token(t: &CopilotToken) -> anyhow::Result<()> {
     }
     let json = serde_json::to_string_pretty(t)?;
     fs::write(&path, &json)?;
+    #[cfg(unix)]
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
     debug!(path = %path.display(), "Copilot token cached");
     Ok(())

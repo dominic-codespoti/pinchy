@@ -1,5 +1,6 @@
 use anyhow::Context as _;
-use tracing::{debug, warn};
+use tokio::sync::Semaphore;
+use tracing::{debug, info, warn};
 
 use crate::models::{ChatMessage, ProviderManager, ProviderResponse};
 
@@ -84,6 +85,14 @@ async fn run_tool_loop_inner(
 
                 push_fc_messages(messages, &inv, name, arguments, &tr);
 
+                // Detect session yield — the agent called `session_yield`
+                // to terminate the turn early with an optional follow-up.
+                if tr.result_json.contains(YIELD_SENTINEL) {
+                    info!(tool = %name, "session yield — terminating tool loop early");
+                    tool_calls.push(tr.record);
+                    break;
+                }
+
                 let should_break = handle_unknown_tool(
                     &tr,
                     &mut consecutive_unknown_tool,
@@ -138,11 +147,14 @@ async fn run_tool_loop_inner(
                 });
 
                 let mut handles = Vec::new();
+                let semaphore = std::sync::Arc::new(Semaphore::new(MAX_CONCURRENT_TOOLS));
                 for inv in invocations {
                     let ws = workspace.to_path_buf();
                     let aid = agent_id.to_string();
                     let sid = session_id.clone();
+                    let sem = semaphore.clone();
                     handles.push(tokio::spawn(async move {
+                        let _permit = sem.acquire().await;
                         execute_tool(&inv, &ws, &aid, &sid).await
                     }));
                 }
@@ -218,3 +230,7 @@ async fn run_tool_loop_inner(
 
     Ok(tool_calls)
 }
+
+/// Maximum concurrent tool executions per tool-loop batch.
+/// Prevents thread thrashing on the Pi's 2-thread tokio runtime.
+const MAX_CONCURRENT_TOOLS: usize = 4;

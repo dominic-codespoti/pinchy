@@ -25,6 +25,7 @@ use std::sync::OnceLock;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{debug, error, info, warn};
 
@@ -128,6 +129,42 @@ pub(crate) struct AppState {
 // ---------------------------------------------------------------------------
 // Server startup
 // ---------------------------------------------------------------------------
+
+/// Build a CORS allowed-origins list.
+///
+/// Defaults to `http://localhost:*` and `http://127.0.0.1:*` variants.
+/// Additional origins can be appended via `PINCHY_CORS_ORIGINS` (comma-separated).
+fn allowed_origins() -> tower_http::cors::AllowOrigin {
+    use axum::http::HeaderValue;
+
+    let mut origins: Vec<HeaderValue> = Vec::new();
+
+    // Always allow common local dev origins.
+    for port in [3131, 3000, 5173, 8080] {
+        if let Ok(v) = format!("http://localhost:{port}").parse() {
+            origins.push(v);
+        }
+        if let Ok(v) = format!("http://127.0.0.1:{port}").parse() {
+            origins.push(v);
+        }
+    }
+
+    // Allow the user to add extra origins via env.
+    if let Ok(extra) = std::env::var("PINCHY_CORS_ORIGINS") {
+        for origin in extra.split(',') {
+            let trimmed = origin.trim();
+            if !trimmed.is_empty() {
+                if let Ok(v) = trimmed.parse() {
+                    origins.push(v);
+                } else {
+                    warn!("ignoring invalid CORS origin: {trimmed}");
+                }
+            }
+        }
+    }
+
+    tower_http::cors::AllowOrigin::list(origins)
+}
 
 /// Start the gateway HTTP + WS server on `addr`.
 ///
@@ -338,10 +375,11 @@ pub async fn start_gateway_with_config(
         ))
         .layer(
             CorsLayer::new()
-                .allow_origin(Any)
+                .allow_origin(allowed_origins())
                 .allow_methods(Any)
                 .allow_headers(Any),
         )
+        .layer(RequestBodyLimitLayer::new(5 * 1024 * 1024)) // 5 MB
         .with_state(state);
 
     if use_filesystem {
@@ -391,7 +429,7 @@ pub async fn spawn_gateway_if_enabled() -> Option<Gateway> {
     }
 
     let addr: SocketAddr = match std::env::var("PINCHY_GATEWAY_ADDR")
-        .unwrap_or_else(|_| "0.0.0.0:3131".to_string())
+        .unwrap_or_else(|_| "127.0.0.1:3131".to_string())
         .parse()
     {
         Ok(a) => a,

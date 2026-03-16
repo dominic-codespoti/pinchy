@@ -272,12 +272,16 @@ impl MemoryStore {
                         LIMIT ?2";
             let mut stmt = conn.prepare(sql)?;
             let rows = stmt.query_map(params![fts_query, limit as i64], |row| {
+                // FTS5 rank is negative (more negative = more relevant).
+                // Negate it so score is positive and higher = better,
+                // consistent with cosine similarity scores from vector search.
+                let raw_rank: f64 = row.get(4)?;
                 Ok(MemoryEntry {
                     key: row.get(0)?,
                     value: row.get(1)?,
                     tags: parse_tags(&row.get::<_, String>(2)?),
                     timestamp: row.get(3)?,
-                    score: Some(row.get::<_, f64>(4)?),
+                    score: Some(-raw_rank),
                 })
             })?;
             let mut results = Vec::new();

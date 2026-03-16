@@ -6,6 +6,7 @@
 
 use std::fs;
 use std::io::IsTerminal;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
@@ -232,8 +233,10 @@ pub async fn restore(
         // Fix permissions on secrets directory.
         let secrets_dir = home.join(".secrets");
         if secrets_dir.exists() {
+            #[cfg(unix)]
             fs::set_permissions(&secrets_dir, fs::Permissions::from_mode(0o700))
                 .context("chmod .secrets/")?;
+            #[cfg(unix)]
             if let Ok(entries) = fs::read_dir(&secrets_dir) {
                 for entry in entries.flatten() {
                     let _ = fs::set_permissions(entry.path(), fs::Permissions::from_mode(0o600));

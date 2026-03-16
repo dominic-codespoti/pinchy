@@ -17,49 +17,70 @@ include = [
     "README.md",
     "static/react/**/*",
 ]
+
 [[bin]]
 name = "pinchy"
 path = "src/main.rs"
 
 [dependencies]
+# Core async runtime
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "signal", "sync", "time"] }
-serde = { version = "1", features = ["derive"] }
-serde_yaml_ng = "0.10"
-serde_json = "1"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
-futures-core = "0.3"
-async-stream = "0.3"
 tokio-stream = "0.1"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
-clap = { version = "4", features = ["derive"] }
-serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend", "builder"] }
-tokio-cron-scheduler = "0.15"
-axum = { version = "0.7", features = ["ws", "json"] }
-tower-http = { version = "0.6", features = ["fs", "cors"] }
-anyhow = "1"
+tokio-util = { version = "0.7", default-features = false }
+async-stream = "0.3"
 async-trait = "0.1"
+futures-core = "0.3"
+
+# Web / API
+axum = { version = "0.7", features = ["ws", "json"] }
+tower-http = { version = "0.6", features = ["fs", "cors", "limit"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml_ng = "0.10"
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+dialoguer = "0.12"
+
+# Discord
+serenity = { version = "0.12", default-features = false, features = ["client", "gateway", "model", "rustls_backend", "builder"] }
+
+# Scheduling
 chrono = { version = "0.4", features = ["serde"] }
 chrono-tz = "0.10"
 cron = "0.15"
+tokio-cron-scheduler = "0.15"
+
+# Storage / persistence
+rusqlite = { version = "0.38", features = ["bundled"] }
+dirs = "5"
+
+# Secrets / crypto
 keyring = { version = "3", default-features = false, features = ["apple-native", "windows-native"] }
+ring = "0.17"
+base64 = "0.22"
+subtle = "2"
+
+# Packaging / backup
 tar = "0.4"
 flate2 = "1"
-rust-embed = "8.11.0"
+
+# Misc
+anyhow = "1"
+libc = "0.2"
+notify-debouncer-mini = "0.7"
+rust-embed = "8"
+schemars = "1.2"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "registry"] }
+uuid = { version = "1", features = ["v4"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 keyring = { version = "3", default-features = false, features = ["linux-native"] }
-dirs = "5"
-uuid = { version = "1", features = ["v4"] }
-dialoguer = "0.12"
-rusqlite = { version = "0.38", features = ["bundled"] }
-tokio-util = { version = "0.7", default-features = false }
-ring = "0.17"
-base64 = "0.22"
-libc = "0.2"
 openssl = { version = "0.10", features = ["vendored"], optional = true }
-schemars = "1.2"
-notify-debouncer-mini = "0.7"
 
 [dev-dependencies]
 tempfile = "3"
@@ -70,10 +91,6 @@ futures-util = "0.3"
 [features]
 default = []
 vendored-openssl = ["openssl"]
-playwright = []
-
-[lints.rust]
-unexpected_cfgs = { level = "allow", check-cfg = ['cfg(feature, values("playwright"))'] }
 
 [profile.release]
 lto = "fat"

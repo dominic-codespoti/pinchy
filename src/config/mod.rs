@@ -436,6 +436,50 @@ impl Config {
 
     /// Inner load — reads from disk, parses, validates.
     async fn load_inner(path: &Path) -> anyhow::Result<Config> {
+        let mut config = Self::load_raw(path).await?;
+        config.validate()?;
+
+        // Resolve relative agent root paths against pinchy_home.
+        let home = crate::pinchy_home();
+        for agent in &mut config.agents {
+            let ws = std::path::Path::new(&agent.root);
+            if ws.is_relative() {
+                agent.root = home.join(ws).to_string_lossy().to_string();
+            }
+        }
+
+        tracing::debug!(
+            agents = config.agents.len(),
+            models = config.models.len(),
+            "configuration loaded"
+        );
+
+        Ok(config)
+    }
+
+    /// Load config from disk **without** validation.
+    ///
+    /// Use this when you need to patch a potentially-broken config
+    /// (e.g. fixing an invalid model reference) before saving it back.
+    /// The caller is responsible for ensuring the config is valid
+    /// before calling [`save`], which validates before writing.
+    pub async fn load_unvalidated(path: &Path) -> anyhow::Result<Config> {
+        let mut config = Self::load_raw(path).await?;
+
+        // Resolve relative agent root paths against pinchy_home.
+        let home = crate::pinchy_home();
+        for agent in &mut config.agents {
+            let ws = std::path::Path::new(&agent.root);
+            if ws.is_relative() {
+                agent.root = home.join(ws).to_string_lossy().to_string();
+            }
+        }
+
+        Ok(config)
+    }
+
+    /// Read and parse YAML from disk — no validation, no path resolution.
+    async fn load_raw(path: &Path) -> anyhow::Result<Config> {
         let contents = match tokio::fs::read_to_string(path).await {
             Ok(c) => c,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
@@ -506,24 +550,8 @@ impl Config {
             }
         };
 
-        let mut config: Config =
+        let config: Config =
             serde_yaml_ng::from_str(&contents).context("failed to parse config YAML")?;
-        config.validate()?;
-
-        // Resolve relative agent root paths against pinchy_home.
-        let home = crate::pinchy_home();
-        for agent in &mut config.agents {
-            let ws = std::path::Path::new(&agent.root);
-            if ws.is_relative() {
-                agent.root = home.join(ws).to_string_lossy().to_string();
-            }
-        }
-
-        tracing::debug!(
-            agents = config.agents.len(),
-            models = config.models.len(),
-            "configuration loaded"
-        );
 
         Ok(config)
     }
@@ -651,8 +679,65 @@ impl Config {
         Ok(())
     }
 
+    /// Validate and return warnings (non-fatal issues) in addition to errors.
+    ///
+    /// Used by `pinchy config validate` to give richer diagnostic output.
+    /// Returns `Ok(warnings)` on success or `Err` if config is fundamentally broken.
+    pub fn validate_for_cli(&self) -> anyhow::Result<Vec<String>> {
+        // Run the standard validation first (returns Err on hard failures).
+        self.validate()?;
+
+        let mut warnings = Vec::new();
+
+        // Check for agents with no model assigned.
+        for agent in &self.agents {
+            if agent.model.is_none() {
+                warnings.push(format!(
+                    "agent '{}' has no model assigned — will use first available",
+                    agent.id
+                ));
+            }
+        }
+
+        // Check for models with no API key.
+        for model in &self.models {
+            let needs_key = !matches!(
+                model.provider.as_str(),
+                "copilot" | "ollama" | "lmstudio" | "vllm"
+            );
+            if needs_key && model.api_key.is_none() {
+                warnings.push(format!(
+                    "model '{}' (provider: {}) has no api_key configured",
+                    model.id, model.provider,
+                ));
+            }
+        }
+
+        // Check for Azure OpenAI models missing endpoint.
+        for model in &self.models {
+            if matches!(
+                model.provider.as_str(),
+                "azure-openai" | "azure_openai" | "azure"
+            ) && model.endpoint.is_none()
+            {
+                warnings.push(format!(
+                    "model '{}' (azure-openai) has no endpoint configured",
+                    model.id,
+                ));
+            }
+        }
+
+        // Check Discord config is present when agents exist.
+        if !self.agents.is_empty() && self.channels.discord.is_none() {
+            warnings.push("no discord channel configured — bot will not connect".into());
+        }
+
+        Ok(warnings)
+    }
+
     /// Serialize and write the configuration back to a YAML file.
     pub async fn save(&self, path: &Path) -> anyhow::Result<()> {
+        self.validate().context("refusing to save invalid config")?;
         let contents = serde_yaml_ng::to_string(self).context("serialize config YAML")?;
         tokio::fs::write(path, &contents)
             .await

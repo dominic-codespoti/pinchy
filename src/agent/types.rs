@@ -13,6 +13,10 @@ pub const DEFAULT_PROVIDER: &str = "openai";
 pub const DEFAULT_MODEL_ID: &str = "openai-default";
 pub const MAX_TOOL_RESULT_BYTES: usize = 16_000;
 
+/// Sentinel prefix returned by the `session_yield` tool to signal early
+/// termination of the tool loop.
+pub const YIELD_SENTINEL: &str = "__SESSION_YIELD__";
+
 pub fn epoch_nanos() -> u128 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -42,15 +46,43 @@ pub fn truncate_tool_result(s: String) -> String {
     if s.len() <= MAX_TOOL_RESULT_BYTES {
         return s;
     }
-    let mut end = MAX_TOOL_RESULT_BYTES;
-    while !s.is_char_boundary(end) && end > 0 {
-        end -= 1;
+
+    // Keep both head and tail of large outputs. This preserves error
+    // messages / compiler errors that typically appear at the end of
+    // build logs while still showing the beginning for context.
+    //
+    // Split: 60% head, 40% tail (errors cluster at the end).
+    let head_budget = MAX_TOOL_RESULT_BYTES * 60 / 100;
+    let tail_budget = MAX_TOOL_RESULT_BYTES - head_budget;
+
+    let mut head_end = head_budget;
+    while !s.is_char_boundary(head_end) && head_end > 0 {
+        head_end -= 1;
     }
+
+    let mut tail_start = s.len().saturating_sub(tail_budget);
+    while !s.is_char_boundary(tail_start) && tail_start < s.len() {
+        tail_start += 1;
+    }
+
+    // If head and tail overlap (shouldn't happen given the size check, but
+    // be defensive), just do a simple head truncation.
+    if head_end >= tail_start {
+        return format!(
+            "{}\n\n[… result truncated — {} bytes total, showing first {}. Use more specific args to narrow output.]",
+            &s[..head_end],
+            s.len(),
+            head_end,
+        );
+    }
+
+    let omitted = tail_start - head_end;
     format!(
-        "{}\n\n[… result truncated — {} bytes total, showing first {}. Use more specific args to narrow output.]",
-        &s[..end],
+        "{}\n\n[… {} bytes omitted — {} bytes total, showing head + tail …]\n\n{}",
+        &s[..head_end],
+        omitted,
         s.len(),
-        end,
+        &s[tail_start..],
     )
 }
 

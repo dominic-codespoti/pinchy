@@ -840,6 +840,7 @@ pub fn init() {
     builtins::cron::register();
     builtins::delegate::register();
     builtins::session::register();
+    builtins::session_yield::register();
     builtins::send_message::register();
     builtins::self_update::register();
 
@@ -965,6 +966,12 @@ pub fn init() {
         }),
     );
     register_handler(
+        "session_yield",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::session_yield::session_yield(&ws, args).await })
+        }),
+    );
+    register_handler(
         "session_spawn",
         Arc::new(|args, ws| {
             Box::pin(async move { builtins::session::session_spawn(&ws, args).await })
@@ -1040,7 +1047,6 @@ pub fn init() {
             "edit_skill",
             "self_update",
             "send_message",
-            "delegate",
         ];
         let mut reg = REGISTRY.lock().expect("tool registry poisoned");
         for entry in reg.iter_mut() {

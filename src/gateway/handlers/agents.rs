@@ -164,21 +164,29 @@ pub(crate) async fn api_agent_clone(
 
     // 3. Clone config entry
     let config_path = crate::pinchy_home().join("config.yaml");
-    if let Ok(mut cfg) = crate::config::Config::load(&config_path).await {
-        if let Some(ac) = cfg.agents.iter().find(|a| a.id == agent_id).cloned() {
-            let mut new_ac = ac;
-            new_ac.id = body.new_id.clone();
-            new_ac.root = dst_base.to_string_lossy().to_string();
-            // Fresh start: no cron jobs or other session-specific state in config
-            new_ac.cron_jobs = vec![];
+    {
+        let _guard = crate::config::config_lock().await;
+        match crate::config::Config::load_unvalidated(&config_path).await {
+            Ok(mut cfg) => {
+                if let Some(ac) = cfg.agents.iter().find(|a| a.id == agent_id).cloned() {
+                    let mut new_ac = ac;
+                    new_ac.id = body.new_id.clone();
+                    new_ac.root = dst_base.to_string_lossy().to_string();
+                    // Fresh start: no cron jobs or other session-specific state in config
+                    new_ac.cron_jobs = vec![];
 
-            cfg.agents.push(new_ac);
-            if let Err(e) = cfg.save(&config_path).await {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": format!("save config: {e}") })),
-                )
-                    .into_response();
+                    cfg.agents.push(new_ac);
+                    if let Err(e) = cfg.save(&config_path).await {
+                        return (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            Json(serde_json::json!({ "error": format!("save config: {e}") })),
+                        )
+                            .into_response();
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to load config for agent creation");
             }
         }
     }
@@ -350,7 +358,7 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
     let config_path = crate::pinchy_home().join("config.yaml");
     {
         let _guard = crate::config::config_lock().await;
-        match crate::config::Config::load(&config_path).await {
+        match crate::config::Config::load_unvalidated(&config_path).await {
             Ok(mut cfg) => {
                 if !cfg.agents.iter().any(|a| a.id == body.id) {
                     cfg.agents.push(crate::config::AgentConfig {
@@ -506,7 +514,7 @@ pub(crate) async fn api_agent_update(
     {
         let config_path = crate::pinchy_home().join("config.yaml");
         let _guard = crate::config::config_lock().await;
-        match crate::config::Config::load(&config_path).await {
+        match crate::config::Config::load_unvalidated(&config_path).await {
             Ok(mut cfg) => {
                 if let Some(ac) = cfg.agents.iter_mut().find(|a| a.id == agent_id) {
                     if let Some(model) = body.model {
@@ -590,7 +598,7 @@ pub(crate) async fn api_agent_delete(Path(agent_id): Path<String>) -> impl IntoR
         Ok(()) => {
             let config_path = crate::pinchy_home().join("config.yaml");
             let _guard = crate::config::config_lock().await;
-            if let Ok(mut cfg) = crate::config::Config::load(&config_path).await {
+            if let Ok(mut cfg) = crate::config::Config::load_unvalidated(&config_path).await {
                 cfg.agents.retain(|a| a.id != agent_id);
                 if let Err(e) = cfg.save(&config_path).await {
                     tracing::warn!(error = %e, "failed to save config after agent deletion");

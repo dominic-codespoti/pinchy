@@ -87,6 +87,24 @@ enum Command {
         #[arg(long)]
         no_safety: bool,
     },
+    /// Validate the configuration file
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ConfigAction {
+    /// Validate config.yaml and report errors/warnings
+    Validate {
+        /// Path to config file (defaults to $PINCHY_HOME/config.yaml)
+        #[arg(short, long)]
+        file: Option<PathBuf>,
+        /// Output JSON schema for config.yaml
+        #[arg(long)]
+        schema: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -338,6 +356,11 @@ async fn async_main() -> anyhow::Result<()> {
                     let home = mini_claw::pinchy_home();
                     cli::backup::restore(&home, &file, yes, no_safety).await
                 }
+                Command::Config { action } => match action {
+                    ConfigAction::Validate { file, schema } => {
+                        cli::config_validate(file.as_deref().unwrap_or(&config_path), schema).await
+                    }
+                },
                 Command::Start => unreachable!(),
             };
         }
@@ -533,9 +556,28 @@ async fn async_main() -> anyhow::Result<()> {
         println!();
     }
 
-    // Wait for shutdown signal (Ctrl-C)
-    tokio::signal::ctrl_c().await?;
-    info!("received Ctrl-C, shutting down…");
+    // Wait for shutdown signal (Ctrl-C or SIGTERM from systemd).
+    {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{signal, SignalKind};
+            let mut sigterm =
+                signal(SignalKind::terminate()).expect("failed to register SIGTERM handler");
+            tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    info!("received Ctrl-C, shutting down…");
+                }
+                _ = sigterm.recv() => {
+                    info!("received SIGTERM, shutting down…");
+                }
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            tokio::signal::ctrl_c().await?;
+            info!("received Ctrl-C, shutting down…");
+        }
+    }
 
     // 1. Signal all agent dispatchers to stop accepting new messages.
     cancel.cancel();

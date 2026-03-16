@@ -75,6 +75,27 @@ const EXEC_BLOCKLIST: &[&str] = &[
 /// command names from strings to bypass the blocklist.
 const SHELL_ESCAPE_PATTERNS: &[&str] = &["eval ", "eval\t"];
 
+/// Normalize a string by converting fullwidth Latin characters (U+FF01–FF5E)
+/// to their ASCII equivalents and stripping other non-ASCII characters.
+///
+/// This prevents blocklist bypasses using confusable Unicode codepoints:
+/// e.g. `ｓｕｄｏ` (fullwidth) → `sudo`.
+fn normalize_to_ascii(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        let code = ch as u32;
+        // Fullwidth ASCII variants: U+FF01 '！' .. U+FF5E '～'
+        // map to U+0021 '!' .. U+007E '~'
+        if (0xFF01..=0xFF5E).contains(&code) {
+            out.push(char::from_u32(code - 0xFF01 + 0x0021).unwrap_or(ch));
+        } else if ch.is_ascii() {
+            out.push(ch);
+        }
+        // Non-ASCII, non-fullwidth characters are stripped entirely
+    }
+    out
+}
+
 /// Extract individual command names from a shell command string.
 ///
 /// Splits on `|`, `&&`, `||`, and `;` operators, then takes the first
@@ -90,7 +111,8 @@ pub fn extract_command_names(cmd: &str) -> Vec<String> {
         }
         if let Some(first) = segment.split_whitespace().next() {
             let name = first.rsplit('/').next().unwrap_or(first);
-            result.push(name.to_string());
+            // Normalize to ASCII to catch fullwidth/confusable Unicode bypasses
+            result.push(normalize_to_ascii(name).to_lowercase());
         }
     }
     result
@@ -99,8 +121,9 @@ pub fn extract_command_names(cmd: &str) -> Vec<String> {
 /// Validate the full command for sandbox escapes beyond the simple
 /// blocklist check.  Returns an error message if the command is unsafe.
 fn validate_command_safety(command: &str) -> Result<(), String> {
-    // Reject shell escape patterns.
-    let lower = command.to_lowercase();
+    // Normalize the command to ASCII before checking escape patterns,
+    // preventing fullwidth Unicode bypasses of eval/sed checks.
+    let lower = normalize_to_ascii(command).to_lowercase();
     for pat in SHELL_ESCAPE_PATTERNS {
         if lower.contains(pat) {
             return Err(format!("shell escape pattern '{pat}' is not allowed"));
@@ -110,7 +133,7 @@ fn validate_command_safety(command: &str) -> Result<(), String> {
     // Block `sed` with the '/e' flag which executes pattern space as shell.
     // This is the only per-command check worth keeping — it's a genuine
     // sandbox escape that the blocklist can't catch.
-    let normalized = command.replace("&&", "\x00").replace("||", "\x00");
+    let normalized = lower.replace("&&", "\x00").replace("||", "\x00");
     for segment in normalized.split(['|', ';', '\x00']) {
         let segment = segment.trim();
         if segment.is_empty() {

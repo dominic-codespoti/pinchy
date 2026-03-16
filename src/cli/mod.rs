@@ -48,6 +48,7 @@ async fn read_template(name: &str, id: &str, default: &str) -> String {
 /// built-in defaults.  The workspace directory is created with mode `0o700` and
 /// individual files with mode `0o600`.
 pub async fn scaffold_agent(id: &str) -> anyhow::Result<()> {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     let base = crate::utils::agent_root(id);
@@ -60,9 +61,11 @@ pub async fn scaffold_agent(id: &str) -> anyhow::Result<()> {
     tokio::fs::create_dir_all(base.join("workspace").join("sessions")).await?;
 
     // Set agent root permissions to 0o700
+    #[cfg(unix)]
     tokio::fs::set_permissions(&base, std::fs::Permissions::from_mode(0o700)).await?;
 
     // Set runtime workspace permissions to 0o700
+    #[cfg(unix)]
     tokio::fs::set_permissions(
         &base.join("workspace"),
         std::fs::Permissions::from_mode(0o700),
@@ -71,8 +74,10 @@ pub async fn scaffold_agent(id: &str) -> anyhow::Result<()> {
 
     // Helper: write content and set file permissions to 0o600
     async fn write_file(path: PathBuf, content: String) -> anyhow::Result<()> {
+        #[cfg(unix)]
         use std::os::unix::fs::PermissionsExt;
         tokio::fs::write(&path, &content).await?;
+        #[cfg(unix)]
         tokio::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).await?;
         Ok(())
     }
@@ -952,6 +957,7 @@ pub async fn set_agent_model(config_path: &Path, id: &str, model: &str) -> anyho
 
 /// Interactively configure an agent: select provider, model, and skills.
 pub async fn configure_agent(config_path: &Path, id: &str) -> anyhow::Result<()> {
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
     if !std::io::stdout().is_terminal() {
@@ -1103,6 +1109,7 @@ pub async fn configure_agent(config_path: &Path, id: &str) -> anyhow::Result<()>
                 tokio::fs::create_dir_all(parent).await?;
             }
             tokio::fs::write(&agent_skills_path, &yaml_out).await?;
+            #[cfg(unix)]
             tokio::fs::set_permissions(&agent_skills_path, std::fs::Permissions::from_mode(0o600))
                 .await?;
 
@@ -1522,4 +1529,136 @@ fn iana_tz_from_system() -> Option<String> {
         }
     }
     None
+}
+
+// ── Config validate ─────────────────────────────────────────────────────────
+
+/// Validate the configuration file and print diagnostics.
+///
+/// When `--schema` is passed, emits the JSON Schema for `config.yaml` instead.
+pub async fn config_validate(path: &std::path::Path, schema: bool) -> anyhow::Result<()> {
+    if schema {
+        let schema = config::Config::json_schema();
+        let json = serde_json::to_string_pretty(&schema)?;
+        println!("{json}");
+        return Ok(());
+    }
+
+    println!("Validating: {}", path.display());
+    println!();
+
+    // Step 1: Check file exists and is readable
+    if !path.exists() {
+        anyhow::bail!("config file not found: {}", path.display());
+    }
+
+    let raw = tokio::fs::read_to_string(path).await?;
+
+    // Step 2: Check YAML parse
+    let parsed: Result<config::Config, _> = serde_yaml_ng::from_str(&raw);
+    match parsed {
+        Err(e) => {
+            println!("  ❌ YAML parse error:");
+            println!("     {e}");
+            println!();
+            println!("Config is INVALID.");
+            Err(anyhow::anyhow!(
+                "config validation failed: YAML parse error"
+            ))
+        }
+        Ok(cfg) => {
+            println!("  ✅ YAML syntax OK");
+
+            // Step 3: Run semantic validation
+            match cfg.validate_for_cli() {
+                Ok(warnings) => {
+                    println!("  ✅ Semantic validation OK");
+
+                    for w in &warnings {
+                        println!("  ⚠️  {w}");
+                    }
+
+                    // Step 4: Check agent workspace directories
+                    let home = crate::pinchy_home();
+                    for agent in &cfg.agents {
+                        let root = std::path::Path::new(&agent.root);
+                        let resolved = if root.is_relative() {
+                            home.join(root)
+                        } else {
+                            root.to_path_buf()
+                        };
+                        if resolved.exists() {
+                            let soul = resolved.join("SOUL.md");
+                            let tools = resolved.join("TOOLS.md");
+                            if !soul.exists() {
+                                println!(
+                                    "  ⚠️  agent '{}': missing SOUL.md at {}",
+                                    agent.id,
+                                    resolved.display()
+                                );
+                            }
+                            if !tools.exists() {
+                                println!(
+                                    "  ⚠️  agent '{}': missing TOOLS.md at {}",
+                                    agent.id,
+                                    resolved.display()
+                                );
+                            }
+                        } else {
+                            println!(
+                                "  ⚠️  agent '{}': workspace dir does not exist: {}",
+                                agent.id,
+                                resolved.display()
+                            );
+                        }
+                    }
+
+                    // Step 5: Check secrets references
+                    if let Some(ref discord) = cfg.channels.discord {
+                        match &discord.token {
+                            config::SecretRef::Plain(s)
+                                if s.starts_with('$') || s.starts_with('@') =>
+                            {
+                                let key = s.trim_start_matches('$').trim_start_matches('@');
+                                if std::env::var(key).is_err() {
+                                    let secrets_path =
+                                        crate::pinchy_home().join("secrets").join(key);
+                                    if !secrets_path.exists() {
+                                        println!(
+                                            "  ⚠️  discord token references '{key}' — not found in env or secrets file"
+                                        );
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // Step 6: Summary
+                    println!();
+                    println!(
+                        "  {} model(s), {} agent(s), {} cron job(s)",
+                        cfg.models.len(),
+                        cfg.agents.len(),
+                        cfg.agents.iter().map(|a| a.cron_jobs.len()).sum::<usize>(),
+                    );
+                    println!();
+
+                    if warnings.is_empty() {
+                        println!("Config is VALID. ✅");
+                    } else {
+                        println!("Config is VALID with {} warning(s). ⚠️", warnings.len());
+                    }
+
+                    Ok(())
+                }
+                Err(e) => {
+                    println!("  ❌ Validation error: {e}");
+                    println!();
+                    println!("Config is INVALID.");
+                    Err(anyhow::anyhow!("config validation failed"))
+                }
+            }
+        }
+    }
 }

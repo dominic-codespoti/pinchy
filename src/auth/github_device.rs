@@ -5,6 +5,7 @@
 //! for persisting it in the OS keyring (with a file-based fallback).
 
 use std::fs;
+#[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
@@ -126,6 +127,7 @@ pub fn store_token(token: &str) -> anyhow::Result<()> {
         fs::create_dir_all(parent)?;
     }
     fs::write(&path, token)?;
+    #[cfg(unix)]
     fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
     debug!(path = %path.display(), "token stored in fallback file");
     Ok(())

@@ -104,7 +104,10 @@ impl PinchyDb {
     // -- schema migrations ------------------------------------------------
 
     fn migrate(&self) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS sessions (
                 session_id  TEXT PRIMARY KEY,
@@ -209,7 +212,10 @@ impl PinchyDb {
 
     /// Insert a new session into the index.
     pub fn insert_session(&self, entry: &IndexEntry) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         conn.execute(
             "INSERT OR IGNORE INTO sessions (session_id, agent_id, created_at, title)
              VALUES (?1, ?2, ?3, ?4)",
@@ -226,7 +232,10 @@ impl PinchyDb {
 
     /// Mark a session as the current one for its agent (clears previous).
     pub fn set_current_session(&self, agent_id: &str, session_id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         conn.execute(
             "UPDATE sessions SET is_current = 0 WHERE agent_id = ?1 AND is_current = 1",
             params![agent_id],
@@ -241,7 +250,10 @@ impl PinchyDb {
 
     /// Get the current session id for an agent (if any).
     pub fn current_session(&self, agent_id: &str) -> Result<Option<String>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let id: Option<String> = conn
             .query_row(
                 "SELECT session_id FROM sessions WHERE agent_id = ?1 AND is_current = 1",
@@ -254,7 +266,10 @@ impl PinchyDb {
 
     /// Clear the current session for an agent.
     pub fn clear_current_session(&self, agent_id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         conn.execute(
             "UPDATE sessions SET is_current = 0 WHERE agent_id = ?1",
             params![agent_id],
@@ -264,7 +279,10 @@ impl PinchyDb {
 
     /// Delete a session and all its exchanges and receipts.
     pub fn delete_session(&self, session_id: &str) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         // Delete exchanges first (child rows).
         conn.execute(
             "DELETE FROM exchanges WHERE session_id = ?1",
@@ -288,7 +306,10 @@ impl PinchyDb {
 
     /// Load all session index entries, newest first.
     pub fn list_sessions(&self) -> Result<Vec<IndexEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT session_id, agent_id, created_at, title FROM sessions ORDER BY created_at DESC",
         )?;
@@ -309,7 +330,10 @@ impl PinchyDb {
 
     /// List sessions for a specific agent, newest first.
     pub fn list_sessions_for_agent(&self, agent_id: &str) -> Result<Vec<IndexEntry>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT session_id, agent_id, created_at, title FROM sessions WHERE agent_id = ?1 ORDER BY created_at DESC",
         )?;
@@ -330,7 +354,10 @@ impl PinchyDb {
 
     /// Update session title.
     pub fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         conn.execute(
             "UPDATE sessions SET title = ?1 WHERE session_id = ?2",
             params![title, session_id],
@@ -352,7 +379,10 @@ impl PinchyDb {
         if exchanges.is_empty() {
             return Ok(());
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let tx = conn.unchecked_transaction()?;
         {
             let mut stmt = tx.prepare_cached(
@@ -392,7 +422,10 @@ impl PinchyDb {
     /// Replace all exchanges in a session with the given list.
     /// Used by the PUT session API to overwrite session content.
     pub fn replace_exchanges(&self, session_id: &str, exchanges: &[Exchange]) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         conn.execute(
             "DELETE FROM exchanges WHERE session_id = ?1",
             params![session_id],
@@ -424,7 +457,10 @@ impl PinchyDb {
 
     /// Load the last `limit` exchanges for a session (in chronological order).
     pub fn load_history(&self, session_id: &str, limit: usize) -> Result<Vec<Exchange>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT timestamp, role, content, metadata, tool_calls, tool_call_id, images
              FROM (
@@ -457,7 +493,10 @@ impl PinchyDb {
 
     /// Load ALL exchanges for a session (chronological order).
     pub fn load_full_history(&self, session_id: &str) -> Result<Vec<Exchange>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT timestamp, role, content, metadata, tool_calls, tool_call_id, images
              FROM exchanges WHERE session_id = ?1 ORDER BY id ASC",
@@ -485,7 +524,10 @@ impl PinchyDb {
 
     /// Count exchanges in a session.
     pub fn exchange_count(&self, session_id: &str) -> Result<usize> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM exchanges WHERE session_id = ?1",
             params![session_id],
@@ -500,7 +542,10 @@ impl PinchyDb {
 
     /// Persist a turn receipt.
     pub fn insert_receipt(&self, receipt: &TurnReceipt) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let tool_calls_json =
             serde_json::to_string(&receipt.tool_calls).unwrap_or_else(|_| "[]".into());
         let call_details_json =
@@ -537,7 +582,10 @@ impl PinchyDb {
 
     /// Load receipts for a session (newest first).
     pub fn list_receipts_for_session(&self, session_id: &str) -> Result<Vec<TurnReceipt>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT session_id, agent_id, started_at, duration_ms, user_prompt,
                     tool_calls_json, prompt_tokens, completion_tokens, total_tokens,
@@ -587,7 +635,10 @@ impl PinchyDb {
         from_date: Option<&str>,
         to_date: Option<&str>,
     ) -> Result<Vec<UsageBucket>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         // Build dynamic WHERE clauses.
         let mut conditions = Vec::new();
         let mut bind_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
@@ -664,7 +715,10 @@ impl PinchyDb {
 
     /// Count sessions for an agent (used by agent detail endpoint).
     pub fn session_count_for_agent(&self, agent_id: &str) -> Result<u32> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM sessions WHERE agent_id = ?1",
             params![agent_id],
@@ -679,7 +733,10 @@ impl PinchyDb {
 
     /// Upsert a cron job.
     pub fn upsert_cron_job(&self, job: &PersistedCronJob) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let depends_on = job
             .depends_on
             .as_ref()
@@ -714,7 +771,10 @@ impl PinchyDb {
 
     /// Remove a cron job by agent + name.
     pub fn remove_cron_job(&self, agent_id: &str, name: &str) -> Result<bool> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let changed = conn.execute(
             "DELETE FROM cron_jobs WHERE agent_id = ?1 AND name = ?2",
             params![agent_id, name],
@@ -724,7 +784,10 @@ impl PinchyDb {
 
     /// Load all persisted cron jobs for an agent.
     pub fn list_cron_jobs(&self, agent_id: &str) -> Result<Vec<PersistedCronJob>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status
              FROM cron_jobs WHERE agent_id = ?1",
@@ -755,7 +818,10 @@ impl PinchyDb {
 
     /// Load all cron jobs across all agents.
     pub fn list_all_cron_jobs(&self) -> Result<Vec<PersistedCronJob>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status
              FROM cron_jobs",
@@ -792,7 +858,10 @@ impl PinchyDb {
     pub fn insert_cron_event(&self, event: &JobRun) -> Result<()> {
         let status_str =
             serde_json::to_string(&event.status).unwrap_or_else(|_| "\"Pending\"".into());
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let executed_at = event.executed_at.map(|v| v as i64);
         let completed_at = event.completed_at.map(|v| v as i64);
         let duration_ms = event.duration_ms.map(|v| v as i64);
@@ -816,7 +885,10 @@ impl PinchyDb {
 
     /// Load recent cron events for a job, newest first.
     pub fn list_cron_events(&self, job_id: &str, limit: usize) -> Result<Vec<JobRun>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, job_id, scheduled_at, executed_at, completed_at, status, output_preview, error, duration_ms
              FROM cron_events WHERE job_id = ?1 ORDER BY scheduled_at DESC LIMIT ?2",
@@ -845,7 +917,10 @@ impl PinchyDb {
 
     /// Cleanup old cron events, keeping the most recent `keep` per job.
     pub fn cleanup_cron_events(&self, keep: usize) -> Result<usize> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let deleted = conn.execute(
             "DELETE FROM cron_events WHERE id NOT IN (
                 SELECT id FROM (
@@ -866,7 +941,10 @@ impl PinchyDb {
     /// matching the behaviour of the old file-based `load_cron_runs`.
     pub fn list_cron_events_for_agent(&self, agent_id: &str) -> Result<Vec<JobRun>> {
         let suffix = format!("@{agent_id}");
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
             "SELECT id, job_id, scheduled_at, executed_at, completed_at, status, output_preview, error, duration_ms
              FROM cron_events WHERE job_id LIKE '%' || ?1 ORDER BY scheduled_at ASC",
@@ -901,7 +979,10 @@ impl PinchyDb {
             Some(pair) => pair,
             None => return Ok(false),
         };
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let changed = conn.execute(
             "UPDATE cron_jobs SET last_status = ?1 WHERE agent_id = ?2 AND name = ?3",
             params![status, agent_id, name],
@@ -916,7 +997,10 @@ impl PinchyDb {
     /// Upsert heartbeat status for an agent.
     pub fn upsert_heartbeat_status(&self, status: &HeartbeatStatus) -> Result<()> {
         let health_str = serde_json::to_string(&status.health).unwrap_or_else(|_| "\"OK\"".into());
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let last_tick = status.last_tick.map(|v| v as i64);
         let next_tick = status.next_tick.map(|v| v as i64);
         let interval_secs = status.interval_secs.map(|v| v as i64);
@@ -944,7 +1028,10 @@ impl PinchyDb {
 
     /// Load heartbeat status for an agent.
     pub fn load_heartbeat_status(&self, agent_id: &str) -> Result<Option<HeartbeatStatus>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         conn.query_row(
             "SELECT agent_id, enabled, health, last_tick, next_tick, interval_secs, message_preview, latest_session
              FROM heartbeat_status WHERE agent_id = ?1",

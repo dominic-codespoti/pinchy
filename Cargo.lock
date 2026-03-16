@@ -1404,6 +1404,7 @@ dependencies = [
  "serde_json",
  "serde_yaml_ng",
  "serenity",
+ "subtle",
  "tar",
  "tempfile",
  "tokio",

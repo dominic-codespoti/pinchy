@@ -576,15 +576,48 @@ pub fn register_builtin_commands(registry: &Registry) {
                     }
                     "add" => {
                         // Check if scheduler is running
-                        if crate::scheduler::scheduler_handle_ref().is_none() {
-                            return Ok(SlashResponse::Text("scheduler not running — cannot add cron jobs".to_string()));
-                        }
+                        let handle = match crate::scheduler::scheduler_handle_ref() {
+                            Some(h) => h,
+                            None => return Ok(SlashResponse::Text("scheduler not running — cannot add cron jobs".to_string())),
+                        };
                         let schedule = args.args.get(1).cloned().unwrap_or_default();
                         let message = args.args.get(2..).map(|s| s.join(" ")).unwrap_or_default();
                         if schedule.is_empty() {
                             return Ok(SlashResponse::Text("usage: /cron add <schedule> <message>".to_string()));
                         }
-                        Ok(SlashResponse::Text(format!("added cron job: {schedule} — {message}")))
+                        if message.is_empty() {
+                            return Ok(SlashResponse::Text("usage: /cron add <schedule> <message>".to_string()));
+                        }
+
+                        // Derive a job name from the message (first 32 chars, ascii-safe).
+                        let name_raw = message.chars()
+                            .take(32)
+                            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+                            .collect::<String>();
+                        let name = format!("{name_raw}_{}", chrono::Utc::now().timestamp() % 100_000);
+
+                        let entry = crate::scheduler::PersistedCronJob {
+                            agent_id: ctx.agent_id.clone(),
+                            name: name.clone(),
+                            schedule: schedule.clone(),
+                            message: Some(message.clone()),
+                            kind: crate::scheduler::JobKind::Recurring,
+                            depends_on: None,
+                            max_retries: None,
+                            retry_delay_secs: None,
+                            condition: None,
+                            retry_count: 0,
+                            last_status: None,
+                        };
+
+                        match handle.register_job(entry).await {
+                            Ok(()) => Ok(SlashResponse::Text(
+                                format!("✅ added cron job `{name}@{}`: {schedule} — {message}", ctx.agent_id)
+                            )),
+                            Err(e) => Ok(SlashResponse::Text(
+                                format!("❌ failed to add cron job: {e}")
+                            )),
+                        }
                     }
                     "run" => {
                         let job_id = args.args.get(1).cloned().unwrap_or_default();
