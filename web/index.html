@@ -6,6 +6,13 @@
     <title>Pinchy Admin</title>
   </head>
   <body>
+    <script>
+      // Apply saved theme before React renders to prevent flash
+      (function(){var t;try{t=localStorage.getItem("pinchy-theme")}catch(e){}
+      var v=["emerald","midnight","amber","rose","violet","cyan","copper","crimson","lime","frost"];
+      if(t&&v.indexOf(t)!==-1)document.documentElement.setAttribute("data-theme",t);
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

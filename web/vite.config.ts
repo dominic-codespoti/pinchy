@@ -26,5 +26,32 @@ export default defineConfig({
   build: {
     outDir: resolve(__dirname, "../static/react"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "vendor-react": ["react", "react-dom"],
+          "vendor-router": ["@tanstack/react-router"],
+          "vendor-query": ["@tanstack/react-query"],
+          "vendor-codemirror": [
+            "@codemirror/view",
+            "@codemirror/state",
+            "@codemirror/lang-yaml",
+            "@codemirror/theme-one-dark",
+          ],
+          "vendor-markdown": [
+            "react-markdown",
+            "rehype-highlight",
+            "remark-gfm",
+          ],
+          "vendor-ui": [
+            "@radix-ui/react-dialog",
+            "@radix-ui/react-select",
+            "@radix-ui/react-checkbox",
+            "lucide-react",
+            "sonner",
+          ],
+        },
+      },
+    },
   },
 });
