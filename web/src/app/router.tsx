@@ -32,8 +32,8 @@ import { ThemeSwitcher } from "@/components/theme-switcher";
 
 const LazyDashboard = lazy(() => import("@/routes/dashboard").then((m) => ({ default: m.DashboardRoute })));
 const LazyChat = lazy(() => import("@/routes/chat").then((m) => ({ default: m.ChatRoute })));
-const LazyAgentsList = lazy(() => import("@/routes/agents").then((m) => ({ default: m.AgentsListRoute })));
-const LazyAgentDetail = lazy(() => import("@/routes/agents").then((m) => ({ default: m.AgentDetailRoute })));
+const LazyAgentsList = lazy(() => import("@/routes/agents-list").then((m) => ({ default: m.AgentsListRoute })));
+const LazyAgentDetail = lazy(() => import("@/routes/agent-detail").then((m) => ({ default: m.AgentDetailRoute })));
 const LazySessions = lazy(() => import("@/routes/sessions").then((m) => ({ default: m.SessionsRoute })));
 const LazyCron = lazy(() => import("@/routes/cron").then((m) => ({ default: m.CronRoute })));
 const LazyCronEdit = lazy(() => import("@/routes/cron-edit").then((m) => ({ default: m.CronEditRoute })));

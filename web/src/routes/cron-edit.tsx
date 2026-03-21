@@ -13,7 +13,7 @@ import {
 } from "@/components/ui";
 import { PageShell } from "@/components/layout";
 import { FormField } from "@/components/layout";
-import { cn, CRON_RE, computeNextFires, formatInTz } from "@/lib/utils";
+import { cn, CRON_RE, computeNextFires, formatInTz, mutationOpts } from "@/lib/utils";
 
 function getJobIdParam(params: Record<string, string>): string {
   const raw = params["jobId"];
@@ -30,6 +30,29 @@ interface CronFormState {
   dependsOn: string;
   maxRetries: string;
   retryDelay: string;
+}
+
+/** Validate cron form — returns error message or null */
+function validateCronForm(form: CronFormState, valid: boolean): string | null {
+  if (!form.agentId) return "Select an agent";
+  if (!form.name.trim()) return "Name is required";
+  if (!form.schedule.trim() || !valid) return "Valid cron schedule required";
+  if (!form.message.trim()) return "Message is required";
+  return null;
+}
+
+/** Build the shared payload fields from form state */
+function buildCronPayload(form: CronFormState) {
+  const retries = form.maxRetries ? parseInt(form.maxRetries, 10) : null;
+  const delay = form.retryDelay ? parseInt(form.retryDelay, 10) : null;
+  return {
+    schedule: form.schedule.trim(),
+    message: form.message.trim(),
+    ...(form.oneShot && { one_shot: true as const }),
+    ...(form.dependsOn && { depends_on: form.dependsOn }),
+    ...(retries !== null && Number.isFinite(retries) && { max_retries: retries }),
+    ...(delay !== null && Number.isFinite(delay) && { retry_delay_secs: delay }),
+  };
 }
 
 export function CronEditRoute() {
@@ -86,22 +109,10 @@ export function CronEditRoute() {
   const goBack = useCallback(() => navigate({ to: "/cron" }), [navigate]);
 
   const handleSubmit = useCallback(() => {
-    if (!form.agentId) { toast.error("Select an agent"); return; }
-    if (!form.name.trim()) { toast.error("Name is required"); return; }
-    if (!form.schedule.trim() || !valid) { toast.error("Valid cron schedule required"); return; }
-    if (!form.message.trim()) { toast.error("Message is required"); return; }
-    const retries = form.maxRetries ? parseInt(form.maxRetries, 10) : undefined;
-    const delay = form.retryDelay ? parseInt(form.retryDelay, 10) : undefined;
-    const opts = {
-      onSuccess: () => { toast.success(isEdit ? "Job updated" : "Job created"); goBack(); },
-      onError: (err: Error) => toast.error(err.message),
-    };
-    const shared = {
-      schedule: form.schedule.trim(), message: form.message.trim(),
-      one_shot: form.oneShot || undefined, depends_on: form.dependsOn || undefined,
-      max_retries: Number.isFinite(retries) ? retries : undefined,
-      retry_delay_secs: Number.isFinite(delay) ? delay : undefined,
-    };
+    const error = validateCronForm(form, valid);
+    if (error) { toast.error(error); return; }
+    const shared = buildCronPayload(form);
+    const opts = mutationOpts(isEdit ? "Job updated" : "Job created", goBack);
     if (isEdit) {
       updateMut.mutate(shared satisfies UpdateCronJobPayload, opts);
     } else {

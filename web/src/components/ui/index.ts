@@ -1,10 +1,9 @@
-export { Button, type ButtonProps } from "@/components/ui/button";
+export { Button } from "@/components/ui/button";
 export { Badge, StatusPill } from "@/components/ui/badge";
 export {
   Card,
   CardHeader,
   CardTitle,
-  CardDescription,
   CardContent,
 } from "@/components/ui/card";
 export { Separator } from "@/components/ui/separator";
@@ -14,10 +13,9 @@ export { Select, SelectItem } from "@/components/ui/select";
 export { Checkbox } from "@/components/ui/checkbox";
 export {
   Dialog,
-  DialogTrigger,
   DialogClose,
   DialogTitle,
-  DialogDescription,
   DialogContent,
 } from "@/components/ui/dialog";
 export { Skeleton } from "@/components/ui/skeleton";
+export { EmptyState } from "@/components/ui/empty-state";

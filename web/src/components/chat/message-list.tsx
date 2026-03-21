@@ -15,7 +15,7 @@ function roleAvatar(role: string): string {
 }
 
 export function MessageRow({ message }: { readonly message: SessionMessage }) {
-  const role = message.role ?? "assistant";
+  const role = message.role;
   const content = toText(message.content);
   if (content.trim().length === 0) return null;
 
@@ -62,7 +62,7 @@ export function MessageList({ messages }: { readonly messages: ReadonlyArray<Ses
   return (
     <div className="space-y-0.5">
       {messages.map((msg, i) => (
-        <MessageRow key={`${msg.role ?? "msg"}-${msg.timestamp ?? i}-${i}`} message={msg} />
+        <MessageRow key={`${msg.role}-${msg.timestamp ?? i}-${i}`} message={msg} />
       ))}
     </div>
   );

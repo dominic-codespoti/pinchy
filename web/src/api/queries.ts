@@ -10,11 +10,7 @@ import {
   listCronJobsResponseSchema,
   listCronRunsResponseSchema,
   listSkillsResponseSchema,
-  listSlashCommandsResponseSchema,
   listHeartbeatResponseSchema,
-  heartbeatAgentSchema,
-  listReceiptsResponseSchema,
-  getReceiptsResponseSchema,
   usageResponseSchema,
   memoryListResponseSchema,
   memoryDeleteResponseSchema,
@@ -27,21 +23,16 @@ import {
   updateAgentResponseSchema,
   deleteAgentResponseSchema,
   cloneAgentResponseSchema,
-  updateSessionResponseSchema,
   deleteSessionResponseSchema,
   createCronJobResponseSchema,
   cronJobSchema,
   deleteCronJobResponseSchema,
   triggerCronJobResponseSchema,
   deleteSkillResponseSchema,
-  enhancePromptResponseSchema,
-  modelsResponseSchema,
-  debugModelRequestsResponseSchema,
   type CreateAgentPayload,
   type UpdateAgentPayload,
   type CreateCronJobPayload,
   type UpdateCronJobPayload,
-  type SessionMessage,
 } from "@/api/schemas";
 
 // ── Query Keys ───────────────────────────────────────
@@ -65,16 +56,10 @@ export const qk = {
   heartbeat: ["heartbeat"] as const,
   heartbeatAgent: (id: string) => ["heartbeat", id] as const,
   receipts: (agentId: string) => ["receipts", agentId] as const,
-  receiptSession: (agentId: string, sessionId: string) =>
-    ["receipts", agentId, sessionId] as const,
-  slashCommands: ["slash-commands"] as const,
   memory: (agentId: string, q?: string, tag?: string) =>
     ["memory", agentId, q ?? "", tag ?? ""] as const,
   usage: (agent?: string) =>
     agent != null ? (["usage", agent] as const) : (["usage"] as const),
-  providerModels: (configModelId: string) =>
-    ["provider-models", configModelId] as const,
-  debugModelRequests: ["debug-model-requests"] as const,
 } as const;
 
 // ── Helpers ──────────────────────────────────────────
@@ -172,18 +157,6 @@ export function useCronJobsQuery() {
   });
 }
 
-export function useCronJobsByAgentQuery(agentId: string) {
-  return useQuery({
-    queryKey: qk.cronJobsByAgent(agentId),
-    queryFn: () =>
-      typedRequest(
-        listCronJobsResponseSchema,
-        `/api/cron/jobs/${enc(agentId)}`,
-      ),
-    enabled: agentId.length > 0,
-  });
-}
-
 export function useCronJobRunsQuery(jobId: string) {
   return useQuery({
     queryKey: qk.cronJobRuns(jobId),
@@ -203,61 +176,12 @@ export function useSkillsQuery() {
   });
 }
 
-export function useSlashCommandsQuery() {
-  return useQuery({
-    queryKey: qk.slashCommands,
-    queryFn: async () => {
-      const res = await typedRequest(
-        listSlashCommandsResponseSchema,
-        "/api/slash/commands",
-      );
-      return res.commands;
-    },
-  });
-}
-
 export function useHeartbeatQuery() {
   return useQuery({
     queryKey: qk.heartbeat,
     queryFn: () =>
       typedRequest(listHeartbeatResponseSchema, "/api/heartbeat/status"),
     refetchInterval: 30_000,
-  });
-}
-
-export function useHeartbeatAgentQuery(agentId: string) {
-  return useQuery({
-    queryKey: qk.heartbeatAgent(agentId),
-    queryFn: () =>
-      typedRequest(
-        heartbeatAgentSchema,
-        `/api/heartbeat/status/${enc(agentId)}`,
-      ),
-    enabled: agentId.length > 0,
-  });
-}
-
-export function useReceiptsQuery(agentId: string) {
-  return useQuery({
-    queryKey: qk.receipts(agentId),
-    queryFn: () =>
-      typedRequest(
-        listReceiptsResponseSchema,
-        `/api/agents/${enc(agentId)}/receipts`,
-      ),
-    enabled: agentId.length > 0,
-  });
-}
-
-export function useReceiptSessionQuery(agentId: string, sessionId: string) {
-  return useQuery({
-    queryKey: qk.receiptSession(agentId, sessionId),
-    queryFn: () =>
-      typedRequest(
-        getReceiptsResponseSchema,
-        `/api/agents/${enc(agentId)}/receipts/${enc(sessionId)}`,
-      ),
-    enabled: agentId.length > 0 && sessionId.length > 0,
   });
 }
 
@@ -335,33 +259,6 @@ export function useConfigSchemaQuery() {
     queryFn: async () => {
       const data = await rawRequest("/api/config/schema");
       return isRecord(data) ? data : {};
-    },
-  });
-}
-
-export function useProviderModelsQuery(configModelId: string) {
-  return useQuery({
-    queryKey: qk.providerModels(configModelId),
-    queryFn: async () => {
-      const res = await typedRequest(
-        modelsResponseSchema,
-        `/api/models/${enc(configModelId)}`,
-      );
-      return res.models;
-    },
-    enabled: configModelId.length > 0,
-  });
-}
-
-export function useDebugModelRequestsQuery() {
-  return useQuery({
-    queryKey: qk.debugModelRequests,
-    queryFn: async () => {
-      const res = await typedRequest(
-        debugModelRequestsResponseSchema,
-        "/api/debug/model-requests",
-      );
-      return res.requests;
     },
   });
 }
@@ -518,30 +415,6 @@ export function useTriggerCronJobMutation() {
   });
 }
 
-export function useUpdateSessionMutation(agentId: string) {
-  const client = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      sessionId,
-      messages,
-    }: {
-      readonly sessionId: string;
-      readonly messages: ReadonlyArray<SessionMessage>;
-    }) =>
-      typedRequest(
-        updateSessionResponseSchema,
-        `/api/agents/${enc(agentId)}/sessions/${enc(sessionId)}`,
-        { method: "PUT", body: JSON.stringify({ messages }) },
-      ),
-    onSuccess: (_data, vars) => {
-      void client.invalidateQueries({ queryKey: qk.sessions(agentId) });
-      void client.invalidateQueries({
-        queryKey: qk.sessionMessages(agentId, vars.sessionId),
-      });
-    },
-  });
-}
-
 export function useDeleteSessionMutation(agentId: string) {
   const client = useQueryClient();
   return useMutation({
@@ -613,15 +486,5 @@ export function useSaveAgentFileMutation(agentId: string) {
       });
       void client.invalidateQueries({ queryKey: qk.agent(agentId) });
     },
-  });
-}
-
-export function useEnhancePromptMutation() {
-  return useMutation({
-    mutationFn: (prompt: string) =>
-      typedRequest(enhancePromptResponseSchema, "/api/ai/enhance-prompt", {
-        method: "POST",
-        body: JSON.stringify({ prompt }),
-      }),
   });
 }

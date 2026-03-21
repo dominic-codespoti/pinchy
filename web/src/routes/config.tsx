@@ -8,7 +8,7 @@ import { oneDark } from "@codemirror/theme-one-dark";
 import { useConfigQuery, useConfigSchemaQuery, useSaveConfigMutation } from "@/api/queries";
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, Checkbox, Skeleton } from "@/components/ui";
 import { PageShell, PageTitle, FormField } from "@/components/layout";
-import { cn, isRecord } from "@/lib/utils";
+import { cn, isRecord, coerceConfigValue, mutationOpts } from "@/lib/utils";
 
 interface SchemaProperty {
   readonly type: string | undefined;
@@ -149,10 +149,7 @@ export function ConfigRoute() {
   }, []);
 
   const savePayload = useCallback((payload: Record<string, unknown>) => {
-    saveMutation.mutate(payload, {
-      onSuccess: () => toast.success("Config saved"),
-      onError: (err) => toast.error(`Save failed: ${err.message}`),
-    });
+    saveMutation.mutate(payload, mutationOpts("Config saved"));
   }, [saveMutation]);
 
   const handleSaveForm = useCallback(() => {
@@ -160,11 +157,7 @@ export function ConfigRoute() {
     for (const [k, v] of Object.entries(formValues)) {
       if (v === "") continue;
       try { payload[k] = JSON.parse(v); } catch {
-        const num = Number(v);
-        if (v === "true") payload[k] = true;
-        else if (v === "false") payload[k] = false;
-        else if (!Number.isNaN(num) && v.trim() !== "") payload[k] = num;
-        else payload[k] = v;
+        payload[k] = coerceConfigValue(v);
       }
     }
     savePayload(payload);

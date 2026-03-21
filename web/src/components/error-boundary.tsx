@@ -4,7 +4,6 @@ import { Button } from "@/components/ui";
 
 interface Props {
   readonly children: React.ReactNode;
-  readonly fallbackTitle?: string;
 }
 
 interface State {
@@ -41,7 +40,7 @@ export class ErrorBoundary extends Component<Props, State> {
         </div>
         <div className="space-y-1.5">
           <h2 className="text-sm font-semibold text-text-1">
-            {this.props.fallbackTitle ?? "Something went wrong"}
+            Something went wrong
           </h2>
           <p className="max-w-md text-xs text-text-3">
             {error.message}

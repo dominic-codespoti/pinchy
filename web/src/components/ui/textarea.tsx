@@ -1,12 +1,8 @@
 import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
-interface TextAreaProps extends React.TextareaHTMLAttributes<HTMLTextAreaElement> {
-  readonly wrapperClassName?: string;
-}
-
-export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(
-  function TextArea({ className, wrapperClassName, ...rest }, ref) {
+export const TextArea = forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
+  function TextArea({ className, ...rest }, ref) {
     return (
       <div
         className={cn(
@@ -16,7 +12,6 @@ export const TextArea = forwardRef<HTMLTextAreaElement, TextAreaProps>(
           "hover:border-border-strong hover:bg-[var(--glass-bg)]",
           "focus-within:border-accent/40 focus-within:bg-[var(--glass-bg)] focus-within:shadow-ring",
           "has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-40",
-          wrapperClassName,
         )}
       >
         <textarea

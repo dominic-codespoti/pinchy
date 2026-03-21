@@ -12,8 +12,6 @@ interface PageShellProps {
   readonly children: ReactNode;
   /** Max width for content area. Default "4xl" */
   readonly maxWidth?: "2xl" | "3xl" | "4xl" | "5xl" | "full";
-  /** Content padding override. Default "px-4 py-5" */
-  readonly contentClassName?: string;
   /** Additional className on root container */
   readonly className?: string;
 }
@@ -30,7 +28,6 @@ export function PageShell({
   header,
   children,
   maxWidth = "4xl",
-  contentClassName,
   className,
 }: PageShellProps) {
   return (
@@ -46,7 +43,6 @@ export function PageShell({
           className={cn(
             maxWidthMap[maxWidth],
             "mx-auto px-4 py-5 space-y-4",
-            contentClassName,
           )}
         >
           {children}

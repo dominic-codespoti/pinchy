@@ -83,23 +83,8 @@ export const wsEventSchema = z.discriminatedUnion("type", [
 
 export type WsEvent = z.infer<typeof wsEventSchema>;
 
-export type WsAgentMessage = z.infer<typeof wsAgentMessageSchema>;
 export type WsAgentChunk = z.infer<typeof wsAgentChunkSchema>;
 export type WsToolActivity = z.infer<typeof wsToolActivitySchema>;
-export type WsTypingEvent = z.infer<typeof wsTypingSchema>;
-export type WsSessionEvent = z.infer<typeof wsSessionEventSchema>;
-export type WsReceiptEvent = z.infer<typeof wsReceiptSchema>;
-export type WsErrorEvent = z.infer<typeof wsErrorSchema>;
-
-// ── Outgoing commands ────────────────────────────────
-
-export const wsClientCommandSchema = z.object({
-  type: z.literal("client_command"),
-  command: z.string(),
-  target_agent: z.string(),
-});
-
-export type WsClientCommand = z.infer<typeof wsClientCommandSchema>;
 
 /** Safely parse an incoming WS frame. Returns null for unknown shapes. */
 export function parseWsEvent(data: unknown): WsEvent | null {

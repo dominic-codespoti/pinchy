@@ -8,25 +8,26 @@ export const agentSchema = z.object({
   has_soul: z.boolean().optional(),
   has_tools: z.boolean().optional(),
   has_heartbeat: z.boolean().optional(),
-  model: z.string().nullable().optional(),
-  heartbeat_secs: z.number().nullable().optional(),
-  max_tool_iterations: z.number().nullable().optional(),
-  enabled_skills: z.array(z.string()).nullable().optional(),
+  model: z.string().optional(),
+  heartbeat_secs: z.number().optional(),
+  max_tool_iterations: z.number().optional(),
+  enabled_skills: z.array(z.string()).optional(),
+  /** @deprecated Server sends either cron_jobs_count or cron_job_count */
   cron_jobs_count: z.number().optional(),
   cron_job_count: z.number().optional(),
-  history_messages: z.number().nullable().optional(),
-  max_turns: z.number().nullable().optional(),
-  compact_keep_recent_turns: z.number().nullable().optional(),
-  timezone: z.string().nullable().optional(),
-  reasoning_effort: z.string().nullable().optional(),
+  history_messages: z.number().optional(),
+  max_turns: z.number().optional(),
+  compact_keep_recent_turns: z.number().optional(),
+  timezone: z.string().optional(),
+  reasoning_effort: z.string().optional(),
 });
 
 export type AgentListItem = z.infer<typeof agentSchema>;
 
 export const agentDetailSchema = agentSchema.extend({
-  soul: z.string().nullable().optional(),
-  tools: z.string().nullable().optional(),
-  heartbeat: z.string().nullable().optional(),
+  soul: z.string().nullable(),
+  tools: z.string().nullable(),
+  heartbeat: z.string().nullable(),
   session_count: z.number().optional(),
 });
 
@@ -44,7 +45,7 @@ export const sessionSummarySchema = z.object({
   size: z.number().optional(),
   modified: z.number().optional(),
   created_at: z.number().optional(),
-  title: z.string().nullable().optional(),
+  title: z.string().nullable(),
 });
 
 export type SessionSummary = z.infer<typeof sessionSummarySchema>;
@@ -54,7 +55,7 @@ export const listSessionsResponseSchema = z.object({
 });
 
 export const sessionMessageSchema = z.object({
-  role: z.string().optional(),
+  role: z.string(),
   content: z.unknown().optional(),
   timestamp: z.number().optional(),
 });
@@ -77,12 +78,12 @@ export const cronJobSchema = z.object({
   agent_id: z.string(),
   name: z.string(),
   schedule: z.string(),
-  message: z.string().nullable().optional(),
+  message: z.string().nullable(),
   kind: z.string().optional(),
-  depends_on: z.string().nullable().optional(),
-  last_status: z.string().nullable().optional(),
-  max_retries: z.number().nullable().optional(),
-  retry_delay_secs: z.number().nullable().optional(),
+  depends_on: z.string().nullable(),
+  last_status: z.string().nullable(),
+  max_retries: z.number().nullable(),
+  retry_delay_secs: z.number().nullable(),
   retry_count: z.number().optional(),
 });
 
@@ -91,13 +92,13 @@ export type CronJob = z.infer<typeof cronJobSchema>;
 export const cronRunSchema = z.object({
   id: z.union([z.string(), z.number()]),
   job_id: z.string(),
-  scheduled_at: z.number().nullable().optional(),
-  executed_at: z.number().nullable().optional(),
-  completed_at: z.number().nullable().optional(),
+  scheduled_at: z.number().nullable(),
+  executed_at: z.number().nullable(),
+  completed_at: z.number().nullable(),
   status: z.string(),
-  output_preview: z.string().nullable().optional(),
-  error: z.string().nullable().optional(),
-  duration_ms: z.number().nullable().optional(),
+  output_preview: z.string().nullable(),
+  error: z.string().nullable(),
+  duration_ms: z.number().nullable(),
 });
 
 export type CronRun = z.infer<typeof cronRunSchema>;
@@ -114,8 +115,8 @@ export const listCronRunsResponseSchema = z.object({
 
 export const skillSchema = z.object({
   id: z.string(),
-  description: z.string().nullable().optional(),
-  operator_managed: z.boolean().nullable().optional(),
+  description: z.string().nullable(),
+  operator_managed: z.boolean().nullable(),
 });
 
 export type Skill = z.infer<typeof skillSchema>;
@@ -132,8 +133,6 @@ export const slashCommandSchema = z.object({
   usage: z.string(),
 });
 
-export type SlashCommand = z.infer<typeof slashCommandSchema>;
-
 export const listSlashCommandsResponseSchema = z.object({
   commands: z.array(slashCommandSchema),
 });
@@ -144,10 +143,10 @@ export const heartbeatAgentSchema = z.object({
   agent_id: z.string(),
   enabled: z.boolean().optional(),
   health: z.string().optional(),
-  last_tick: z.number().nullable().optional(),
-  next_tick: z.number().nullable().optional(),
-  interval_secs: z.number().nullable().optional(),
-  message_preview: z.string().nullable().optional(),
+  last_tick: z.number().nullable(),
+  next_tick: z.number().nullable(),
+  interval_secs: z.number().nullable(),
+  message_preview: z.string().nullable(),
 });
 
 export type HeartbeatAgent = z.infer<typeof heartbeatAgentSchema>;
@@ -185,8 +184,6 @@ export const rawReceiptSchema = z.object({
   tool_calls: z.array(toolCallRecordSchema).optional(),
 });
 
-export type RawReceipt = z.infer<typeof rawReceiptSchema>;
-
 export const listReceiptsResponseSchema = z.object({
   receipts: z.array(z.string()),
 });
@@ -211,15 +208,11 @@ export const usageBucketSchema = z.object({
   estimated_cost_usd: z.number(),
 });
 
-export type UsageBucket = z.infer<typeof usageBucketSchema>;
-
 export const usageResponseSchema = z.object({
   usage: z.array(usageBucketSchema),
   total_cost_usd: z.number(),
   total_turns: z.number(),
 });
-
-export type UsageResponse = z.infer<typeof usageResponseSchema>;
 
 // ── Memory ───────────────────────────────────────────
 
@@ -265,12 +258,10 @@ export const saveAgentFileResponseSchema = z.object({
 export const modelInfoSchema = z.object({
   id: z.string(),
   name: z.string(),
-  vendor: z.string().nullable().optional(),
+  vendor: z.string().nullable(),
   supported_endpoints: z.array(z.string()),
   is_default: z.boolean(),
 });
-
-export type ModelInfo = z.infer<typeof modelInfoSchema>;
 
 export const modelsResponseSchema = z.object({
   models: z.array(modelInfoSchema).nullable(),
@@ -283,16 +274,12 @@ export const statusResponseSchema = z.object({
   status: z.string(),
 });
 
-export type StatusResponse = z.infer<typeof statusResponseSchema>;
-
 export const healthResponseSchema = z.object({
   status: z.string(),
   version: z.string(),
   uptime_secs: z.number(),
   agents: z.number(),
 });
-
-export type HealthResponse = z.infer<typeof healthResponseSchema>;
 
 // ── Misc Responses ───────────────────────────────────
 
@@ -357,8 +344,6 @@ export const enhancePromptResponseSchema = z.object({
   enhanced: z.string(),
 });
 
-export type EnhancePromptResponse = z.infer<typeof enhancePromptResponseSchema>;
-
 // ── Request Payloads ─────────────────────────────────
 
 export const createAgentPayloadSchema = z.object({
@@ -388,32 +373,22 @@ export const updateAgentPayloadSchema = z.object({
 
 export type UpdateAgentPayload = z.infer<typeof updateAgentPayloadSchema>;
 
-export const createCronJobPayloadSchema = z.object({
-  agent_id: z.string(),
-  name: z.string(),
-  schedule: z.string(),
-  message: z.string(),
-  one_shot: z.boolean().optional(),
-  depends_on: z.string().optional(),
-  max_retries: z.number().optional(),
-  retry_delay_secs: z.number().optional(),
-});
+export interface CreateCronJobPayload {
+  readonly agent_id: string;
+  readonly name: string;
+  readonly schedule: string;
+  readonly message: string;
+  readonly one_shot?: boolean;
+  readonly depends_on?: string;
+  readonly max_retries?: number;
+  readonly retry_delay_secs?: number;
+}
 
-export type CreateCronJobPayload = z.infer<typeof createCronJobPayloadSchema>;
-
-export const updateCronJobPayloadSchema = z.object({
-  schedule: z.string().optional(),
-  message: z.string().optional(),
-  one_shot: z.boolean().optional(),
-  depends_on: z.string().optional(),
-  max_retries: z.number().optional(),
-  retry_delay_secs: z.number().optional(),
-});
-
-export type UpdateCronJobPayload = z.infer<typeof updateCronJobPayloadSchema>;
-
-// ── Debug ────────────────────────────────────────────
-
-export const debugModelRequestsResponseSchema = z.object({
-  requests: z.array(z.record(z.string(), z.unknown())),
-});
+export interface UpdateCronJobPayload {
+  readonly schedule?: string;
+  readonly message?: string;
+  readonly one_shot?: boolean;
+  readonly depends_on?: string;
+  readonly max_retries?: number;
+  readonly retry_delay_secs?: number;
+}

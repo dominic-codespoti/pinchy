@@ -1,5 +1,6 @@
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { toast } from "sonner";
 
 /** Merge Tailwind classes with clsx + tailwind-merge */
 export function cn(...inputs: ReadonlyArray<ClassValue>): string {
@@ -125,4 +126,27 @@ export function isRecord(
   value: unknown,
 ): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Standard mutation callbacks: toast success/error */
+export function mutationOpts(
+  successMsg: string,
+  onSuccess?: () => void,
+): { onSuccess: () => void; onError: (e: Error) => void } {
+  return {
+    onSuccess: () => {
+      toast.success(successMsg);
+      onSuccess?.();
+    },
+    onError: (e: Error) => toast.error(e.message),
+  };
+}
+
+/** Coerce a string form value to its appropriate config type */
+export function coerceConfigValue(v: string): unknown {
+  if (v === "true") return true;
+  if (v === "false") return false;
+  const n = Number(v);
+  if (v.length > 0 && Number.isFinite(n)) return n;
+  return v;
 }

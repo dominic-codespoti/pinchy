@@ -8,7 +8,6 @@ interface SelectProps {
   readonly children: React.ReactNode;
   readonly placeholder?: string;
   readonly className?: string;
-  readonly icon?: React.ReactNode;
 }
 
 export function Select({
@@ -18,7 +17,6 @@ export function Select({
   children,
   placeholder,
   className,
-  icon,
 }: SelectProps) {
   return (
     <SelectPrimitive.Root
@@ -38,9 +36,6 @@ export function Select({
           className,
         )}
       >
-        {icon != null && (
-          <span className="shrink-0 text-accent opacity-60">{icon}</span>
-        )}
         <span className="truncate">
           <SelectPrimitive.Value placeholder={placeholder ?? "Select..."} />
         </span>

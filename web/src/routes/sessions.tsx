@@ -1,5 +1,4 @@
 import { useState, useCallback } from "react";
-import { toast } from "sonner";
 import {
   Layers, Trash2, ChevronDown, ChevronRight,
   RefreshCw, HardDrive, MessageSquare,
@@ -10,11 +9,11 @@ import {
 import type { SessionSummary } from "@/api/schemas";
 import {
   Card, CardHeader, CardTitle, CardContent, Button,
-  Select, SelectItem, Separator, Skeleton,
+  Select, SelectItem, Separator, Skeleton, EmptyState,
 } from "@/components/ui";
 import { PageShell, PageTitle } from "@/components/layout";
 import { MessageRow } from "@/components/chat/message-list";
-import { cn, humanBytes, estimateMessages } from "@/lib/utils";
+import { cn, humanBytes, estimateMessages, mutationOpts } from "@/lib/utils";
 
 function SessionMessages({ agentId, sessionId }: { readonly agentId: string; readonly sessionId: string }) {
   const { data, isLoading, error } = useSessionMessagesQuery(agentId, sessionId);
@@ -55,10 +54,9 @@ function SessionCard({ session, agentId, isExpanded, onToggle }: {
   const deleteMutation = useDeleteSessionMutation(agentId);
 
   const handleDelete = useCallback(() => {
-    deleteMutation.mutate(session.session_id, {
-      onSuccess: () => { toast.success("Session deleted"); setConfirmDelete(false); },
-      onError: (err) => toast.error("Delete failed: " + err.message),
-    });
+    deleteMutation.mutate(session.session_id,
+      mutationOpts("Session deleted", () => setConfirmDelete(false)),
+    );
   }, [deleteMutation, session.session_id]);
 
   const Chevron = isExpanded ? ChevronDown : ChevronRight;
@@ -156,11 +154,7 @@ export function SessionsRoute() {
       ))}
 
       {!sessions.length && !sessionsQuery.isLoading && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <Layers className="h-8 w-8 text-text-3 opacity-40 mb-3" />
-          <p className="text-sm text-text-2">No sessions found</p>
-          <p className="text-xs text-text-3 opacity-60 mt-1">Sessions appear here as agents interact.</p>
-        </div>
+        <EmptyState icon={<Layers />} title="No sessions found" subtitle="Sessions appear here as agents interact." />
       )}
 
       {sessionsQuery.error != null && (

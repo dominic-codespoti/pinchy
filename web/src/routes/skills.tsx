@@ -1,11 +1,10 @@
 import { useCallback } from "react";
 import { Puzzle, Trash2, Shield } from "lucide-react";
-import { toast } from "sonner";
 import { useSkillsQuery, useDeleteSkillMutation } from "@/api/queries";
 import type { Skill } from "@/api/schemas";
-import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Skeleton } from "@/components/ui";
+import { Card, CardHeader, CardTitle, CardContent, Button, Badge, Skeleton, EmptyState } from "@/components/ui";
 import { PageShell, PageTitle } from "@/components/layout";
-import { cn } from "@/lib/utils";
+import { cn, mutationOpts } from "@/lib/utils";
 
 function SkillCard({ skill, onDelete, isDeleting }: {
   readonly skill: Skill;
@@ -47,10 +46,7 @@ export function SkillsRoute() {
   const skills = skillsQuery.data?.skills ?? [];
 
   const handleDelete = useCallback((id: string) => {
-    deleteMutation.mutate(id, {
-      onSuccess: () => toast.success(`Skill "${id}" deleted`),
-      onError: (err) => toast.error(`Delete failed: ${err.message}`),
-    });
+    deleteMutation.mutate(id, mutationOpts(`Skill "${id}" deleted`));
   }, [deleteMutation]);
 
   return (
@@ -72,10 +68,7 @@ export function SkillsRoute() {
       )}
       {skillsQuery.error && <p className="text-sm text-danger">Failed to load skills.</p>}
       {!skillsQuery.isLoading && skills.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <Puzzle className="h-8 w-8 text-text-3 opacity-40 mb-3" />
-          <p className="text-sm text-text-2">No skills found</p>
-        </div>
+        <EmptyState icon={<Puzzle />} title="No skills found" />
       )}
       <div className={cn("grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3")}>
         {skills.map((skill) => (

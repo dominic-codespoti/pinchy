@@ -1,6 +1,5 @@
 import { useState, useCallback } from "react";
 import { Link } from "@tanstack/react-router";
-import { toast } from "sonner";
 import { Plus, Play, Trash2, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import {
   useCronJobsQuery, useCronJobRunsQuery,
@@ -9,10 +8,10 @@ import {
 import type { CronRun } from "@/api/schemas";
 import {
   Card, CardHeader, CardTitle, CardContent,
-  Button, Badge, StatusPill, Skeleton,
+  Button, Badge, StatusPill, Skeleton, EmptyState,
 } from "@/components/ui";
 import { PageShell, PageTitle } from "@/components/layout";
-import { formatTimestamp } from "@/lib/utils";
+import { formatTimestamp, mutationOpts } from "@/lib/utils";
 
 export function CronRoute() {
   const jobsQuery = useCronJobsQuery();
@@ -23,17 +22,11 @@ export function CronRoute() {
   const jobs = jobsQuery.data?.jobs ?? [];
 
   const handleTrigger = useCallback((jobId: string, jobName: string) => {
-    triggerMut.mutate(jobId, {
-      onSuccess: () => toast.success(`Triggered "${jobName}"`),
-      onError: (err) => toast.error(`Trigger failed: ${err.message}`),
-    });
+    triggerMut.mutate(jobId, mutationOpts(`Triggered "${jobName}"`));
   }, [triggerMut]);
 
   const handleDelete = useCallback((jobId: string) => {
-    deleteMut.mutate(jobId, {
-      onSuccess: () => { toast.success("Cron job deleted"); setConfirmDeleteId(null); },
-      onError: (err) => toast.error(`Delete failed: ${err.message}`),
-    });
+    deleteMut.mutate(jobId, mutationOpts("Cron job deleted", () => setConfirmDeleteId(null)));
   }, [deleteMut]);
 
   return (
@@ -54,11 +47,7 @@ export function CronRoute() {
       )}
       {jobsQuery.error && <p className="text-sm text-danger">Failed to load cron jobs.</p>}
       {!jobsQuery.isLoading && jobs.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-16 text-center">
-          <Clock className="h-8 w-8 text-text-3 opacity-40 mb-3" />
-          <p className="text-sm text-text-2">No cron jobs yet</p>
-          <p className="text-xs text-text-3 opacity-60 mt-1">Create a scheduled task to begin automation.</p>
-        </div>
+        <EmptyState icon={<Clock />} title="No cron jobs yet" subtitle="Create a scheduled task to begin automation." />
       )}
 
       {jobs.map((job) => {
