@@ -12,17 +12,21 @@ function parseLine(raw: string): LogLine {
   return m ? { raw, timestamp: m[1] ?? "", message: m[2] ?? "" } : { raw, timestamp: "", message: raw };
 }
 
+/** Ref whose `.current` always tracks the latest state value */
+function useLatestRef<T>(value: T) {
+  const ref = useRef(value);
+  ref.current = value;
+  return ref;
+}
+
 export function LogsRoute() {
   const [lines, setLines] = useState<LogLine[]>([]);
   const [paused, setPaused] = useState(false);
   const [autoScroll, setAutoScroll] = useState(true);
   const wsRef = useRef<WebSocket | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const pausedRef = useRef(paused);
-  const autoScrollRef = useRef(autoScroll);
+  const pausedRef = useLatestRef(paused);
 
-  useEffect(() => { pausedRef.current = paused; }, [paused]);
-  useEffect(() => { autoScrollRef.current = autoScroll; }, [autoScroll]);
   useEffect(() => {
     if (autoScroll && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   }, [lines, autoScroll]);

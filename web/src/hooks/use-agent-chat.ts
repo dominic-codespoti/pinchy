@@ -57,6 +57,7 @@ export function useAgentChat(agentId: string): ChatState & {
           ...prev,
           streamingContent: "",
           isTyping: false,
+          toolCalls: [],
           lastMessageTimestamp: event.timestamp ?? Date.now(),
         }));
         break;

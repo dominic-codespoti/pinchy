@@ -9,7 +9,7 @@ import {
   Card, CardHeader, CardTitle, CardContent, Badge, StatusPill, Skeleton, Separator,
 } from "@/components/ui";
 import { PageShell, PageTitle } from "@/components/layout";
-import { cn, formatRelativeTime } from "@/lib/utils";
+import { cn, formatTimestamp } from "@/lib/utils";
 
 function formatUptime(secs: number): string {
   if (secs < 60) return `${Math.floor(secs)}s`;
@@ -23,19 +23,12 @@ function formatCost(usd: number): string {
   return usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 }
 
-function hbVariant(h: string): "success" | "danger" | "warning" | "neutral" {
+function hbStyle(h: string): { variant: "success" | "danger" | "warning" | "neutral"; dot: string } {
   const u = h.toUpperCase();
-  if (u.startsWith("OK")) return "success";
-  if (u.startsWith("ERROR")) return "danger";
-  if (u === "MISSED" || u === "STALE") return "warning";
-  return "neutral";
-}
-
-function hbDotClass(h: string): string {
-  const u = h.toUpperCase();
-  if (u.startsWith("OK")) return "bg-success animate-status-pulse";
-  if (u.startsWith("ERROR")) return "bg-danger";
-  return "bg-warning";
+  if (u.startsWith("OK")) return { variant: "success", dot: "bg-success animate-status-pulse" };
+  if (u.startsWith("ERROR")) return { variant: "danger", dot: "bg-danger" };
+  if (u === "MISSED" || u === "STALE") return { variant: "warning", dot: "bg-warning" };
+  return { variant: "neutral", dot: "bg-warning" };
 }
 
 function StatBlock({ label, value, accent }: {
@@ -94,17 +87,18 @@ function AgentCard({ agent, cronCount, heartbeat }: {
   readonly agent: AgentListItem; readonly cronCount: number; readonly heartbeat: HeartbeatAgent | undefined;
 }) {
   const health = (heartbeat?.health ?? "unknown").toUpperCase();
+  const hb = hbStyle(health);
   return (
     <Link to="/agents/$agentId" params={{ agentId: agent.id }}
       className="group rounded-xl border border-border bg-[var(--color-elevated)] p-3 space-y-2 transition-all duration-200 hover:border-accent/20 hover:bg-[var(--glass-bg)]">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm font-semibold text-text-1 truncate">{agent.id}</p>
-        <Badge variant={hbVariant(health)} className="shrink-0">{health}</Badge>
+        <Badge variant={hb.variant} className="shrink-0">{health}</Badge>
       </div>
       <div className="space-y-0.5 text-xs text-text-3">
         <p className="truncate">Model: {agent.model ?? "default"}</p>
         <p>Cron jobs: {cronCount}</p>
-        {heartbeat?.last_tick && <p>Last tick: {formatRelativeTime(heartbeat.last_tick)}</p>}
+        {heartbeat?.last_tick && <p>Last tick: {formatTimestamp(heartbeat.last_tick)}</p>}
       </div>
     </Link>
   );
@@ -235,15 +229,16 @@ function HeartbeatSection() {
           <div className="space-y-2">
             {agents.map((a) => {
               const h = (a.health ?? "UNKNOWN").toUpperCase();
+              const hb = hbStyle(h);
               return (
                 <div key={a.agent_id} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-[var(--color-elevated)] px-3 py-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className={cn("inline-block h-2 w-2 shrink-0 rounded-full", hbDotClass(h))} />
+                    <span className={cn("inline-block h-2 w-2 shrink-0 rounded-full", hb.dot)} />
                     <span className="text-sm text-text-1 truncate">{a.agent_id}</span>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
-                    {a.last_tick && <span className="text-[10px] text-text-3">{formatRelativeTime(a.last_tick)}</span>}
-                    <Badge variant={hbVariant(h)}>{h}</Badge>
+                    {a.last_tick && <span className="text-[10px] text-text-3">{formatTimestamp(a.last_tick)}</span>}
+                    <Badge variant={hb.variant}>{h}</Badge>
                   </div>
                 </div>
               );

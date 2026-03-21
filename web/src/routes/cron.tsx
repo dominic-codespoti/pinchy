@@ -12,7 +12,7 @@ import {
   Button, Badge, StatusPill, Skeleton,
 } from "@/components/ui";
 import { PageShell, PageTitle } from "@/components/layout";
-import { formatRelativeTime } from "@/lib/utils";
+import { formatTimestamp } from "@/lib/utils";
 
 export function CronRoute() {
   const jobsQuery = useCronJobsQuery();
@@ -150,7 +150,7 @@ function RunRow({ run }: { readonly run: CronRun }) {
     <div className="flex items-center gap-3 rounded-lg border border-border bg-[var(--color-elevated)] px-3 py-2 text-xs">
       <StatusPill status={run.status} />
       <span className="text-text-3 tabular-nums">
-        {run.executed_at != null ? formatRelativeTime(run.executed_at) : "-"}
+        {run.executed_at != null ? formatTimestamp(run.executed_at) : "-"}
       </span>
       {run.duration_ms != null && <span className="text-text-3 opacity-60">{run.duration_ms}ms</span>}
       <span className="ml-auto truncate max-w-[40%] text-text-2">

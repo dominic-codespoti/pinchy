@@ -7,8 +7,7 @@ import { yaml } from "@codemirror/lang-yaml";
 import { oneDark } from "@codemirror/theme-one-dark";
 import { useConfigQuery, useConfigSchemaQuery, useSaveConfigMutation } from "@/api/queries";
 import { Card, CardHeader, CardTitle, CardContent, Button, Input, Checkbox, Skeleton } from "@/components/ui";
-import { PageShell, PageTitle } from "@/components/layout";
-import { FormField } from "@/components/layout";
+import { PageShell, PageTitle, FormField } from "@/components/layout";
 import { cn, isRecord } from "@/lib/utils";
 
 interface SchemaProperty {
@@ -17,7 +16,7 @@ interface SchemaProperty {
   readonly default: unknown;
   readonly properties: Record<string, SchemaProperty> | undefined;
 }
-type Mode = "form" | "yaml";
+type Mode = "form" | "json";
 
 /** Safely extract a SchemaProperty from unknown data */
 function toSchemaProperty(val: unknown): SchemaProperty {
@@ -132,7 +131,7 @@ export function ConfigRoute() {
   const saveMutation = useSaveConfigMutation();
   const [mode, setMode] = useState<Mode>("form");
   const [formValues, setFormValues] = useState<Record<string, string>>({});
-  const [rawYaml, setRawYaml] = useState("");
+  const [rawJson, setRawJson] = useState("");
 
   useEffect(() => {
     if (!configQuery.data) return;
@@ -140,7 +139,7 @@ export function ConfigRoute() {
     for (const [k, v] of Object.entries(configQuery.data))
       flat[k] = typeof v === "object" ? JSON.stringify(v) : String(v ?? "");
     setFormValues(flat);
-    setRawYaml(JSON.stringify(configQuery.data, null, 2));
+    setRawJson(JSON.stringify(configQuery.data, null, 2));
   }, [configQuery.data]);
 
   const schemaProps = extractSchemaProps(schemaQuery.data);
@@ -148,6 +147,13 @@ export function ConfigRoute() {
   const handleFieldChange = useCallback((n: string, v: string) => {
     setFormValues((prev) => ({ ...prev, [n]: v }));
   }, []);
+
+  const savePayload = useCallback((payload: Record<string, unknown>) => {
+    saveMutation.mutate(payload, {
+      onSuccess: () => toast.success("Config saved"),
+      onError: (err) => toast.error(`Save failed: ${err.message}`),
+    });
+  }, [saveMutation]);
 
   const handleSaveForm = useCallback(() => {
     const payload: Record<string, unknown> = {};
@@ -161,26 +167,20 @@ export function ConfigRoute() {
         else payload[k] = v;
       }
     }
-    saveMutation.mutate(payload, {
-      onSuccess: () => toast.success("Config saved"),
-      onError: (err) => toast.error(`Save failed: ${err.message}`),
-    });
-  }, [formValues, saveMutation]);
+    savePayload(payload);
+  }, [formValues, savePayload]);
 
-  const handleSaveYaml = useCallback(() => {
+  const handleSaveJson = useCallback(() => {
     let parsed: unknown;
-    try { parsed = JSON.parse(rawYaml); } catch (e) {
+    try { parsed = JSON.parse(rawJson); } catch (e) {
       toast.error(`Invalid JSON: ${e instanceof Error ? e.message : "parse error"}`);
       return;
     }
     if (!isRecord(parsed)) {
       toast.error("Config must be a JSON object"); return;
     }
-    saveMutation.mutate(parsed, {
-      onSuccess: () => toast.success("Config saved"),
-      onError: (err) => toast.error(`Save failed: ${err.message}`),
-    });
-  }, [rawYaml, saveMutation]);
+    savePayload(parsed);
+  }, [rawJson, savePayload]);
 
   const handleReset = useCallback(() => {
     if (!configQuery.data) return;
@@ -188,7 +188,7 @@ export function ConfigRoute() {
     for (const [k, v] of Object.entries(configQuery.data))
       flat[k] = typeof v === "object" ? JSON.stringify(v) : String(v ?? "");
     setFormValues(flat);
-    setRawYaml(JSON.stringify(configQuery.data, null, 2));
+    setRawJson(JSON.stringify(configQuery.data, null, 2));
     toast.success("Reset to server values");
   }, [configQuery.data]);
 
@@ -206,13 +206,13 @@ export function ConfigRoute() {
       header={
         <PageTitle icon={<Settings className="h-3.5 w-3.5" />} title="Config">
           <div className="flex items-center gap-0.5">
-            {modeBtn("form", "Form", Settings)}{modeBtn("yaml", "YAML", Code)}
+            {modeBtn("form", "Form", Settings)}{modeBtn("json", "JSON", Code)}
           </div>
           <Button variant="ghost" size="xs" className="gap-1" onClick={handleReset}>
             <RotateCcw className="h-3 w-3" /> Reset
           </Button>
           <Button variant="primary" size="sm" disabled={saveMutation.isPending}
-            onClick={mode === "form" ? handleSaveForm : handleSaveYaml}>
+            onClick={mode === "form" ? handleSaveForm : handleSaveJson}>
             <Save className="h-3 w-3 mr-1" /> {saveMutation.isPending ? "Saving..." : "Save"}
           </Button>
         </PageTitle>
@@ -239,9 +239,9 @@ export function ConfigRoute() {
           </div></CardContent>
         </Card>
       )}
-      {mode === "yaml" && !configQuery.isLoading && (
+      {mode === "json" && !configQuery.isLoading && (
         <Card><CardHeader><CardTitle>Raw Editor</CardTitle></CardHeader>
-          <CardContent><YamlEditor value={rawYaml} onChange={setRawYaml} /></CardContent>
+          <CardContent><YamlEditor value={rawJson} onChange={setRawJson} /></CardContent>
         </Card>
       )}
     </PageShell>

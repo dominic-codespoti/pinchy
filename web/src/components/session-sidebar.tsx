@@ -14,12 +14,6 @@ interface SessionSidebarProps {
   readonly onSessionCleared?: () => void;
 }
 
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
-}
-
 export function SessionSidebar({
   agentId,
   currentSessionId,
@@ -34,17 +28,15 @@ export function SessionSidebar({
 
   const handleNewSession = useCallback(async () => {
     await sendOneShot("/new", agentId);
-    // Wait for the backend to process the /new command before invalidating
-    await delay(500);
-    await queryClient.invalidateQueries({ queryKey: qk.sessions(agentId) });
-    await queryClient.invalidateQueries({ queryKey: qk.currentSession(agentId) });
-    // After refetch, read the new current session and navigate to it
+    // Invalidate and refetch — the query will retry if the server hasn't finished yet
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: qk.sessions(agentId) }),
+      queryClient.invalidateQueries({ queryKey: qk.currentSession(agentId) }),
+    ]);
     const current = queryClient.getQueryData<{ session_id?: string }>(
       qk.currentSession(agentId),
     );
-    if (current?.session_id) {
-      onSelectSession(current.session_id);
-    }
+    if (current?.session_id) onSelectSession(current.session_id);
   }, [agentId, queryClient, onSelectSession]);
 
   const handleDeleteSession = useCallback(

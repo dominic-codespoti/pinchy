@@ -21,7 +21,7 @@ export function estimateMessages(bytes: number): number {
 }
 
 /** Format a timestamp (unix seconds or ms) to locale time string */
-export function formatRelativeTime(ts: number): string {
+export function formatTimestamp(ts: number): string {
   const ms = ts > 1e12 ? ts : ts * 1000;
   return new Date(ms).toLocaleTimeString();
 }

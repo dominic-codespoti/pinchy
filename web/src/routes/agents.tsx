@@ -12,8 +12,7 @@ import {
   Card, CardContent, Button, Input, Badge, TextArea,
   Dialog, DialogContent, DialogTitle, DialogClose, Skeleton,
 } from "@/components/ui";
-import { PageShell, PageTitle } from "@/components/layout";
-import { FormField } from "@/components/layout";
+import { PageShell, PageTitle, FormField } from "@/components/layout";
 import { cn } from "@/lib/utils";
 
 // ── Agent list ────────────────────────────────────────────────────────

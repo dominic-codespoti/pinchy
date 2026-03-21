@@ -1,62 +1,20 @@
 import { useState, useCallback } from "react";
 import { toast } from "sonner";
 import {
-  Layers, Trash2, ChevronDown, ChevronRight, Bot, User,
-  AlertCircle, RefreshCw, HardDrive, MessageSquare,
+  Layers, Trash2, ChevronDown, ChevronRight,
+  RefreshCw, HardDrive, MessageSquare,
 } from "lucide-react";
 import {
   useAgentsQuery, useSessionsQuery, useSessionMessagesQuery, useDeleteSessionMutation,
 } from "@/api/queries";
-import type { SessionSummary, SessionMessage } from "@/api/schemas";
+import type { SessionSummary } from "@/api/schemas";
 import {
   Card, CardHeader, CardTitle, CardContent, Button,
   Select, SelectItem, Separator, Skeleton,
 } from "@/components/ui";
 import { PageShell, PageTitle } from "@/components/layout";
-import { MarkdownRenderer } from "@/components/markdown-renderer";
-import { cn, humanBytes, estimateMessages, toText, formatRelativeTime } from "@/lib/utils";
-
-function MessageRow({ message }: { readonly message: SessionMessage }) {
-  const role = (message.role ?? "unknown").toLowerCase();
-  const isUser = role === "user";
-  const isSystem = role === "system";
-  const text = toText(message.content);
-  const icon = isUser
-    ? <User className="h-3.5 w-3.5 text-accent" />
-    : isSystem
-      ? <AlertCircle className="h-3.5 w-3.5 text-warning" />
-      : <Bot className="h-3.5 w-3.5 text-text-3" />;
-
-  return (
-    <div className="flex gap-3 py-3 border-b border-border last:border-0">
-      <div className={cn(
-        "h-7 w-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5",
-        isUser && "bg-accent-subtle",
-        isSystem && "bg-warning-subtle",
-        !isUser && !isSystem && "bg-[var(--color-elevated)]",
-      )}>
-        {icon}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-xs font-medium text-text-1">
-            {isUser ? "You" : isSystem ? "System" : "Assistant"}
-          </span>
-          {message.timestamp != null && (
-            <span className="text-[10px] tabular-nums text-text-3 opacity-60">
-              {formatRelativeTime(message.timestamp)}
-            </span>
-          )}
-        </div>
-        {isUser || isSystem ? (
-          <p className="text-sm text-text-2 leading-relaxed whitespace-pre-wrap">{text}</p>
-        ) : (
-          <MarkdownRenderer content={text} className="text-sm text-text-2" />
-        )}
-      </div>
-    </div>
-  );
-}
+import { MessageRow } from "@/components/chat/message-list";
+import { cn, humanBytes, estimateMessages } from "@/lib/utils";
 
 function SessionMessages({ agentId, sessionId }: { readonly agentId: string; readonly sessionId: string }) {
   const { data, isLoading, error } = useSessionMessagesQuery(agentId, sessionId);
