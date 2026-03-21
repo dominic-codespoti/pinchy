@@ -26,6 +26,7 @@ import { useWsSync } from "@/hooks/use-ws-sync";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { ThemeSwitcher } from "@/components/theme-switcher";
 
 // ── Lazy-loaded route components ────────────────────
 
@@ -107,8 +108,9 @@ function RootLayout() {
           <NavButton key={item.label} item={item} />
         ))}
 
-        {/* Connection status at bottom */}
+        {/* Theme + connection status at bottom */}
         <div className="mt-auto flex flex-col items-center gap-2">
+          <ThemeSwitcher />
           {wsStatus === "connected" ? (
             <Wifi className="h-3.5 w-3.5 text-primary opacity-60" />
           ) : (
@@ -128,9 +130,9 @@ function RootLayout() {
         position="bottom-right"
         toastOptions={{
           style: {
-            background: "hsl(var(--card))",
-            border: "1px solid hsl(var(--border))",
-            color: "hsl(var(--card-foreground))",
+            background: "var(--card)",
+            border: "1px solid var(--border)",
+            color: "var(--card-foreground)",
           },
         }}
       />
