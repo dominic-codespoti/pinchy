@@ -143,6 +143,57 @@ pub struct Config {
     pub chromium_path: Option<String>,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        let default_agent_root = crate::utils::agent_root("default")
+            .to_string_lossy()
+            .to_string();
+        Self {
+            models: vec![ModelConfig {
+                id: "copilot-default".to_string(),
+                provider: "copilot".to_string(),
+                model: Some("gpt-4o".to_string()),
+                api_key: None,
+                endpoint: None,
+                api_version: None,
+                embedding_deployment: None,
+                embedding_model: None,
+                headers: None,
+            }],
+            channels: ChannelsConfig::default(),
+            agents: vec![AgentConfig {
+                id: "default".to_string(),
+                root: default_agent_root,
+                model: Some("copilot-default".to_string()),
+                heartbeat_secs: None,
+                cron_jobs: Vec::new(),
+                max_tool_iterations: None,
+                enabled_skills: None,
+                fallback_models: Vec::new(),
+                webhook_secret: None,
+                extra_exec_commands: Vec::new(),
+                history_messages: None,
+                max_turns: None,
+                compact_keep_recent_turns: None,
+                timezone: None,
+                watch_paths: Vec::new(),
+                reasoning_effort: None,
+            }],
+            secrets: None,
+            routing: Some(RoutingConfig {
+                channels: std::collections::HashMap::new(),
+                default_agent: Some("default".to_string()),
+            }),
+            skills: None,
+            timezone: None,
+            session_expiry_days: default_session_expiry_days(),
+            cron_session_expiry_days: default_cron_session_expiry_days(),
+            cron_events_max_keep: default_cron_events_max_keep(),
+            chromium_path: None,
+        }
+    }
+}
+
 fn default_session_expiry_days() -> Option<u64> {
     Some(30)
 }
@@ -198,7 +249,7 @@ pub struct ModelConfig {
 }
 
 /// Channel connector settings.
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, Serialize, Default, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ChannelsConfig {
     /// Discord bot configuration. Optional so the daemon can start without it.
@@ -526,20 +577,13 @@ impl Config {
                                             c
                                         }
                                         Err(_) => {
-                                            return Err(e).with_context(|| {
-                                                format!(
-                                                    "failed to read config file: {}",
-                                                    path.display()
-                                                )
-                                            });
+                                            return Self::create_default_config(path).await;
                                         }
                                     }
                                 }
                             }
                         } else {
-                            return Err(e).with_context(|| {
-                                format!("failed to read config file: {}", path.display())
-                            });
+                            return Self::create_default_config(path).await;
                         }
                     }
                 }
@@ -552,6 +596,48 @@ impl Config {
 
         let config: Config =
             serde_yaml_ng::from_str(&contents).context("failed to parse config YAML")?;
+
+        Ok(config)
+    }
+
+    /// Create a default config with a copilot model and default agent,
+    /// scaffold the agent workspace, and persist the config to disk.
+    async fn create_default_config(path: &Path) -> anyhow::Result<Config> {
+        let config = Config::default();
+        let home = crate::pinchy_home();
+
+        // Ensure PINCHY_HOME exists.
+        if let Err(e) = tokio::fs::create_dir_all(&home).await {
+            tracing::warn!(error = %e, "failed to create pinchy home directory");
+        }
+
+        // Scaffold the default agent workspace if it doesn't exist.
+        let agent_root = crate::utils::agent_root("default");
+        if !agent_root.exists() {
+            if let Err(e) = crate::cli::scaffold_agent("default").await {
+                tracing::warn!(error = %e, "failed to scaffold default agent");
+            }
+        }
+
+        // Persist the config so subsequent runs find it on disk.
+        let config_path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            home.join("config.yaml")
+        };
+        if let Some(parent) = config_path.parent() {
+            let _ = tokio::fs::create_dir_all(parent).await;
+        }
+        match config.save(&config_path).await {
+            Ok(()) => tracing::info!(
+                path = %config_path.display(),
+                "created default config.yaml (run `pinchy onboard` to customise)"
+            ),
+            Err(e) => tracing::warn!(
+                error = %e,
+                "failed to persist default config"
+            ),
+        }
 
         Ok(config)
     }

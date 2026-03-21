@@ -173,11 +173,16 @@ async fn bak_fallback_when_primary_missing() {
 }
 
 #[tokio::test]
-async fn no_fallback_when_both_missing() {
+async fn default_config_when_both_missing() {
     let dir = tempfile::tempdir().unwrap();
     let primary = dir.path().join("config.yaml");
-    let result = mini_claw::config::Config::load(&primary).await;
-    assert!(result.is_err(), "should fail when neither file exists");
+    let cfg = mini_claw::config::Config::load(&primary)
+        .await
+        .expect("should return default config when no file exists");
+    assert_eq!(cfg.agents.len(), 1, "default config should have one agent");
+    assert_eq!(cfg.agents[0].id, "default");
+    assert_eq!(cfg.models.len(), 1, "default config should have one model");
+    assert_eq!(cfg.models[0].id, "copilot-default");
 }
 
 // ── pinchy_home fallback ────────────────────────────────────
@@ -249,7 +254,7 @@ async fn pinchy_home_bak_fallback() {
 }
 
 #[tokio::test]
-async fn no_pinchy_home_fallback_for_absolute_paths() {
+async fn default_config_for_missing_absolute_paths() {
     let home_dir = tempfile::tempdir().unwrap();
     std::fs::write(
         home_dir.path().join("config.yaml"),
@@ -261,13 +266,15 @@ async fn no_pinchy_home_fallback_for_absolute_paths() {
         std::env::set_var("PINCHY_HOME", home_dir.path());
     }
 
-    // Use an absolute path that doesn't exist — should NOT fall back
+    // Use an absolute path that doesn't exist — should return default config
     let abs_missing = home_dir.path().join("subdir").join("config.yaml");
-    let result = mini_claw::config::Config::load(&abs_missing).await;
-    assert!(
-        result.is_err(),
-        "absolute paths should not trigger pinchy_home fallback"
-    );
+    let cfg = mini_claw::config::Config::load(&abs_missing)
+        .await
+        .expect("should return default config for missing absolute path");
+    assert_eq!(cfg.agents.len(), 1, "default config should have one agent");
+    assert_eq!(cfg.agents[0].id, "default");
+    assert_eq!(cfg.models.len(), 1, "default config should have one model");
+    assert_eq!(cfg.models[0].id, "copilot-default");
 
     unsafe {
         std::env::remove_var("PINCHY_HOME");
