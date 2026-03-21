@@ -1,544 +1,161 @@
-import { useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { useState, useCallback } from "react";
+import { Link } from "@tanstack/react-router";
 import { toast } from "sonner";
+import { Plus, Play, Trash2, Clock, ChevronDown, ChevronUp } from "lucide-react";
 import {
-  Plus,
-  Play,
-  Pencil,
-  Trash2,
-  History,
-  X,
-  Clock,
-  CalendarClock,
-} from "lucide-react";
-
+  useCronJobsQuery, useCronJobRunsQuery,
+  useDeleteCronJobMutation, useTriggerCronJobMutation,
+} from "@/api/queries";
+import type { CronRun } from "@/api/schemas";
 import {
-  createCronJob,
-  deleteCronJob,
-  getCronJobRuns,
-  listAgents,
-  listCronJobs,
-  queryKeys,
-  triggerCronJob,
-} from "@/api/client";
-import { Button, Checkbox, Dialog, DialogContent, Input, Select, SelectItem, Separator, StatusPill, TextArea } from "@/components/ui";
-import { CRON_RE, computeNextFires, formatInTz } from "@/lib/utils";
-
-type CronJobView = {
-  id: string;
-  agent_id: string;
-  name: string;
-  schedule: string;
-  message?: string | null;
-  kind?: string;
-  last_status?: string | null;
-};
+  Card, CardHeader, CardTitle, CardContent,
+  Button, Badge, StatusPill, Skeleton,
+} from "@/components/ui";
+import { PageShell, PageTitle } from "@/components/layout";
+import { formatRelativeTime } from "@/lib/utils";
 
 export function CronRoute() {
-  const queryClient = useQueryClient();
-  const navigate = useNavigate();
+  const jobsQuery = useCronJobsQuery();
+  const deleteMut = useDeleteCronJobMutation();
+  const triggerMut = useTriggerCronJobMutation();
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const jobs = jobsQuery.data?.jobs ?? [];
 
-  const agentsQuery = useQuery({ queryKey: queryKeys.agents, queryFn: listAgents });
-  const cronQuery = useQuery({ queryKey: queryKeys.cronJobs, queryFn: listCronJobs });
-
-  const [agentId, setAgentId] = useState("default");
-  const [name, setName] = useState("");
-  const [schedule, setSchedule] = useState("0 * * * *");
-  const [message, setMessage] = useState("");
-  const [oneShot, setOneShot] = useState(false);
-
-  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
-  const [runningJobId, setRunningJobId] = useState<string | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState<{ id: string; name: string } | null>(null);
-
-  const agentIds = useMemo(
-    () => (agentsQuery.data?.agents ?? []).map((agent) => agent.id),
-    [agentsQuery.data],
-  );
-
-  const agentTzMap = useMemo(() => {
-    const map: Record<string, string | null> = {};
-    for (const agent of agentsQuery.data?.agents ?? []) {
-      map[agent.id] = agent.timezone ?? null;
-    }
-    return map;
-  }, [agentsQuery.data]);
-
-  const agentTz = useMemo(() => {
-    const agent = (agentsQuery.data?.agents ?? []).find((a) => a.id === agentId);
-    return agent?.timezone ?? null;
-  }, [agentsQuery.data, agentId]);
-
-  const runsQuery = useQuery({
-    queryKey: ["cron-runs", selectedJobId],
-    queryFn: () => getCronJobRuns(selectedJobId ?? ""),
-    enabled: Boolean(selectedJobId),
-  });
-
-  const createMutation = useMutation({
-    mutationFn: createCronJob,
-    onSuccess: () => {
-      toast.success("Cron job created");
-      setName("");
-      setMessage("");
-      void queryClient.invalidateQueries({ queryKey: queryKeys.cronJobs });
-    },
-    onError: (error) => {
-      toast.error(`Create failed: ${error.message}`);
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: deleteCronJob,
-    onSuccess: () => {
-      toast.success("Cron job deleted");
-      void queryClient.invalidateQueries({ queryKey: queryKeys.cronJobs });
-      setSelectedJobId(null);
-    },
-    onError: (error) => {
-      toast.error(`Delete failed: ${error.message}`);
-    },
-  });
-
-  const onCreate = () => {
-    if (!agentId) {
-      toast.error("Agent is required");
-      return;
-    }
-    if (!name.trim()) {
-      toast.error("Name is required");
-      return;
-    }
-    if (!schedule.trim()) {
-      toast.error("Schedule is required");
-      return;
-    }
-    if (!CRON_RE.test(schedule.trim())) {
-      toast.error("Cron schedule looks invalid");
-      return;
-    }
-    if (!message.trim()) {
-      toast.error("Message is required");
-      return;
-    }
-
-    createMutation.mutate({
-      agent_id: agentId,
-      name: name.trim(),
-      schedule: schedule.trim(),
-      message: message.trim(),
-      one_shot: oneShot,
+  const handleTrigger = useCallback((jobId: string, jobName: string) => {
+    triggerMut.mutate(jobId, {
+      onSuccess: () => toast.success(`Triggered "${jobName}"`),
+      onError: (err) => toast.error(`Trigger failed: ${err.message}`),
     });
-  };
+  }, [triggerMut]);
 
-  const jobs = cronQuery.data?.jobs ?? [];
-
-  const runNow = (job: CronJobView) => {
-    setRunningJobId(job.id);
-    triggerCronJob(job.id)
-      .then(() => {
-        toast.success(`Triggered ${job.name}`);
-        void queryClient.invalidateQueries({ queryKey: ["cron-runs", job.id] });
-      })
-      .catch(() => toast.error("Failed to trigger cron run"))
-      .finally(() => setRunningJobId(null));
-  };
-
-  const schedulePreview = computeNextFires(schedule, 5, agentTz);
+  const handleDelete = useCallback((jobId: string) => {
+    deleteMut.mutate(jobId, {
+      onSuccess: () => { toast.success("Cron job deleted"); setConfirmDeleteId(null); },
+      onError: (err) => toast.error(`Delete failed: ${err.message}`),
+    });
+  }, [deleteMut]);
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg)]">
-      {/* ── Top bar ──────────────────────────────── */}
-      <div className="flex items-center gap-2 px-4 h-12 border-b border-white/[0.06] bg-white/[0.02] backdrop-blur-sm shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-400/10">
-            <CalendarClock className="h-3.5 w-3.5 text-emerald-400" />
-          </span>
-          <span className="text-sm font-semibold text-slate-100">Cron Jobs</span>
+    <PageShell
+      header={
+        <PageTitle icon={<Clock className="h-3.5 w-3.5" />} title="Cron Jobs">
+          <span className="text-xs text-text-3">{jobs.length} job{jobs.length !== 1 ? "s" : ""}</span>
+          <Button asChild variant="primary" size="sm">
+            <Link to="/cron/$jobId" params={{ jobId: "new" }}><Plus className="h-3.5 w-3.5 mr-1" /> New Job</Link>
+          </Button>
+        </PageTitle>
+      }
+    >
+      {jobsQuery.isLoading && (
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
         </div>
-
-        <Separator className="!h-5 !w-px !bg-white/[0.08]" />
-
-        <span className="text-xs text-slate-500">Scheduled automation</span>
-
-        <div className="ml-auto flex items-center gap-2">
-          <span className="text-[10px] tabular-nums text-slate-500">
-            {jobs.length} jobs
-          </span>
+      )}
+      {jobsQuery.error && <p className="text-sm text-danger">Failed to load cron jobs.</p>}
+      {!jobsQuery.isLoading && jobs.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <Clock className="h-8 w-8 text-text-3 opacity-40 mb-3" />
+          <p className="text-sm text-text-2">No cron jobs yet</p>
+          <p className="text-xs text-text-3 opacity-60 mt-1">Create a scheduled task to begin automation.</p>
         </div>
-      </div>
+      )}
 
-      {/* ── Content ──────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-4xl mx-auto px-4 py-5 space-y-5">
-
-          {/* ── Create job ──────────────────────────── */}
-          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 space-y-3">
-            <div className="flex items-center gap-2">
-              <Plus className="h-3.5 w-3.5 text-emerald-400/60" />
-              <span className="text-xs font-medium text-slate-300">Create Job</span>
-            </div>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
-              <Select value={agentId} onValueChange={setAgentId}>
-                {(agentIds.length ? agentIds : ["default"]).map((id) => (
-                  <SelectItem key={id} value={id}>{id}</SelectItem>
-                ))}
-              </Select>
-              <Input placeholder="job name" value={name} onChange={(event) => setName(event.target.value)} />
-              <Input placeholder="cron schedule" value={schedule} onChange={(event) => setSchedule(event.target.value)} />
-              <label className="flex items-center gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-xs text-slate-400">
-                <Checkbox checked={oneShot} onCheckedChange={(checked) => setOneShot(Boolean(checked))} />
-                One-shot
-              </label>
-            </div>
-
-            <div className="rounded-lg border border-white/[0.04] bg-white/[0.01] p-2 text-xs">
-              <span className="text-[10px] uppercase tracking-widest text-slate-600">Schedule preview{agentTz ? ` · ${agentTz}` : ""}</span>
-              {!CRON_RE.test(schedule.trim()) ? (
-                <p className="text-rose-300 mt-1">Expression appears invalid.</p>
-              ) : (
-                <ul className="mt-1 space-y-0.5 text-slate-400">
-                  {schedulePreview.map((d, i) => (
-                    <li key={i}>{formatInTz(d, agentTz)}</li>
-                  ))}
-                  {!schedulePreview.length ? <li>No preview available for this expression.</li> : null}
-                </ul>
-              )}
-            </div>
-
-            <TextArea
-              className="min-h-20"
-              placeholder="job message"
-              value={message}
-              onChange={(event) => setMessage(event.target.value)}
-            />
-
-            <div className="flex justify-end">
-              <button
-                type="button"
-                disabled={createMutation.isPending}
-                onClick={onCreate}
-                className="flex items-center gap-1.5 h-8 px-4 rounded-lg bg-emerald-400 text-slate-950 text-xs font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200"
-              >
-                <Plus className="h-3.5 w-3.5" />
-                {createMutation.isPending ? "Creating..." : "Create Job"}
-              </button>
-            </div>
-          </div>
-
-          {/* ── Job table (desktop) ─────────────────── */}
-          {jobs.length > 0 && (
-            <div className="hidden md:block rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-white/[0.06] text-[10px] uppercase tracking-widest text-slate-500">
-                  <tr>
-                    <th className="px-3 py-2.5">Name</th>
-                    <th className="px-3 py-2.5">Agent</th>
-                    <th className="px-3 py-2.5">Schedule</th>
-                    <th className="px-3 py-2.5">Next fire</th>
-                    <th className="px-3 py-2.5">Status</th>
-                    <th className="px-3 py-2.5">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {jobs.map((job) => (
-                    <CronRow
-                      key={job.id}
-                      job={job}
-                      agentTz={agentTzMap[job.agent_id] ?? null}
-                      onDelete={(jobId, jobName) => setConfirmDelete({ id: jobId, name: jobName })}
-                      onEdit={(jobId) => navigate({ to: "/cron/$jobId", params: { jobId: encodeURIComponent(jobId) } })}
-                      onShowRuns={(jobId) => setSelectedJobId(jobId)}
-                      onRunNow={runNow}
-                      running={runningJobId === job.id}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* ── Job cards (mobile) ──────────────────── */}
-          <div className="space-y-2 md:hidden">
-            {jobs.map((job) => (
-              <CronCard
-                key={job.id}
-                job={job}
-                agentTz={agentTzMap[job.agent_id] ?? null}
-                onDelete={(jobId, jobName) => setConfirmDelete({ id: jobId, name: jobName })}
-                onEdit={(jobId) => navigate({ to: "/cron/$jobId", params: { jobId: encodeURIComponent(jobId) } })}
-                onShowRuns={(jobId) => setSelectedJobId(jobId)}
-                onRunNow={runNow}
-                running={runningJobId === job.id}
-              />
-            ))}
-          </div>
-
-          {cronQuery.isLoading ? (
-            <div className="flex items-center justify-center gap-2 py-12">
-              <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400/30 border-t-emerald-400" />
-              <span className="text-sm text-slate-500">Loading jobs…</span>
-            </div>
-          ) : null}
-          {cronQuery.error ? <p className="text-sm text-rose-300">Failed to load cron jobs.</p> : null}
-          {!jobs.length && !cronQuery.isLoading ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <CalendarClock className="h-8 w-8 text-slate-700 mb-3" />
-              <p className="text-sm text-slate-400">No cron jobs configured</p>
-              <p className="text-xs text-slate-600 mt-1">Create a scheduled task above to begin automation.</p>
-            </div>
-          ) : null}
-
-          {/* ── Run history ─────────────────────────── */}
-          {selectedJobId && (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <History className="h-3.5 w-3.5 text-emerald-400/60" />
-                  <span className="text-xs font-medium text-slate-300">Run History · {selectedJobId}</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSelectedJobId(null)}
-                  className="text-slate-600 hover:text-slate-300 transition-colors"
-                >
-                  <X className="h-3 w-3" />
-                </button>
+      {jobs.map((job) => {
+        const isExpanded = expandedId === job.id;
+        const isConfirming = confirmDeleteId === job.id;
+        return (
+          <Card key={job.id}>
+            <CardHeader>
+              <div className="flex items-center gap-2 min-w-0">
+                <CardTitle className="truncate">{job.name}</CardTitle>
+                <Badge variant="neutral" className="text-[10px] shrink-0">{job.agent_id}</Badge>
+                <StatusPill status={job.last_status ?? "PENDING"} />
               </div>
-              {runsQuery.isLoading ? (
-                <div className="flex items-center justify-center gap-2 py-8">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400/30 border-t-emerald-400" />
-                  <span className="text-sm text-slate-500">Loading runs…</span>
-                </div>
-              ) : null}
-              <div className="space-y-1.5">
-                {(runsQuery.data?.runs ?? []).slice(0, 20).map((run) => (
-                  <article key={`${run.id}`} className="rounded-lg border border-white/[0.04] bg-white/[0.01] p-2.5 text-xs">
-                    <div className="mb-1 flex items-center justify-between">
-                      <StatusPill status={run.status} />
-                      <span className="text-[10px] tabular-nums text-slate-600">
-                        {run.executed_at ? new Date(run.executed_at * 1000).toLocaleString() : "-"}
-                      </span>
-                    </div>
-                    <p className="text-slate-500">Duration: {run.duration_ms ?? "-"} ms</p>
-                    <p className="mt-1 truncate text-slate-300">{run.output_preview ?? run.error ?? "-"}</p>
-                  </article>
-                ))}
-                {!runsQuery.isLoading && !(runsQuery.data?.runs ?? []).length ? (
-                  <div className="flex flex-col items-center justify-center py-8 text-center">
-                    <History className="h-5 w-5 text-slate-700 mb-2" />
-                    <p className="text-xs text-slate-600">No run history yet</p>
+              <div className="flex items-center gap-1 shrink-0">
+                <Button variant="ghost" size="xs" className="gap-1"
+                  disabled={triggerMut.isPending} onClick={() => handleTrigger(job.id, job.name)}>
+                  <Play className="h-3 w-3" /> Run
+                </Button>
+                {isConfirming ? (
+                  <div className="flex items-center gap-1">
+                    <Button variant="danger" size="xs"
+                      disabled={deleteMut.isPending} onClick={() => handleDelete(job.id)}>
+                      {deleteMut.isPending ? "Deleting..." : "Confirm"}
+                    </Button>
+                    <Button variant="ghost" size="xs"
+                      onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
                   </div>
-                ) : null}
+                ) : (
+                  <Button variant="ghost" size="xs"
+                    className="text-danger/60 hover:text-danger"
+                    onClick={() => setConfirmDeleteId(job.id)}>
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                )}
+                <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0"
+                  onClick={() => setExpandedId(isExpanded ? null : job.id)}>
+                  {isExpanded
+                    ? <ChevronUp className="h-3.5 w-3.5" />
+                    : <ChevronDown className="h-3.5 w-3.5" />}
+                </Button>
               </div>
-            </div>
-          )}
-        </div>
-      </div>
+            </CardHeader>
+            <CardContent className="pt-2">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-3">
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3 w-3 text-accent opacity-40" />
+                  <code>{job.schedule}</code>
+                </span>
+                {job.max_retries != null && job.max_retries > 0 && (
+                  <span>retries: {job.retry_count ?? 0}/{job.max_retries}</span>
+                )}
+                {job.retry_delay_secs != null && job.retry_delay_secs > 0 && (
+                  <span>delay: {job.retry_delay_secs}s</span>
+                )}
+                {job.depends_on && <span>depends on: {job.depends_on}</span>}
+              </div>
+              {isExpanded && <RunHistory jobId={job.id} />}
+            </CardContent>
+          </Card>
+        );
+      })}
+    </PageShell>
+  );
+}
 
-      <Dialog open={!!confirmDelete} onOpenChange={(open) => { if (!open) setConfirmDelete(null); }}>
-        <DialogContent>
-          <div className="p-5 space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-400/10">
-                <Trash2 className="h-5 w-5 text-rose-400" />
-              </div>
-              <div>
-                <p className="text-sm font-semibold text-slate-100">Delete Cron Job</p>
-                <p className="text-xs text-slate-500">This action cannot be undone.</p>
-              </div>
-            </div>
-            <p className="text-sm text-slate-300">
-              Delete cron job <span className="font-mono text-rose-300">{confirmDelete?.name}</span>?
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setConfirmDelete(null)}>Cancel</Button>
-              <Button
-                variant="primary"
-                size="sm"
-                className="!bg-rose-500 hover:!bg-rose-400"
-                disabled={deleteMutation.isPending}
-                onClick={() => {
-                  if (confirmDelete) {
-                    deleteMutation.mutate(confirmDelete.id, { onSettled: () => setConfirmDelete(null) });
-                  }
-                }}
-              >
-                {deleteMutation.isPending ? "Deleting..." : "Delete"}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+function RunHistory({ jobId }: { readonly jobId: string }) {
+  const runsQuery = useCronJobRunsQuery(jobId);
+  const runs = runsQuery.data?.runs ?? [];
+  if (runsQuery.isLoading) {
+    return (
+      <div className="mt-3 space-y-1">
+        {[1, 2].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+      </div>
+    );
+  }
+  if (runs.length === 0) {
+    return <p className="mt-3 text-xs text-text-3 opacity-60">No runs recorded yet.</p>;
+  }
+  return (
+    <div className="mt-3 space-y-1">
+      <p className="text-[10px] uppercase tracking-widest text-text-3 mb-1">Recent runs</p>
+      {runs.slice(0, 10).map((run) => <RunRow key={String(run.id)} run={run} />)}
     </div>
   );
 }
 
-function CronRow({
-  job,
-  agentTz,
-  onDelete,
-  onEdit,
-  onShowRuns,
-  onRunNow,
-  running,
-}: {
-  job: CronJobView;
-  agentTz: string | null;
-  onDelete: (jobId: string, jobName: string) => void;
-  onEdit: (jobId: string) => void;
-  onShowRuns: (jobId: string) => void;
-  onRunNow: (job: CronJobView) => void;
-  running: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const nextFires = computeNextFires(job.schedule, 5, agentTz);
-  const nextFire = nextFires[0] ?? null;
+function RunRow({ run }: { readonly run: CronRun }) {
   return (
-    <tr
-      className="border-b border-white/[0.04] align-top text-xs cursor-pointer hover:bg-white/[0.02] transition-colors"
-      onClick={() => onEdit(job.id)}
-    >
-      <td className="px-3 py-2 font-medium text-slate-200">{job.name}</td>
-      <td className="px-3 py-2 text-slate-500">{job.agent_id}</td>
-      <td className="px-3 py-2">
-        <code className="text-slate-400">{job.schedule}</code>
-      </td>
-      <td
-        className="px-3 py-2 text-slate-500 tabular-nums"
-        onClick={(e) => { e.stopPropagation(); setExpanded((p) => !p); }}
-      >
-        {nextFire ? (
-          <div>
-            <span className="flex items-center gap-1 hover:text-slate-300 transition-colors cursor-pointer">
-              <Clock className="h-3 w-3 text-emerald-400/40" />
-              {formatInTz(nextFire, agentTz)}
-            </span>
-            {expanded && nextFires.length > 1 && (
-              <ul className="mt-1.5 space-y-0.5 pl-4 border-l border-white/[0.06]">
-                {nextFires.slice(1).map((d, i) => (
-                  <li key={i} className="text-[10px] text-slate-600">{formatInTz(d, agentTz)}</li>
-                ))}
-                {agentTz && <li className="text-[10px] text-slate-700 mt-1">{agentTz}</li>}
-              </ul>
-            )}
-          </div>
-        ) : "—"}
-      </td>
-      <td className="px-3 py-2">
-        <StatusPill status={job.last_status ?? "PENDING"} />
-      </td>
-      <td className="px-3 py-2" onClick={(e) => e.stopPropagation()}>
-        <div className="flex gap-1">
-          {[
-            { label: "Edit", icon: Pencil, onClick: () => onEdit(job.id) },
-            { label: "History", icon: History, onClick: () => onShowRuns(job.id) },
-            { label: running ? "Running..." : "Run", icon: Play, onClick: () => onRunNow(job), disabled: running },
-          ].map(({ label, icon: Icon, onClick, disabled }) => (
-            <button
-              key={label}
-              type="button"
-              onClick={onClick}
-              disabled={disabled}
-              className="flex items-center gap-1 rounded-lg border border-white/[0.06] px-2.5 py-1.5 text-[10px] text-slate-400 hover:text-slate-200 hover:border-white/[0.12] disabled:opacity-40 transition-all duration-200"
-            >
-              <Icon className="h-3 w-3" /> {label}
-            </button>
-          ))}
-          <button
-            type="button"
-            onClick={() => onDelete(job.id, job.name)}
-            className="flex items-center gap-1 rounded-lg border border-white/[0.06] px-2.5 py-1.5 text-[10px] text-rose-400/60 hover:text-rose-300 hover:border-rose-400/20 transition-all duration-200"
-          >
-            <Trash2 className="h-3 w-3" />
-          </button>
-        </div>
-      </td>
-    </tr>
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-[var(--color-elevated)] px-3 py-2 text-xs">
+      <StatusPill status={run.status} />
+      <span className="text-text-3 tabular-nums">
+        {run.executed_at != null ? formatRelativeTime(run.executed_at) : "-"}
+      </span>
+      {run.duration_ms != null && <span className="text-text-3 opacity-60">{run.duration_ms}ms</span>}
+      <span className="ml-auto truncate max-w-[40%] text-text-2">
+        {run.output_preview ?? run.error ?? ""}
+      </span>
+    </div>
   );
 }
-
-function CronCard({
-  job,
-  agentTz,
-  onDelete,
-  onEdit,
-  onShowRuns,
-  onRunNow,
-  running,
-}: {
-  job: CronJobView;
-  agentTz: string | null;
-  onDelete: (jobId: string, jobName: string) => void;
-  onEdit: (jobId: string) => void;
-  onShowRuns: (jobId: string) => void;
-  onRunNow: (job: CronJobView) => void;
-  running: boolean;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  const nextFires = computeNextFires(job.schedule, 5, agentTz);
-  const nextFire = nextFires[0] ?? null;
-  return (
-    <article
-      className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 cursor-pointer hover:bg-white/[0.03] transition-colors"
-      onClick={() => onEdit(job.id)}
-    >
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <CalendarClock className="h-3.5 w-3.5 text-emerald-400/60" />
-          <p className="text-sm font-medium text-slate-200">{job.name}</p>
-        </div>
-        <StatusPill status={job.last_status ?? "PENDING"} />
-      </div>
-
-      <p className="text-xs text-slate-500">Agent: {job.agent_id}</p>
-      <p className="mt-2 rounded-lg border border-white/[0.04] bg-white/[0.01] px-2 py-1 font-mono text-xs text-slate-400">{job.schedule}</p>
-      {nextFire && (
-        <div
-          className="mt-1.5"
-          onClick={(e) => { e.stopPropagation(); setExpanded((p) => !p); }}
-        >
-          <p className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors cursor-pointer">
-            <Clock className="h-3 w-3 text-emerald-400/40" />
-            Next: {formatInTz(nextFire, agentTz)}
-          </p>
-          {expanded && nextFires.length > 1 && (
-            <ul className="mt-1 ml-4 space-y-0.5 border-l border-white/[0.06] pl-2">
-              {nextFires.slice(1).map((d, i) => (
-                <li key={i} className="text-[10px] text-slate-600">{formatInTz(d, agentTz)}</li>
-              ))}
-              {agentTz && <li className="text-[10px] text-slate-700 mt-1">{agentTz}</li>}
-            </ul>
-          )}
-        </div>
-      )}
-
-      <div className="mt-3 flex flex-wrap gap-1.5" onClick={(e) => e.stopPropagation()}>
-        {[
-          { label: "Edit", icon: Pencil, onClick: () => onEdit(job.id) },
-          { label: "History", icon: History, onClick: () => onShowRuns(job.id) },
-          { label: running ? "Running..." : "Run", icon: Play, onClick: () => onRunNow(job), disabled: running },
-        ].map(({ label, icon: Icon, onClick, disabled }) => (
-          <button
-            key={label}
-            type="button"
-            onClick={onClick}
-            disabled={disabled}
-            className="flex items-center gap-1 rounded-lg border border-white/[0.06] px-2.5 py-1.5 text-[10px] text-slate-400 hover:text-slate-200 hover:border-white/[0.12] disabled:opacity-40 transition-all duration-200"
-          >
-            <Icon className="h-3 w-3" /> {label}
-          </button>
-        ))}
-        <button
-          type="button"
-          onClick={() => onDelete(job.id, job.name)}
-          className="flex items-center gap-1 rounded-lg border border-white/[0.06] px-2.5 py-1.5 text-[10px] text-rose-400/60 hover:text-rose-300 hover:border-rose-400/20 transition-all duration-200"
-        >
-          <Trash2 className="h-3 w-3" /> Delete
-        </button>
-      </div>
-    </article>
-  );
-}
-
