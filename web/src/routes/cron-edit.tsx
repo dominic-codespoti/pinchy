@@ -9,10 +9,11 @@ import {
 import type { CreateCronJobPayload, UpdateCronJobPayload } from "@/api/schemas";
 import {
   Card, CardHeader, CardTitle, CardContent,
-  Button, Input, TextArea, Select, SelectItem, Checkbox,
+  Button, Input, Textarea,
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+  Checkbox,
 } from "@/components/ui";
-import { PageShell } from "@/components/layout";
-import { FormField } from "@/components/layout";
+import { PageShell, FormField } from "@/components/layout";
 import { cn, CRON_RE, computeNextFires, formatInTz, mutationOpts } from "@/lib/utils";
 
 function getJobIdParam(params: Record<string, string>): string {
@@ -128,11 +129,11 @@ export function CronEditRoute() {
       maxWidth="2xl"
       header={
         <>
-          <Button variant="ghost" size="xs" className="gap-1" onClick={goBack}>
+          <Button variant="ghost" size="sm" className="gap-1" onClick={goBack}>
             <ArrowLeft className="h-3.5 w-3.5" /> Back
           </Button>
           <div className="h-5 w-px bg-border" />
-          <span className="text-sm font-semibold text-text-1">
+          <span className="text-sm font-semibold text-foreground">
             {isEdit ? "Edit Cron Job" : "New Cron Job"}
           </span>
         </>
@@ -142,8 +143,13 @@ export function CronEditRoute() {
         <CardHeader><CardTitle>Details</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <FormField label="Agent">
-            <Select value={form.agentId} onValueChange={(v) => set("agentId", v)} disabled={isEdit} placeholder="Select agent">
-              {agents.map((a) => <SelectItem key={a.id} value={a.id}>{a.id}</SelectItem>)}
+            <Select value={form.agentId} onValueChange={(v) => set("agentId", v)} disabled={isEdit}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select agent" />
+              </SelectTrigger>
+              <SelectContent>
+                {agents.map((a) => <SelectItem key={a.id} value={a.id}>{a.id}</SelectItem>)}
+              </SelectContent>
             </Select>
           </FormField>
           <FormField label="Name">
@@ -155,17 +161,17 @@ export function CronEditRoute() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-1.5">
-            <Clock className="h-3.5 w-3.5 text-accent opacity-60" /> Schedule
+            <Clock className="h-3.5 w-3.5 text-primary opacity-60" /> Schedule
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <Input value={form.schedule} onChange={(e) => set("schedule", e.target.value)} placeholder="0 9 * * *"
-            className={cn("font-mono", form.schedule.trim() && !valid && "!border-danger/40")} />
-          {form.schedule.trim() && !valid && <p className="text-xs text-danger">Invalid cron expression</p>}
+            className={cn("font-mono", form.schedule.trim() && !valid && "!border-destructive/40")} />
+          {form.schedule.trim() && !valid && <p className="text-xs text-destructive">Invalid cron expression</p>}
           {nextFires.length > 0 && (
-            <div className="rounded-lg border border-border bg-[var(--color-elevated)] p-2.5">
-              <p className="text-[10px] uppercase tracking-widest text-text-3 mb-1">Next fires</p>
-              <ul className="space-y-0.5 text-xs text-text-2">
+            <div className="rounded-lg border border-border bg-muted p-2.5">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Next fires</p>
+              <ul className="space-y-0.5 text-xs text-foreground">
                 {nextFires.map((d, i) => <li key={i}>{formatInTz(d)}</li>)}
               </ul>
             </div>
@@ -176,7 +182,7 @@ export function CronEditRoute() {
       <Card>
         <CardHeader><CardTitle>Message</CardTitle></CardHeader>
         <CardContent>
-          <TextArea className="min-h-[100px]" value={form.message}
+          <Textarea className="min-h-[100px]" value={form.message}
             onChange={(e) => set("message", e.target.value)} placeholder="Describe what this cron job should do..." />
         </CardContent>
       </Card>
@@ -188,11 +194,16 @@ export function CronEditRoute() {
             <Checkbox checked={form.oneShot} onCheckedChange={(v) => set("oneShot", Boolean(v))} />
           </FormField>
           <FormField label="Depends on (optional)">
-            <Select value={form.dependsOn} onValueChange={(v) => set("dependsOn", v)} placeholder="None">
-              <SelectItem value="">None</SelectItem>
-              {allJobs.filter((j) => j.id !== editJobId).map((j) => (
-                <SelectItem key={j.id} value={j.id}>{j.name}</SelectItem>
-              ))}
+            <Select value={form.dependsOn} onValueChange={(v) => set("dependsOn", v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="None" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="">None</SelectItem>
+                {allJobs.filter((j) => j.id !== editJobId).map((j) => (
+                  <SelectItem key={j.id} value={j.id}>{j.name}</SelectItem>
+                ))}
+              </SelectContent>
             </Select>
           </FormField>
           <div className="grid grid-cols-2 gap-3">
@@ -210,7 +221,7 @@ export function CronEditRoute() {
 
       <div className="flex justify-end gap-2 pb-4">
         <Button variant="ghost" size="sm" onClick={goBack}>Cancel</Button>
-        <Button variant="primary" size="sm" disabled={isPending} onClick={handleSubmit}>
+        <Button size="sm" disabled={isPending} onClick={handleSubmit}>
           <Save className="h-3.5 w-3.5 mr-1" />
           {isPending ? "Saving..." : isEdit ? "Update Job" : "Create Job"}
         </Button>

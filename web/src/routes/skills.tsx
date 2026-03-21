@@ -16,20 +16,20 @@ function SkillCard({ skill, onDelete, isDeleting }: {
     <Card>
       <CardHeader>
         <div className="flex items-center gap-2">
-          <Puzzle className="h-4 w-4 text-accent" />
+          <Puzzle className="h-4 w-4 text-primary" />
           <CardTitle>{skill.id}</CardTitle>
         </div>
         {isOperator && (
-          <Badge variant="success" className="gap-1 !text-[9px]">
+          <Badge variant="default" className="gap-1 !text-[9px]">
             <Shield className="h-2.5 w-2.5" /> operator
           </Badge>
         )}
       </CardHeader>
       <CardContent className="space-y-3">
-        <p className="text-xs text-text-2">{skill.description ?? "No description"}</p>
+        <p className="text-xs text-foreground">{skill.description ?? "No description"}</p>
         {!isOperator && (
-          <Button variant="ghost" size="xs"
-            className="gap-1 text-text-3 hover:text-danger hover:bg-danger-subtle"
+          <Button variant="ghost" size="sm"
+            className="gap-1 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
             onClick={() => onDelete(skill.id)} disabled={isDeleting}>
             <Trash2 className="h-3 w-3" />
             {isDeleting ? "Deleting..." : "Delete"}
@@ -53,7 +53,7 @@ export function SkillsRoute() {
     <PageShell
       header={
         <PageTitle icon={<Puzzle className="h-3.5 w-3.5" />} title="Skills">
-          <span className="text-xs text-text-3">{skills.length} installed</span>
+          <span className="text-xs text-muted-foreground">{skills.length} installed</span>
         </PageTitle>
       }
     >
@@ -66,7 +66,7 @@ export function SkillsRoute() {
           ))}
         </div>
       )}
-      {skillsQuery.error && <p className="text-sm text-danger">Failed to load skills.</p>}
+      {skillsQuery.error && <p className="text-sm text-destructive">Failed to load skills.</p>}
       {!skillsQuery.isLoading && skills.length === 0 && (
         <EmptyState icon={<Puzzle />} title="No skills found" />
       )}

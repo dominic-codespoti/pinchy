@@ -91,18 +91,18 @@ export function ChatRoute() {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Header */}
-        <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-[var(--color-elevated)] px-4">
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-accent-subtle">
-            <Sparkles className="h-3 w-3 text-accent" />
+        <header className="flex h-11 shrink-0 items-center gap-3 border-b border-border bg-muted px-4">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-primary/10">
+            <Sparkles className="h-3 w-3 text-primary" />
           </span>
           <div className="min-w-0">
-            <h1 className="truncate text-sm font-semibold text-text-1">{agentLabel}</h1>
+            <h1 className="truncate text-sm font-semibold text-foreground">{agentLabel}</h1>
             {modelLabel !== null && (
-              <p className="truncate text-[10px] leading-none text-text-3">{modelLabel}</p>
+              <p className="truncate text-[10px] leading-none text-muted-foreground">{modelLabel}</p>
             )}
           </div>
           {activeSessionId.length > 0 && (
-            <span className="ml-auto truncate text-[10px] tabular-nums text-text-3 opacity-60">
+            <span className="ml-auto truncate text-[10px] tabular-nums text-muted-foreground opacity-60">
               {activeSessionId.slice(0, 24)}
             </span>
           )}
@@ -140,10 +140,10 @@ export function ChatRoute() {
         </div>
 
         {/* Input */}
-        <div className="shrink-0 border-t border-border bg-[var(--color-elevated)]">
+        <div className="shrink-0 border-t border-border bg-muted">
           <div className="mx-auto max-w-3xl px-4 py-2.5">
             <ChatInput onSend={send} disabled={isTyping} />
-            <p className="mt-1 px-1 text-[10px] text-text-3 opacity-60">
+            <p className="mt-1 px-1 text-[10px] text-muted-foreground opacity-60">
               <kbd className="font-mono">Enter</kbd> send
               {" / "}
               <kbd className="font-mono">Shift+Enter</kbd> newline
@@ -158,15 +158,15 @@ export function ChatRoute() {
 function StreamingMessage({ content }: { readonly content: string }) {
   return (
     <div className="flex gap-3 py-3">
-      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-accent-subtle">
-        <Sparkles className="h-3 w-3 animate-pulse text-accent" />
+      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-primary/10">
+        <Sparkles className="h-3 w-3 animate-pulse text-primary" />
       </div>
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex items-center gap-2">
-          <span className="text-xs font-medium text-accent">Agent</span>
-          <span className="text-[10px] text-accent/50">streaming...</span>
+          <span className="text-xs font-medium text-primary">Agent</span>
+          <span className="text-[10px] text-primary/50">streaming...</span>
         </div>
-        <MarkdownRenderer content={content} className="text-sm leading-relaxed text-text-2" />
+        <MarkdownRenderer content={content} className="text-sm leading-relaxed text-foreground" />
       </div>
     </div>
   );
@@ -175,14 +175,14 @@ function StreamingMessage({ content }: { readonly content: string }) {
 function TypingIndicator() {
   return (
     <div className="flex gap-3 py-3">
-      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--color-elevated)]">
-        <Bot className="h-3 w-3 text-text-3" />
+      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-muted">
+        <Bot className="h-3 w-3 text-muted-foreground" />
       </div>
       <div className="flex items-center gap-1.5 py-1">
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent/70 [animation-delay:0ms]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent/70 [animation-delay:150ms]" />
-        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent/70 [animation-delay:300ms]" />
-        <span className="ml-1 text-xs text-text-3">Thinking...</span>
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70 [animation-delay:0ms]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70 [animation-delay:150ms]" />
+        <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-primary/70 [animation-delay:300ms]" />
+        <span className="ml-1 text-xs text-muted-foreground">Thinking...</span>
       </div>
     </div>
   );
@@ -192,11 +192,11 @@ function EmptyState({ agentLabel }: { readonly agentLabel: string }) {
   return (
     <div className="flex h-full flex-col items-center justify-center px-6">
       <div className="max-w-md text-center">
-        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-subtle">
-          <Sparkles className="h-6 w-6 text-accent" />
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10">
+          <Sparkles className="h-6 w-6 text-primary" />
         </div>
-        <h2 className="mb-1 text-lg font-semibold text-text-1">Chat with {agentLabel}</h2>
-        <p className="text-sm text-text-3">Send a message to start a conversation.</p>
+        <h2 className="mb-1 text-lg font-semibold text-foreground">Chat with {agentLabel}</h2>
+        <p className="text-sm text-muted-foreground">Send a message to start a conversation.</p>
       </div>
     </div>
   );

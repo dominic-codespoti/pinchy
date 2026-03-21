@@ -60,20 +60,20 @@ export function SessionSidebar({
   );
 
   return (
-    <aside className="flex h-full w-56 flex-col border-r border-border bg-surface-1">
+    <aside className="flex h-full w-56 flex-col border-r border-border bg-card">
       <div className="flex items-center justify-between border-b border-border px-3 py-2">
-        <span className="text-xs font-medium text-text-2">Sessions</span>
-        <Button variant="ghost" size="xs" onClick={() => void handleNewSession()}>
+        <span className="text-xs font-medium text-foreground">Sessions</span>
+        <Button variant="ghost" size="sm" onClick={() => void handleNewSession()}>
           <Plus className="h-3.5 w-3.5" />
         </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto">
         {isLoading && (
-          <p className="px-3 py-4 text-xs text-text-3">Loading...</p>
+          <p className="px-3 py-4 text-xs text-muted-foreground">Loading...</p>
         )}
         {!isLoading && sessions.length === 0 && (
-          <p className="px-3 py-4 text-xs text-text-3">No sessions</p>
+          <p className="px-3 py-4 text-xs text-muted-foreground">No sessions</p>
         )}
         {sessions.map((session) => (
           <SessionRow
@@ -112,15 +112,15 @@ function SessionRow({ session, isActive, onSelect, onDelete }: SessionRowProps) 
       className={cn(
         "group flex w-full items-start gap-2 border-b border-border px-3 py-2 text-left transition-colors",
         isActive
-          ? "bg-accent-subtle text-accent"
-          : "text-text-2 hover:bg-[var(--color-elevated)]",
+          ? "bg-primary/10 text-primary"
+          : "text-foreground hover:bg-muted",
       )}
     >
       <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-50" />
       <div className="min-w-0 flex-1">
         <div className="truncate text-xs font-medium">{title}</div>
         {sizeLabel.length > 0 && (
-          <div className="mt-0.5 text-[10px] text-text-3">{sizeLabel}</div>
+          <div className="mt-0.5 text-[10px] text-muted-foreground">{sizeLabel}</div>
         )}
       </div>
       <button
@@ -134,7 +134,7 @@ function SessionRow({ session, isActive, onSelect, onDelete }: SessionRowProps) 
         className="mt-0.5 shrink-0 opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100"
         aria-label="Delete session"
       >
-        <Trash2 className="h-3 w-3 text-danger" />
+        <Trash2 className="h-3 w-3 text-destructive" />
       </button>
     </button>
   );

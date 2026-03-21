@@ -26,7 +26,6 @@ import { useWsSync } from "@/hooks/use-ws-sync";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui";
 import { ErrorBoundary } from "@/components/error-boundary";
-import { ThemeSwitcher } from "@/components/theme-switcher";
 
 // ── Lazy-loaded route components ────────────────────
 
@@ -98,9 +97,9 @@ function RootLayout() {
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar nav */}
-      <nav className="flex w-14 flex-col items-center border-r border-border bg-surface-1 py-3 gap-1">
+      <nav className="flex w-14 flex-col items-center border-r border-border bg-card py-3 gap-1">
         {/* Logo / brand */}
-        <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg bg-accent-subtle text-accent">
+        <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Bot className="h-4 w-4" />
         </div>
 
@@ -108,13 +107,12 @@ function RootLayout() {
           <NavButton key={item.label} item={item} />
         ))}
 
-        {/* Theme + connection status at bottom */}
+        {/* Connection status at bottom */}
         <div className="mt-auto flex flex-col items-center gap-2">
-          <ThemeSwitcher />
           {wsStatus === "connected" ? (
-            <Wifi className="h-3.5 w-3.5 text-accent opacity-60" />
+            <Wifi className="h-3.5 w-3.5 text-primary opacity-60" />
           ) : (
-            <WifiOff className="h-3.5 w-3.5 text-danger opacity-60" />
+            <WifiOff className="h-3.5 w-3.5 text-destructive opacity-60" />
           )}
         </div>
       </nav>
@@ -130,9 +128,9 @@ function RootLayout() {
         position="bottom-right"
         toastOptions={{
           style: {
-            background: "var(--color-surface-2)",
-            border: "1px solid var(--glass-border)",
-            color: "var(--color-text-1)",
+            background: "hsl(var(--card))",
+            border: "1px solid hsl(var(--border))",
+            color: "hsl(var(--card-foreground))",
           },
         }}
       />
@@ -159,8 +157,8 @@ function NavButton({
   const className = cn(
     "flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-200",
     isActive
-      ? "bg-accent-muted text-accent shadow-glow"
-      : "text-text-3 hover:bg-[var(--color-elevated)] hover:text-text-2",
+      ? "bg-primary/20 text-primary"
+      : "text-muted-foreground hover:bg-muted hover:text-foreground",
   );
 
   // Parameterised routes need explicit `params`, but TanStack Router's

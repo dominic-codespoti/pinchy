@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 // ── PageShell ────────────────────────────────────────
 // Standardized route wrapper. Every page gets:
-//   1. A fixed h-12 header bar (glass surface, bottom border)
+//   1. A fixed h-12 header bar (bottom border)
 //   2. A scrollable content area with consistent max-width + padding
 
 interface PageShellProps {
@@ -33,7 +33,7 @@ export function PageShell({
   return (
     <div className={cn("flex h-full flex-col", className)}>
       {/* Header bar */}
-      <div className="flex shrink-0 items-center gap-2 px-4 h-11 border-b border-border bg-[var(--color-elevated)]">
+      <div className="flex shrink-0 items-center gap-2 px-4 h-11 border-b border-border bg-muted">
         {header}
       </div>
 
@@ -65,10 +65,10 @@ interface PageTitleProps {
 export function PageTitle({ icon, title, children }: PageTitleProps) {
   return (
     <>
-      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-subtle text-accent">
+      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
         {icon}
       </div>
-      <h1 className="text-sm font-semibold text-text-1">{title}</h1>
+      <h1 className="text-sm font-semibold text-foreground">{title}</h1>
       {children != null && (
         <div className="ml-auto flex items-center gap-2">{children}</div>
       )}

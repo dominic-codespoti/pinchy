@@ -35,14 +35,14 @@ export class ErrorBoundary extends Component<Props, State> {
 
     return (
       <div className="flex flex-col items-center justify-center gap-4 p-8 text-center">
-        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-danger-subtle">
-          <AlertTriangle className="h-6 w-6 text-danger" />
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-destructive/10">
+          <AlertTriangle className="h-6 w-6 text-destructive" />
         </div>
         <div className="space-y-1.5">
-          <h2 className="text-sm font-semibold text-text-1">
+          <h2 className="text-sm font-semibold text-foreground">
             Something went wrong
           </h2>
-          <p className="max-w-md text-xs text-text-3">
+          <p className="max-w-md text-xs text-muted-foreground">
             {error.message}
           </p>
         </div>

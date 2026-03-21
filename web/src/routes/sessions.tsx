@@ -9,7 +9,8 @@ import {
 import type { SessionSummary } from "@/api/schemas";
 import {
   Card, CardHeader, CardTitle, CardContent, Button,
-  Select, SelectItem, Separator, Skeleton, EmptyState,
+  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
+  Separator, Skeleton, EmptyState,
 } from "@/components/ui";
 import { PageShell, PageTitle } from "@/components/layout";
 import { MessageRow } from "@/components/chat/message-list";
@@ -32,8 +33,8 @@ function SessionMessages({ agentId, sessionId }: { readonly agentId: string; rea
       ))}
     </div>
   );
-  if (error) return <p className="text-sm text-danger py-2">Failed to load messages.</p>;
-  if (messages.length === 0) return <p className="text-xs text-text-3 opacity-60 py-2">No messages in this session.</p>;
+  if (error) return <p className="text-sm text-destructive py-2">Failed to load messages.</p>;
+  if (messages.length === 0) return <p className="text-xs text-muted-foreground opacity-60 py-2">No messages in this session.</p>;
 
   return (
     <div className="max-h-[60vh] overflow-y-auto">
@@ -65,33 +66,33 @@ function SessionCard({ session, agentId, isExpanded, onToggle }: {
     <Card>
       <CardHeader>
         <button type="button" onClick={onToggle} className="flex items-center gap-2 flex-1 min-w-0 text-left">
-          <Chevron className="h-3.5 w-3.5 text-text-3 shrink-0" />
+          <Chevron className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
           <CardTitle className="truncate">{session.title ?? session.session_id}</CardTitle>
         </button>
         <div className="flex items-center gap-2 shrink-0">
           {session.size != null && (
             <>
-              <span className="flex items-center gap-1 text-[10px] tabular-nums text-text-3">
+              <span className="flex items-center gap-1 text-[10px] tabular-nums text-muted-foreground">
                 <HardDrive className="h-3 w-3" />{humanBytes(session.size)}
               </span>
-              <span className="flex items-center gap-1 text-[10px] tabular-nums text-text-3">
+              <span className="flex items-center gap-1 text-[10px] tabular-nums text-muted-foreground">
                 <MessageSquare className="h-3 w-3" />~{estimateMessages(session.size)}
               </span>
             </>
           )}
           {confirmDelete ? (
             <div className="flex items-center gap-1">
-              <Button variant="ghost" size="xs" className="text-danger hover:bg-danger-subtle"
+              <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive/10"
                 onClick={handleDelete} disabled={deleteMutation.isPending}>
                 {deleteMutation.isPending ? "Deleting..." : "Confirm"}
               </Button>
-              <Button variant="ghost" size="xs" className="text-text-3"
+              <Button variant="ghost" size="sm" className="text-muted-foreground"
                 onClick={() => setConfirmDelete(false)} disabled={deleteMutation.isPending}>
                 Cancel
               </Button>
             </div>
           ) : (
-            <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0 text-text-3 hover:text-danger"
+            <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0 text-muted-foreground hover:text-destructive"
               onClick={() => setConfirmDelete(true)} aria-label="Delete session">
               <Trash2 className="h-3 w-3" />
             </Button>
@@ -127,21 +128,26 @@ export function SessionsRoute() {
         <PageTitle icon={<Layers className="h-3.5 w-3.5" />} title="Sessions">
           <Separator orientation="vertical" className="!h-5" />
           <Select value={activeAgent} onValueChange={setSelectedAgent}>
-            {(agentIds.length > 0 ? agentIds : ["default"]).map((id) => (
-              <SelectItem key={id} value={id}>{id}</SelectItem>
-            ))}
+            <SelectTrigger className="w-36">
+              <SelectValue placeholder="Select agent" />
+            </SelectTrigger>
+            <SelectContent>
+              {(agentIds.length > 0 ? agentIds : ["default"]).map((id) => (
+                <SelectItem key={id} value={id}>{id}</SelectItem>
+              ))}
+            </SelectContent>
           </Select>
           <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0"
             onClick={() => void sessionsQuery.refetch()} disabled={sessionsQuery.isFetching}
             aria-label="Refresh sessions">
             <RefreshCw className={cn("h-3 w-3", sessionsQuery.isFetching && "animate-spin")} />
           </Button>
-          <span className="text-[10px] tabular-nums text-text-3">{sessions.length} sessions</span>
+          <span className="text-[10px] tabular-nums text-muted-foreground">{sessions.length} sessions</span>
         </PageTitle>
       }
     >
       {sessionsQuery.isLoading && [1, 2, 3].map((i) => (
-        <div key={i} className="rounded-xl border border-border bg-[var(--color-elevated)] p-4 space-y-2">
+        <div key={i} className="rounded-xl border border-border bg-muted p-4 space-y-2">
           <Skeleton className="h-5 w-48" />
           <Skeleton className="h-3 w-32" />
         </div>
@@ -158,7 +164,7 @@ export function SessionsRoute() {
       )}
 
       {sessionsQuery.error != null && (
-        <p className="text-sm text-danger mt-4">Failed to load sessions.</p>
+        <p className="text-sm text-destructive mt-4">Failed to load sessions.</p>
       )}
     </PageShell>
   );

@@ -33,8 +33,8 @@ export function CronRoute() {
     <PageShell
       header={
         <PageTitle icon={<Clock className="h-3.5 w-3.5" />} title="Cron Jobs">
-          <span className="text-xs text-text-3">{jobs.length} job{jobs.length !== 1 ? "s" : ""}</span>
-          <Button asChild variant="primary" size="sm">
+          <span className="text-xs text-muted-foreground">{jobs.length} job{jobs.length !== 1 ? "s" : ""}</span>
+          <Button asChild size="sm">
             <Link to="/cron/$jobId" params={{ jobId: "new" }}><Plus className="h-3.5 w-3.5 mr-1" /> New Job</Link>
           </Button>
         </PageTitle>
@@ -45,7 +45,7 @@ export function CronRoute() {
           {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
         </div>
       )}
-      {jobsQuery.error && <p className="text-sm text-danger">Failed to load cron jobs.</p>}
+      {jobsQuery.error && <p className="text-sm text-destructive">Failed to load cron jobs.</p>}
       {!jobsQuery.isLoading && jobs.length === 0 && (
         <EmptyState icon={<Clock />} title="No cron jobs yet" subtitle="Create a scheduled task to begin automation." />
       )}
@@ -58,26 +58,26 @@ export function CronRoute() {
             <CardHeader>
               <div className="flex items-center gap-2 min-w-0">
                 <CardTitle className="truncate">{job.name}</CardTitle>
-                <Badge variant="neutral" className="text-[10px] shrink-0">{job.agent_id}</Badge>
+                <Badge variant="outline" className="text-[10px] shrink-0">{job.agent_id}</Badge>
                 <StatusPill status={job.last_status ?? "PENDING"} />
               </div>
               <div className="flex items-center gap-1 shrink-0">
-                <Button variant="ghost" size="xs" className="gap-1"
+                <Button variant="ghost" size="sm" className="gap-1"
                   disabled={triggerMut.isPending} onClick={() => handleTrigger(job.id, job.name)}>
                   <Play className="h-3 w-3" /> Run
                 </Button>
                 {isConfirming ? (
                   <div className="flex items-center gap-1">
-                    <Button variant="danger" size="xs"
+                    <Button variant="destructive" size="sm"
                       disabled={deleteMut.isPending} onClick={() => handleDelete(job.id)}>
                       {deleteMut.isPending ? "Deleting..." : "Confirm"}
                     </Button>
-                    <Button variant="ghost" size="xs"
+                    <Button variant="ghost" size="sm"
                       onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
                   </div>
                 ) : (
-                  <Button variant="ghost" size="xs"
-                    className="text-danger/60 hover:text-danger"
+                  <Button variant="ghost" size="sm"
+                    className="text-destructive/60 hover:text-destructive"
                     onClick={() => setConfirmDeleteId(job.id)}>
                     <Trash2 className="h-3 w-3" />
                   </Button>
@@ -91,9 +91,9 @@ export function CronRoute() {
               </div>
             </CardHeader>
             <CardContent className="pt-2">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-text-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <span className="flex items-center gap-1">
-                  <Clock className="h-3 w-3 text-accent opacity-40" />
+                  <Clock className="h-3 w-3 text-primary opacity-40" />
                   <code>{job.schedule}</code>
                 </span>
                 {job.max_retries != null && job.max_retries > 0 && (
@@ -124,11 +124,11 @@ function RunHistory({ jobId }: { readonly jobId: string }) {
     );
   }
   if (runs.length === 0) {
-    return <p className="mt-3 text-xs text-text-3 opacity-60">No runs recorded yet.</p>;
+    return <p className="mt-3 text-xs text-muted-foreground opacity-60">No runs recorded yet.</p>;
   }
   return (
     <div className="mt-3 space-y-1">
-      <p className="text-[10px] uppercase tracking-widest text-text-3 mb-1">Recent runs</p>
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Recent runs</p>
       {runs.slice(0, 10).map((run) => <RunRow key={String(run.id)} run={run} />)}
     </div>
   );
@@ -136,13 +136,13 @@ function RunHistory({ jobId }: { readonly jobId: string }) {
 
 function RunRow({ run }: { readonly run: CronRun }) {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-border bg-[var(--color-elevated)] px-3 py-2 text-xs">
+    <div className="flex items-center gap-3 rounded-lg border border-border bg-muted px-3 py-2 text-xs">
       <StatusPill status={run.status} />
-      <span className="text-text-3 tabular-nums">
+      <span className="text-muted-foreground tabular-nums">
         {run.executed_at != null ? formatTimestamp(run.executed_at) : "-"}
       </span>
-      {run.duration_ms != null && <span className="text-text-3 opacity-60">{run.duration_ms}ms</span>}
-      <span className="ml-auto truncate max-w-[40%] text-text-2">
+      {run.duration_ms != null && <span className="text-muted-foreground opacity-60">{run.duration_ms}ms</span>}
+      <span className="ml-auto truncate max-w-[40%] text-foreground">
         {run.output_preview ?? run.error ?? ""}
       </span>
     </div>

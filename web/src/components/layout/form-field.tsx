@@ -6,7 +6,7 @@ interface FormFieldProps {
   readonly label: string;
   /** Optional helper text below the input */
   readonly hint?: string;
-  /** Form control (Input, Select, TextArea, etc.) */
+  /** Form control (Input, Select, Textarea, etc.) */
   readonly children: ReactNode;
   /** Additional className on the wrapper */
   readonly className?: string;
@@ -25,17 +25,17 @@ export function FormField({
     return (
       <label className={cn("flex items-center gap-2 cursor-pointer", className)}>
         {children}
-        <span className="text-sm text-text-2">{label}</span>
+        <span className="text-sm text-foreground">{label}</span>
       </label>
     );
   }
 
   return (
     <div className={cn("space-y-1.5", className)}>
-      <label className="block text-xs font-medium text-text-2">{label}</label>
+      <label className="block text-xs font-medium text-foreground">{label}</label>
       {children}
       {hint != null && hint.length > 0 && (
-        <p className="text-[11px] text-text-3">{hint}</p>
+        <p className="text-[11px] text-muted-foreground">{hint}</p>
       )}
     </div>
   );

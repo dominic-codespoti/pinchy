@@ -23,12 +23,12 @@ function formatCost(usd: number): string {
   return usd < 0.01 ? `$${usd.toFixed(4)}` : `$${usd.toFixed(2)}`;
 }
 
-function hbStyle(h: string): { variant: "success" | "danger" | "warning" | "neutral"; dot: string } {
+function hbStyle(h: string): { variant: "default" | "destructive" | "secondary" | "outline"; dot: string } {
   const u = h.toUpperCase();
-  if (u.startsWith("OK")) return { variant: "success", dot: "bg-success animate-status-pulse" };
-  if (u.startsWith("ERROR")) return { variant: "danger", dot: "bg-danger" };
-  if (u === "MISSED" || u === "STALE") return { variant: "warning", dot: "bg-warning" };
-  return { variant: "neutral", dot: "bg-warning" };
+  if (u.startsWith("OK")) return { variant: "default", dot: "bg-emerald-500 animate-status-pulse" };
+  if (u.startsWith("ERROR")) return { variant: "destructive", dot: "bg-red-500" };
+  if (u === "MISSED" || u === "STALE") return { variant: "secondary", dot: "bg-amber-500" };
+  return { variant: "outline", dot: "bg-amber-500" };
 }
 
 function StatBlock({ label, value, accent }: {
@@ -36,8 +36,8 @@ function StatBlock({ label, value, accent }: {
 }) {
   return (
     <div>
-      <p className="text-[10px] uppercase tracking-widest text-text-3">{label}</p>
-      <p className={cn("text-xl font-semibold mt-0.5", accent ?? "text-text-1")}>{value}</p>
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</p>
+      <p className={cn("text-xl font-semibold mt-0.5", accent ?? "text-foreground")}>{value}</p>
     </div>
   );
 }
@@ -50,27 +50,27 @@ function HealthSection() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Server className="h-4 w-4 text-accent opacity-60" /> System Health
+          <Server className="h-4 w-4 text-primary opacity-60" /> System Health
         </CardTitle>
         <div className="flex items-center gap-1.5">
-          <RefreshCw className={cn("h-3 w-3 text-text-3 opacity-60", isFetching && "animate-spin text-accent")} />
-          <span className="text-[10px] text-text-3 opacity-60">auto</span>
+          <RefreshCw className={cn("h-3 w-3 text-muted-foreground opacity-60", isFetching && "animate-spin text-primary")} />
+          <span className="text-[10px] text-muted-foreground opacity-60">auto</span>
         </div>
       </CardHeader>
       <CardContent>
         {isLoading ? <Skeleton className="h-14 w-full" /> : !data ? (
-          <p className="text-xs text-text-3 opacity-60">Health endpoint unavailable</p>
+          <p className="text-xs text-muted-foreground opacity-60">Health endpoint unavailable</p>
         ) : (
           <div className="space-y-3">
             <div className="flex items-center gap-3">
-              <span className={cn("inline-block h-2.5 w-2.5 rounded-full", data.status === "ok" ? "bg-success animate-status-pulse" : "bg-danger")} />
-              <span className={cn("text-lg font-semibold", data.status === "ok" ? "text-success" : "text-danger")}>{data.status.toUpperCase()}</span>
+              <span className={cn("inline-block h-2.5 w-2.5 rounded-full", data.status === "ok" ? "bg-emerald-500 animate-status-pulse" : "bg-red-500")} />
+              <span className={cn("text-lg font-semibold", data.status === "ok" ? "text-emerald-500" : "text-destructive")}>{data.status.toUpperCase()}</span>
             </div>
             <div className="grid grid-cols-3 gap-3 text-xs">
               {([["Version", data.version], ["Uptime", formatUptime(data.uptime_secs)], ["Agents", String(data.agents)]] as const).map(([l, v]) => (
                 <div key={l}>
-                  <p className="text-[10px] uppercase tracking-widest text-text-3">{l}</p>
-                  <p className="text-sm font-medium text-text-1 mt-0.5">{v}</p>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">{l}</p>
+                  <p className="text-sm font-medium text-foreground mt-0.5">{v}</p>
                 </div>
               ))}
             </div>
@@ -90,12 +90,12 @@ function AgentCard({ agent, cronCount, heartbeat }: {
   const hb = hbStyle(health);
   return (
     <Link to="/agents/$agentId" params={{ agentId: agent.id }}
-      className="group rounded-xl border border-border bg-[var(--color-elevated)] p-3 space-y-2 transition-all duration-200 hover:border-accent/20 hover:bg-[var(--glass-bg)]">
+      className="group rounded-xl border border-border bg-muted p-3 space-y-2 transition-all duration-200 hover:border-primary/20 hover:bg-accent">
       <div className="flex items-center justify-between gap-2">
-        <p className="text-sm font-semibold text-text-1 truncate">{agent.id}</p>
+        <p className="text-sm font-semibold text-foreground truncate">{agent.id}</p>
         <Badge variant={hb.variant} className="shrink-0">{health}</Badge>
       </div>
-      <div className="space-y-0.5 text-xs text-text-3">
+      <div className="space-y-0.5 text-xs text-muted-foreground">
         <p className="truncate">Model: {agent.model ?? "default"}</p>
         <p>Cron jobs: {cronCount}</p>
         {heartbeat?.last_tick && <p>Last tick: {formatTimestamp(heartbeat.last_tick)}</p>}
@@ -119,9 +119,9 @@ function AgentOverviewSection() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Bot className="h-4 w-4 text-accent opacity-60" /> Agents
+          <Bot className="h-4 w-4 text-primary opacity-60" /> Agents
         </CardTitle>
-        <Badge variant="neutral">{list.length}</Badge>
+        <Badge variant="outline">{list.length}</Badge>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -129,7 +129,7 @@ function AgentOverviewSection() {
             <Skeleton className="h-24" /><Skeleton className="h-24" />
           </div>
         ) : list.length === 0 ? (
-          <p className="text-xs text-text-3 opacity-60 py-4 text-center">No agents configured</p>
+          <p className="text-xs text-muted-foreground opacity-60 py-4 text-center">No agents configured</p>
         ) : (
           <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
             {list.map((a) => (
@@ -153,7 +153,7 @@ function CronSummarySection() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Clock className="h-4 w-4 text-accent opacity-60" /> Cron Jobs
+          <Clock className="h-4 w-4 text-primary opacity-60" /> Cron Jobs
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -161,8 +161,8 @@ function CronSummarySection() {
           <>
             <div className="grid grid-cols-3 gap-4">
               <StatBlock label="Total" value={String(jobs.length)} />
-              <StatBlock label="Running" value={String(running)} accent={running > 0 ? "text-info" : undefined} />
-              <StatBlock label="Failed" value={String(failed)} accent={failed > 0 ? "text-danger" : undefined} />
+              <StatBlock label="Running" value={String(running)} accent={running > 0 ? "text-blue-400" : undefined} />
+              <StatBlock label="Failed" value={String(failed)} accent={failed > 0 ? "text-destructive" : undefined} />
             </div>
             {jobs.length > 0 && (
               <>
@@ -170,7 +170,7 @@ function CronSummarySection() {
                 <div className="space-y-1.5 max-h-32 overflow-auto">
                   {jobs.map((j) => (
                     <div key={j.id} className="flex items-center justify-between text-xs">
-                      <span className="text-text-2 truncate max-w-[140px]">{j.name}</span>
+                      <span className="text-foreground truncate max-w-[140px]">{j.name}</span>
                       <StatusPill status={j.last_status ?? "idle"} />
                     </div>
                   ))}
@@ -193,7 +193,7 @@ function UsageSummarySection() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Coins className="h-4 w-4 text-accent opacity-60" /> Usage
+          <Coins className="h-4 w-4 text-primary opacity-60" /> Usage
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -218,26 +218,26 @@ function HeartbeatSection() {
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
-          <Heart className="h-4 w-4 text-accent opacity-60" /> Heartbeat Health
+          <Heart className="h-4 w-4 text-primary opacity-60" /> Heartbeat Health
         </CardTitle>
-        {!isLoading && <Badge variant={okCount === agents.length && agents.length > 0 ? "success" : "warning"}>{okCount}/{agents.length} OK</Badge>}
+        {!isLoading && <Badge variant={okCount === agents.length && agents.length > 0 ? "default" : "secondary"}>{okCount}/{agents.length} OK</Badge>}
       </CardHeader>
       <CardContent>
         {isLoading ? <Skeleton className="h-16 w-full" /> : agents.length === 0 ? (
-          <p className="text-xs text-text-3 opacity-60 py-2 text-center">No heartbeat agents</p>
+          <p className="text-xs text-muted-foreground opacity-60 py-2 text-center">No heartbeat agents</p>
         ) : (
           <div className="space-y-2">
             {agents.map((a) => {
               const h = (a.health ?? "UNKNOWN").toUpperCase();
               const hb = hbStyle(h);
               return (
-                <div key={a.agent_id} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-[var(--color-elevated)] px-3 py-2">
+                <div key={a.agent_id} className="flex items-center justify-between gap-2 rounded-lg border border-border bg-muted px-3 py-2">
                   <div className="flex items-center gap-2 min-w-0">
                     <span className={cn("inline-block h-2 w-2 shrink-0 rounded-full", hb.dot)} />
-                    <span className="text-sm text-text-1 truncate">{a.agent_id}</span>
+                    <span className="text-sm text-foreground truncate">{a.agent_id}</span>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
-                    {a.last_tick && <span className="text-[10px] text-text-3">{formatTimestamp(a.last_tick)}</span>}
+                    {a.last_tick && <span className="text-[10px] text-muted-foreground">{formatTimestamp(a.last_tick)}</span>}
                     <Badge variant={hb.variant}>{h}</Badge>
                   </div>
                 </div>
@@ -258,7 +258,7 @@ export function DashboardRoute() {
       maxWidth="5xl"
       header={
         <PageTitle icon={<Activity className="h-3.5 w-3.5" />} title="Overview">
-          <span className="text-xs text-text-3">Agent operations dashboard</span>
+          <span className="text-xs text-muted-foreground">Agent operations dashboard</span>
         </PageTitle>
       }
     >

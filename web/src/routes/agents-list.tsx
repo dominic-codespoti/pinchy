@@ -36,14 +36,14 @@ export function AgentsListRoute() {
       maxWidth="5xl"
       header={
         <PageTitle icon={<Bot className="h-3.5 w-3.5" />} title="Agents">
-          <span className="text-xs text-text-3">{agents.length} agents</span>
+          <span className="text-xs text-muted-foreground">{agents.length} agents</span>
         </PageTitle>
       }
     >
       <div className="flex gap-2">
         <Input placeholder="new-agent-id" value={newId} onChange={(e) => setNewId(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") onCreate(); }} />
-        <Button variant="primary" size="sm" onClick={onCreate} disabled={createMut.isPending}>
+        <Button size="sm" onClick={onCreate} disabled={createMut.isPending}>
           <Plus className="h-3.5 w-3.5 mr-1" />{createMut.isPending ? "..." : "Create"}
         </Button>
       </div>
@@ -54,18 +54,18 @@ export function AgentsListRoute() {
         {agents.map((a) => (
           <Card key={a.id} className="group"><CardContent className="space-y-2">
             <Link to="/agents/$agentId" params={{ agentId: a.id }} className="block">
-              <p className="text-sm font-semibold text-text-1">{a.id}</p>
-              <div className="mt-1 space-y-0.5 text-xs text-text-3">
+              <p className="text-sm font-semibold text-foreground">{a.id}</p>
+              <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
                 <p className="flex items-center gap-1.5"><Cpu className="h-3 w-3" />{a.model ?? "default"}</p>
                 <p className="flex items-center gap-1.5"><Heart className="h-3 w-3" />{a.heartbeat_secs ? `${a.heartbeat_secs}s` : "off"}</p>
                 <p className="flex items-center gap-1.5"><Clock className="h-3 w-3" />{a.cron_job_count} cron</p>
               </div>
             </Link>
             <div className="flex justify-between pt-1 border-t border-border">
-              <button type="button" className="text-[10px] text-accent/60 hover:text-accent flex items-center gap-1"
+              <button type="button" className="text-[10px] text-primary/60 hover:text-primary flex items-center gap-1"
                 onClick={() => { setCloneSrc(a.id); setCloneNewId(`${a.id}-copy`); }}>
                 <Copy className="h-2.5 w-2.5" />Clone</button>
-              <button type="button" className="text-[10px] text-danger/60 hover:text-danger flex items-center gap-1"
+              <button type="button" className="text-[10px] text-destructive/60 hover:text-destructive flex items-center gap-1"
                 onClick={() => setDeleteId(a.id)}><Trash2 className="h-2.5 w-2.5" />Delete</button>
             </div>
           </CardContent></Card>
@@ -73,10 +73,10 @@ export function AgentsListRoute() {
       </div>
       <Dialog open={deleteId !== null} onOpenChange={(o) => { if (!o) setDeleteId(null); }}>
         <DialogContent><DialogTitle>Delete {deleteId}?</DialogTitle>
-          <p className="text-sm text-text-3 px-4">This cannot be undone.</p>
+          <p className="text-sm text-muted-foreground px-4">This cannot be undone.</p>
           <div className="flex justify-end gap-2 p-4">
             <DialogClose asChild><Button variant="secondary" size="sm">Cancel</Button></DialogClose>
-            <Button variant="danger" size="sm" disabled={deleteMut.isPending}
+            <Button variant="destructive" size="sm" disabled={deleteMut.isPending}
               onClick={() => deleteId && deleteMut.mutate(deleteId,
                 mutationOpts("Deleted", () => setDeleteId(null)),
               )}>{deleteMut.isPending ? "..." : "Delete"}</Button>
@@ -88,7 +88,7 @@ export function AgentsListRoute() {
           <div className="p-4"><Input value={cloneNewId} onChange={(e) => setCloneNewId(e.target.value)} placeholder="new-agent-id" /></div>
           <div className="flex justify-end gap-2 p-4 pt-0">
             <DialogClose asChild><Button variant="secondary" size="sm">Cancel</Button></DialogClose>
-            <Button variant="primary" size="sm" disabled={cloneMut.isPending}
+            <Button size="sm" disabled={cloneMut.isPending}
               onClick={() => cloneSrc && cloneMut.mutate({ id: cloneSrc, newId: cloneNewId.trim() },
                 mutationOpts("Cloned", () => setCloneSrc(null)),
               )}>{cloneMut.isPending ? "..." : "Clone"}</Button>

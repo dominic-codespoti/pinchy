@@ -1,10 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
 import { resolve } from "node:path";
 
 export default defineConfig({
   base: "/react/",
-  plugins: [react()],
+  plugins: [tailwindcss(), react()],
   resolve: {
     alias: {
       "@": resolve(__dirname, "src"),
@@ -44,9 +45,6 @@ export default defineConfig({
             "remark-gfm",
           ],
           "vendor-ui": [
-            "@radix-ui/react-dialog",
-            "@radix-ui/react-select",
-            "@radix-ui/react-checkbox",
             "lucide-react",
             "sonner",
           ],

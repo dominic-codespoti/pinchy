@@ -68,22 +68,22 @@ export function LogsRoute() {
   return (
     <div className="flex h-full flex-col">
       {/* Header bar — matches PageShell styling */}
-      <div className="flex shrink-0 items-center gap-2 px-4 h-11 border-b border-border bg-[var(--color-elevated)]">
-        <div className="flex h-6 w-6 items-center justify-center rounded-md bg-accent-subtle text-accent">
+      <div className="flex shrink-0 items-center gap-2 px-4 h-11 border-b border-border bg-muted">
+        <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
           <ScrollText className="h-3 w-3" />
         </div>
-        <h1 className="text-sm font-semibold text-text-1">Logs</h1>
-        <span className="text-[10px] tabular-nums text-text-3">{lines.length} lines</span>
+        <h1 className="text-sm font-semibold text-foreground">Logs</h1>
+        <span className="text-[10px] tabular-nums text-muted-foreground">{lines.length} lines</span>
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="ghost" size="xs" className="gap-1" onClick={handleTogglePause}>
+          <Button variant="ghost" size="sm" className="gap-1" onClick={handleTogglePause}>
             {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
             {paused ? "Resume" : "Pause"}
           </Button>
-          <Button variant="ghost" size="xs" className="gap-1" onClick={() => setLines([])}>
+          <Button variant="ghost" size="sm" className="gap-1" onClick={() => setLines([])}>
             <Trash2 className="h-3 w-3" /> Clear
           </Button>
-          <Button variant="ghost" size="xs" onClick={() => setAutoScroll((p) => !p)}
-            className={cn("gap-1", autoScroll && "text-accent")}>
+          <Button variant="ghost" size="sm" onClick={() => setAutoScroll((p) => !p)}
+            className={cn("gap-1", autoScroll && "text-primary")}>
             <ArrowDown className="h-3 w-3" /> Auto-scroll
           </Button>
         </div>
@@ -96,21 +96,21 @@ export function LogsRoute() {
             <CardTitle className="text-xs">
               Stream
               <span className={cn("ml-2 inline-block h-2 w-2 rounded-full",
-                paused ? "bg-warning" : "bg-success animate-status-pulse")} />
+                paused ? "bg-amber-500" : "bg-emerald-500 animate-status-pulse")} />
             </CardTitle>
           </CardHeader>
           <CardContent className="flex-1 overflow-hidden p-0">
             <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-auto px-3 pb-3">
               {lines.map((line, i) => (
-                <div key={i} className="font-mono text-xs leading-5 hover:bg-[var(--color-elevated)] rounded px-1">
+                <div key={i} className="font-mono text-xs leading-5 hover:bg-muted rounded px-1">
                   {line.timestamp && (
-                    <span className="text-accent opacity-70 mr-2 select-none">{line.timestamp}</span>
+                    <span className="text-primary opacity-70 mr-2 select-none">{line.timestamp}</span>
                   )}
-                  <span className="text-text-2 break-all">{line.message}</span>
+                  <span className="text-foreground break-all">{line.message}</span>
                 </div>
               ))}
               {lines.length === 0 && (
-                <p className="text-xs text-text-3 opacity-60 py-8 text-center">
+                <p className="text-xs text-muted-foreground opacity-60 py-8 text-center">
                   {paused ? "Paused \u2014 click Resume to reconnect" : "Waiting for log data..."}
                 </p>
               )}
@@ -119,7 +119,7 @@ export function LogsRoute() {
         </Card>
         {!autoScroll && lines.length > 0 && (
           <button type="button" onClick={scrollToBottom}
-            className="absolute bottom-5 right-5 flex items-center gap-1.5 rounded-lg border border-border bg-surface-0 px-3 py-1.5 text-xs text-text-2 shadow-elevated hover:bg-[var(--color-elevated)] transition-all backdrop-blur-sm">
+            className="absolute bottom-5 right-5 flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground shadow-lg hover:bg-muted transition-all">
             <ArrowDown className="h-3 w-3" /> Jump to bottom
           </button>
         )}

@@ -9,9 +9,9 @@ function roleLabel(role: string): string {
 }
 
 function roleAvatar(role: string): string {
-  if (role === "user") return "bg-accent-subtle";
-  if (role === "system") return "bg-warning-subtle";
-  return "bg-[var(--color-elevated)]";
+  if (role === "user") return "bg-primary/10";
+  if (role === "system") return "bg-amber-500/10";
+  return "bg-muted";
 }
 
 export function MessageRow({ message }: { readonly message: SessionMessage }) {
@@ -25,25 +25,25 @@ export function MessageRow({ message }: { readonly message: SessionMessage }) {
   return (
     <div className="flex gap-3 py-3">
       <div className={cn("mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md", roleAvatar(role))}>
-        <span className="text-[10px] font-semibold text-text-3">{label.charAt(0)}</span>
+        <span className="text-[10px] font-semibold text-muted-foreground">{label.charAt(0)}</span>
       </div>
       <div className="min-w-0 flex-1">
         <div className="mb-0.5 flex items-center gap-2">
-          <span className={cn("text-xs font-medium", role === "user" ? "text-accent" : role === "system" ? "text-warning" : "text-text-1")}>
+          <span className={cn("text-xs font-medium", role === "user" ? "text-primary" : role === "system" ? "text-amber-500" : "text-foreground")}>
             {label}
           </span>
           {message.timestamp != null && (
-            <span className="text-[10px] tabular-nums text-text-3 opacity-60">
+            <span className="text-[10px] tabular-nums text-muted-foreground opacity-60">
               {formatTimestamp(message.timestamp)}
             </span>
           )}
         </div>
         {isPlain ? (
-          <p className={cn("whitespace-pre-wrap break-words text-sm", role === "system" ? "text-warning/80" : "text-text-1")}>
+          <p className={cn("whitespace-pre-wrap break-words text-sm", role === "system" ? "text-amber-500/80" : "text-foreground")}>
             {content}
           </p>
         ) : (
-          <MarkdownRenderer content={content} className="text-sm leading-relaxed text-text-2" />
+          <MarkdownRenderer content={content} className="text-sm leading-relaxed text-foreground" />
         )}
       </div>
     </div>
@@ -54,7 +54,7 @@ export function MessageList({ messages }: { readonly messages: ReadonlyArray<Ses
   if (messages.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-sm text-text-3">No messages yet</p>
+        <p className="text-sm text-muted-foreground">No messages yet</p>
       </div>
     );
   }

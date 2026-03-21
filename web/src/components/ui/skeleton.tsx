@@ -1,14 +1,10 @@
 import { cn } from "@/lib/utils";
 
-export function Skeleton({ className }: { readonly className?: string }) {
+export function Skeleton({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn("animate-shimmer rounded-lg bg-[var(--color-elevated)]", className)}
-      style={{
-        backgroundImage:
-          "linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.04) 50%, transparent 70%)",
-        backgroundSize: "200% 100%",
-      }}
+      className={cn("animate-pulse rounded-md bg-primary/10", className)}
+      {...props}
     />
   );
 }

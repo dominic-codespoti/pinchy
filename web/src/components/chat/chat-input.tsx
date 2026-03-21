@@ -46,12 +46,10 @@ export function ChatInput({ onSend, disabled = false }: ChatInputProps) {
         placeholder="Send a message..."
         disabled={disabled}
         rows={1}
-        className="max-h-36 flex-1 resize-none rounded-xl border border-border bg-[var(--color-elevated)] px-3 py-2 text-sm leading-5 text-text-1 placeholder:text-text-3/60 outline-none focus:border-accent/40 focus:shadow-ring disabled:opacity-50 transition-all duration-200"
+        className="max-h-36 flex-1 resize-none rounded-xl border border-border bg-muted px-3 py-2 text-sm leading-5 text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-ring focus:ring-1 focus:ring-ring disabled:opacity-50 transition-all duration-200"
         style={{ fieldSizing: "content" }}
       />
       <Button
-        variant="primary"
-        size="md"
         onClick={handleSend}
         disabled={disabled || draft.trim().length === 0}
         className="shrink-0"

@@ -3,8 +3,16 @@ import { cn } from "@/lib/utils";
 export function Card({
   className,
   ...props
-}: React.HTMLAttributes<HTMLElement>) {
-  return <section className={cn("glass-card", className)} {...props} />;
+}: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      className={cn(
+        "rounded-xl border bg-card text-card-foreground shadow",
+        className,
+      )}
+      {...props}
+    />
+  );
 }
 
 export function CardHeader({
@@ -29,7 +37,7 @@ export function CardTitle({
   return (
     <h2
       className={cn(
-        "text-sm font-semibold tracking-tight text-text-1",
+        "text-sm font-semibold leading-none tracking-tight",
         className,
       )}
       {...props}

@@ -80,23 +80,23 @@ function YamlEditor({ value, onChange }: { readonly value: string; readonly onCh
     if (!containerRef.current) return;
     const theme = EditorView.theme({
       "&": {
-        backgroundColor: "var(--color-surface-0)",
-        color: "var(--color-text-2)",
+        backgroundColor: "hsl(var(--card))",
+        color: "hsl(var(--foreground))",
         fontSize: "12px",
-        borderRadius: "var(--radius-md)",
-        border: "1px solid var(--color-border)",
+        borderRadius: "calc(var(--radius) - 2px)",
+        border: "1px solid hsl(var(--border))",
         minHeight: "20rem",
       },
       ".cm-content": {
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
-        caretColor: "var(--color-accent)",
+        caretColor: "hsl(var(--primary))",
         padding: "8px 0",
       },
-      ".cm-cursor": { borderLeftColor: "var(--color-accent)" },
-      ".cm-activeLine": { backgroundColor: "var(--color-elevated)" },
+      ".cm-cursor": { borderLeftColor: "hsl(var(--primary))" },
+      ".cm-activeLine": { backgroundColor: "hsl(var(--muted))" },
       ".cm-gutters": {
-        backgroundColor: "var(--color-bg)",
-        color: "var(--color-text-3)",
+        backgroundColor: "hsl(var(--background))",
+        color: "hsl(var(--muted-foreground))",
         border: "none",
         opacity: "0.5",
       },
@@ -188,7 +188,7 @@ export function ConfigRoute() {
   const modeBtn = (m: Mode, label: string, Icon: typeof Settings) => (
     <button type="button" onClick={() => setMode(m)} className={cn(
       "flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-all",
-      mode === m ? "bg-accent-subtle text-accent" : "text-text-3 hover:text-text-2")}>
+      mode === m ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground")}>
       <Icon className="h-3 w-3" />{label}
     </button>
   );
@@ -201,10 +201,10 @@ export function ConfigRoute() {
           <div className="flex items-center gap-0.5">
             {modeBtn("form", "Form", Settings)}{modeBtn("json", "JSON", Code)}
           </div>
-          <Button variant="ghost" size="xs" className="gap-1" onClick={handleReset}>
+          <Button variant="ghost" size="sm" className="gap-1" onClick={handleReset}>
             <RotateCcw className="h-3 w-3" /> Reset
           </Button>
-          <Button variant="primary" size="sm" disabled={saveMutation.isPending}
+          <Button size="sm" disabled={saveMutation.isPending}
             onClick={mode === "form" ? handleSaveForm : handleSaveJson}>
             <Save className="h-3 w-3 mr-1" /> {saveMutation.isPending ? "Saving..." : "Save"}
           </Button>
@@ -217,7 +217,7 @@ export function ConfigRoute() {
           <Skeleton className="h-8 w-full" /><Skeleton className="h-8 w-2/3" />
         </CardContent></Card>
       )}
-      {configQuery.error && <p className="text-sm text-danger">Failed to load config.</p>}
+      {configQuery.error && <p className="text-sm text-destructive">Failed to load config.</p>}
       {mode === "form" && !configQuery.isLoading && (
         <Card><CardHeader><CardTitle>Configuration</CardTitle></CardHeader>
           <CardContent><div className="grid grid-cols-1 gap-4 md:grid-cols-2">

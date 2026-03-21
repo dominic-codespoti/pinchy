@@ -9,28 +9,28 @@ interface ToolActivityProps {
 }
 
 function statusIcon(status: string) {
-  if (status === "success") return <Check className="h-3 w-3 text-success" />;
-  if (status === "error") return <X className="h-3 w-3 text-danger" />;
-  return <Wrench className="h-3 w-3 animate-spin text-text-3" />;
+  if (status === "success") return <Check className="h-3 w-3 text-emerald-500" />;
+  if (status === "error") return <X className="h-3 w-3 text-destructive" />;
+  return <Wrench className="h-3 w-3 animate-spin text-muted-foreground" />;
 }
 
 function statusVariant(status: string) {
-  if (status === "success") return "success" as const;
-  if (status === "error") return "danger" as const;
-  return "neutral" as const;
+  if (status === "success") return "default" as const;
+  if (status === "error") return "destructive" as const;
+  return "outline" as const;
 }
 
 export function ToolActivity({ toolCalls, isTyping }: ToolActivityProps) {
   if (toolCalls.length === 0 && !isTyping) return null;
 
   return (
-    <div className="rounded-lg border border-border bg-[var(--color-elevated)] px-3 py-2">
+    <div className="rounded-lg border border-border bg-muted px-3 py-2">
       <div className="flex items-center gap-1.5 mb-2">
-        <Wrench className="h-3 w-3 text-text-3" />
-        <span className="text-[10px] font-medium uppercase tracking-wide text-text-3">
+        <Wrench className="h-3 w-3 text-muted-foreground" />
+        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
           Tool Activity
         </span>
-        <span className="text-[10px] tabular-nums text-text-3 opacity-60">
+        <span className="text-[10px] tabular-nums text-muted-foreground opacity-60">
           {toolCalls.length}
         </span>
       </div>
@@ -42,26 +42,26 @@ export function ToolActivity({ toolCalls, isTyping }: ToolActivityProps) {
             className={cn(
               "flex items-center gap-2 rounded-md px-2 py-1.5 text-xs",
               call.status === "error"
-                ? "bg-danger-subtle"
-                : "bg-[var(--color-elevated)]",
+                ? "bg-destructive/10"
+                : "bg-muted",
             )}
           >
             {statusIcon(call.status)}
             <Badge variant={statusVariant(call.status)}>{call.tool}</Badge>
             {call.argsSummary.length > 0 && (
-              <span className="truncate text-[10px] text-text-3">
+              <span className="truncate text-[10px] text-muted-foreground">
                 {call.argsSummary}
               </span>
             )}
             {call.durationMs !== null && (
-              <span className="ml-auto shrink-0 text-[10px] tabular-nums text-text-3 opacity-60">
+              <span className="ml-auto shrink-0 text-[10px] tabular-nums text-muted-foreground opacity-60">
                 {call.durationMs >= 1000
                   ? `${(call.durationMs / 1000).toFixed(1)}s`
                   : `${call.durationMs}ms`}
               </span>
             )}
             {call.error.length > 0 && (
-              <span className="truncate text-[10px] text-danger">
+              <span className="truncate text-[10px] text-destructive">
                 {call.error}
               </span>
             )}
