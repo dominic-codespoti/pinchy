@@ -798,7 +798,7 @@ mod tests {
         assert!(url.contains("auth.openai.com/oauth/authorize"));
         assert!(url.contains(CLIENT_ID));
         assert!(url.contains("code_challenge_method=S256"));
-        assert!(url.contains("originator=pinchy"));
+        assert!(url.contains("originator=codex_cli"));
         assert!(url.contains("response_type=code"));
         assert!(url.contains("codex_cli_simplified_flow=true"));
         assert!(url.contains(&format!("state={state}")));

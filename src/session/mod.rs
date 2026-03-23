@@ -163,53 +163,21 @@ impl SessionStore {
         limit: usize,
     ) -> anyhow::Result<Vec<Exchange>> {
         let path = workspace.join("sessions").join(format!("{id}.jsonl"));
-        let bytes = match fs::read(&path).await {
-            Ok(b) => b,
+        let content = match fs::read_to_string(&path).await {
+            Ok(content) => content,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(e).with_context(|| format!("read {}", path.display())),
         };
 
-        // Walk backwards through the byte buffer to find the last `limit`
-        // non-empty lines.  We collect byte-range slices first, then
-        // deserialize only those – avoiding allocations for the lines we
-        // don't need.
-        let mut tail_lines: Vec<&[u8]> = Vec::with_capacity(limit);
-        let mut end = bytes.len();
+        let lines: Vec<&str> = content
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .collect();
+        let start = lines.len().saturating_sub(limit);
 
-        // Skip trailing newlines / whitespace
-        while end > 0 && bytes[end - 1].is_ascii_whitespace() {
-            end -= 1;
-        }
-
-        while end > 0 && tail_lines.len() < limit {
-            // Find the start of this line
-            let line_end = end;
-            let line_start = match bytes[..end].iter().rposition(|&b| b == b'\n') {
-                Some(pos) => pos + 1,
-                None => 0,
-            };
-            let slice = &bytes[line_start..line_end];
-            let trimmed = slice
-                .iter()
-                .copied()
-                .skip_while(|b| b.is_ascii_whitespace())
-                .count();
-            if trimmed > 0 {
-                tail_lines.push(slice);
-            }
-            end = if line_start > 0 { line_start - 1 } else { 0 };
-            // Skip whitespace between lines
-            while end > 0 && bytes[end - 1].is_ascii_whitespace() && bytes[end - 1] != b'\n' {
-                end -= 1;
-            }
-        }
-
-        // Reverse so oldest-first order is preserved.
-        tail_lines.reverse();
-
-        let mut exchanges: Vec<Exchange> = Vec::with_capacity(tail_lines.len());
-        for line in tail_lines {
-            match serde_json::from_slice::<Exchange>(line) {
+        let mut exchanges: Vec<Exchange> = Vec::with_capacity(lines.len().saturating_sub(start));
+        for line in &lines[start..] {
+            match serde_json::from_str::<Exchange>(line) {
                 Ok(ex) => exchanges.push(ex),
                 Err(e) => {
                     debug!(error = %e, "skipping malformed JSONL line");
