@@ -1,7 +1,9 @@
-//! Authentication helpers (GitHub device flow, keyring token storage, Copilot token exchange).
+//! Authentication helpers (GitHub device flow, keyring token storage, Copilot token exchange,
+//! OpenAI ChatGPT OAuth).
 
 pub mod copilot_token;
 pub mod github_device;
+pub mod openai_chatgpt;
 
 /// A typed authentication error that any model provider can return.
 ///

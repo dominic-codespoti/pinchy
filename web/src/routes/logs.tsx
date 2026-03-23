@@ -1,129 +1,201 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-import { ScrollText, Pause, Play, Trash2, ArrowDown } from "lucide-react";
-import { Card, CardHeader, CardTitle, CardContent, Button } from "@/components/ui";
-import { cn, wsUrl } from "@/lib/utils";
+import { createSignal, createMemo, Show, For, onMount, onCleanup } from "solid-js";
+import { ScrollText, Search, Trash2, Play, Pause, ArrowDown } from "@/components/icons";
+import { PageShell, PageTitle } from "@/components/layout";
+import { createLogStream, type LogLine } from "@/api/log-stream";
 
-type LogLine = { raw: string; timestamp: string; message: string };
-const MAX_LINES = 5000;
-const TS_RE = /^(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)\s+(.*)/;
+// ── Main Component ───────────────────────────────────
 
-function parseLine(raw: string): LogLine {
-  const m = raw.match(TS_RE);
-  return m ? { raw, timestamp: m[1] ?? "", message: m[2] ?? "" } : { raw, timestamp: "", message: raw };
-}
+export default function Logs() {
+  const { lines, paused, connect, disconnect, togglePause, clear } = createLogStream();
+  const [search, setSearch] = createSignal("");
+  const [autoScroll, setAutoScroll] = createSignal(true);
+  let outputRef: HTMLDivElement | undefined;
 
-/** Ref whose `.current` always tracks the latest state value */
-function useLatestRef<T>(value: T) {
-  const ref = useRef(value);
-  ref.current = value;
-  return ref;
-}
+  // Connect on mount, disconnect on cleanup
+  onMount(() => connect());
+  onCleanup(() => disconnect());
 
-export function LogsRoute() {
-  const [lines, setLines] = useState<LogLine[]>([]);
-  const [paused, setPaused] = useState(false);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const wsRef = useRef<WebSocket | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const pausedRef = useLatestRef(paused);
+  // Auto-scroll when new lines arrive
+  const filteredLines = createMemo(() => {
+    const q = search().toLowerCase().trim();
+    if (!q) return lines();
+    return lines().filter(
+      (l) => l.message.toLowerCase().includes(q) || l.timestamp.toLowerCase().includes(q),
+    );
+  });
 
-  useEffect(() => {
-    if (autoScroll && scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [lines, autoScroll]);
+  // Auto-scroll effect
+  const scrollToBottom = () => {
+    if (outputRef) {
+      outputRef.scrollTop = outputRef.scrollHeight;
+    }
+  };
 
-  const connect = useCallback(() => {
-    const ws = new WebSocket(wsUrl("/ws/logs"));
-    wsRef.current = ws;
-    ws.onmessage = (ev) => {
-      if (pausedRef.current) return;
-      const parsed = parseLine(typeof ev.data === "string" ? ev.data : "");
-      setLines((prev) => {
-        const next = [...prev, parsed];
-        return next.length > MAX_LINES ? next.slice(-MAX_LINES) : next;
-      });
-    };
-    ws.onclose = () => { wsRef.current = null; };
-    ws.onerror = () => { ws.close(); };
-  }, []);
+  // Watch for new lines and auto-scroll
+  // Use a memo to track line count and trigger scroll
+  const lineCount = createMemo(() => filteredLines().length);
+  // We use a reactive approach: read lineCount in the JSX via a hidden element
+  // that triggers scroll. But simpler: just scroll in requestAnimationFrame.
 
-  const disconnect = useCallback(() => { wsRef.current?.close(); wsRef.current = null; }, []);
+  const [showJumpFab, setShowJumpFab] = createSignal(false);
 
-  useEffect(() => { connect(); return disconnect; }, [connect, disconnect]);
+  function handleScroll() {
+    if (!outputRef) return;
+    const { scrollTop, scrollHeight, clientHeight } = outputRef;
+    const atBottom = scrollHeight - scrollTop - clientHeight < 60;
+    setAutoScroll(atBottom);
+    setShowJumpFab(!atBottom && filteredLines().length > 0);
+  }
 
-  const handleTogglePause = useCallback(() => {
-    setPaused((p) => { const next = !p; if (next) disconnect(); else connect(); return next; });
-  }, [connect, disconnect]);
-
-  const handleScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    setAutoScroll(el.scrollHeight - el.scrollTop - el.clientHeight < 80);
-  }, []);
-
-  const scrollToBottom = useCallback(() => {
-    setAutoScroll(true);
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, []);
+  // Schedule scroll after render when auto-scroll is on
+  function maybeScroll() {
+    if (autoScroll()) {
+      requestAnimationFrame(scrollToBottom);
+    }
+  }
 
   return (
-    <div className="flex h-full flex-col">
-      {/* Header bar — matches PageShell styling */}
-      <div className="flex shrink-0 items-center gap-2 px-4 h-11 border-b border-border bg-muted">
-        <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
-          <ScrollText className="h-3 w-3" />
-        </div>
-        <h1 className="text-sm font-semibold text-foreground">Logs</h1>
-        <span className="text-[10px] tabular-nums text-muted-foreground">{lines.length} lines</span>
-        <div className="ml-auto flex items-center gap-2">
-          <Button variant="ghost" size="sm" className="gap-1" onClick={handleTogglePause}>
-            {paused ? <Play className="h-3 w-3" /> : <Pause className="h-3 w-3" />}
-            {paused ? "Resume" : "Pause"}
-          </Button>
-          <Button variant="ghost" size="sm" className="gap-1" onClick={() => setLines([])}>
-            <Trash2 className="h-3 w-3" /> Clear
-          </Button>
-          <Button variant="ghost" size="sm" onClick={() => setAutoScroll((p) => !p)}
-            className={cn("gap-1", autoScroll && "text-primary")}>
-            <ArrowDown className="h-3 w-3" /> Auto-scroll
-          </Button>
-        </div>
-      </div>
+    <PageShell
+      maxWidth="full"
+      header={
+        <PageTitle icon={<ScrollText size={14} />} title="Logs">
+          {/* Live/Paused badge */}
+          <span class={`log-status-badge ${paused() ? "log-status-paused" : "log-status-live"}`}>
+            {paused() ? "Paused" : "Live"}
+          </span>
 
-      {/* Log viewer */}
-      <div className="flex-1 overflow-hidden p-2 relative">
-        <Card className="h-full flex flex-col">
-          <CardHeader className="shrink-0">
-            <CardTitle className="text-xs">
-              Stream
-              <span className={cn("ml-2 inline-block h-2 w-2 rounded-full",
-                paused ? "bg-amber-500" : "bg-emerald-500 animate-status-pulse")} />
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="flex-1 overflow-hidden p-0">
-            <div ref={scrollRef} onScroll={handleScroll} className="h-full overflow-auto px-3 pb-3">
-              {lines.map((line, i) => (
-                <div key={i} className="font-mono text-xs leading-5 hover:bg-muted rounded px-1">
-                  {line.timestamp && (
-                    <span className="text-primary opacity-70 mr-2 select-none">{line.timestamp}</span>
-                  )}
-                  <span className="text-foreground break-all">{line.message}</span>
-                </div>
-              ))}
-              {lines.length === 0 && (
-                <p className="text-xs text-muted-foreground opacity-60 py-8 text-center">
-                  {paused ? "Paused \u2014 click Resume to reconnect" : "Waiting for log data..."}
-                </p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-        {!autoScroll && lines.length > 0 && (
-          <button type="button" onClick={scrollToBottom}
-            className="absolute bottom-5 right-5 flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground shadow-lg hover:bg-muted transition-all">
-            <ArrowDown className="h-3 w-3" /> Jump to bottom
+          <div class="separator-vertical" style={{ height: "20px" }} />
+
+          {/* Controls */}
+          <button
+            class="btn btn-ghost btn-sm"
+            onClick={togglePause}
+            title={paused() ? "Resume" : "Pause"}
+          >
+            <Show when={paused()} fallback={<Pause size={14} />}>
+              <Play size={14} />
+            </Show>
+            {paused() ? "Resume" : "Pause"}
           </button>
-        )}
+
+          <button
+            class={`btn btn-sm ${autoScroll() ? "btn-secondary" : "btn-ghost"}`}
+            onClick={() => {
+              const next = !autoScroll();
+              setAutoScroll(next);
+              if (next) requestAnimationFrame(scrollToBottom);
+            }}
+            title={autoScroll() ? "Disable auto-scroll" : "Enable auto-scroll"}
+          >
+            <ArrowDown size={14} />
+            Auto-scroll
+          </button>
+
+          <button
+            class="btn btn-ghost btn-sm"
+            onClick={clear}
+            title="Clear logs"
+          >
+            <Trash2 size={14} />
+            Clear
+          </button>
+
+          <div class="separator-vertical" style={{ height: "20px" }} />
+
+          {/* Search */}
+          <div class="log-search-container">
+            <Search size={12} style={{ color: "var(--muted-foreground)", "flex-shrink": "0" }} />
+            <input
+              class="log-search-input"
+              type="text"
+              placeholder="Filter..."
+              value={search()}
+              onInput={(e) => setSearch(e.currentTarget.value)}
+            />
+            <Show when={search()}>
+              <button
+                class="log-search-clear"
+                onClick={() => setSearch("")}
+                title="Clear filter"
+              >
+                <span style={{ "font-size": "10px", color: "var(--muted-foreground)", "font-variant-numeric": "tabular-nums" }}>
+                  {filteredLines().length}/{lines().length}
+                </span>
+              </button>
+            </Show>
+          </div>
+        </PageTitle>
+      }
+    >
+      <div class="route-enter log-container">
+        {/* Empty state */}
+        <Show when={lines().length === 0 && !paused()}>
+          <div class="log-empty">
+            <ScrollText size={24} style={{ color: "var(--muted-foreground)" }} />
+            <p style={{ color: "var(--muted-foreground)", "font-size": "var(--text-sm)" }}>
+              Waiting for log output...
+            </p>
+          </div>
+        </Show>
+
+        <Show when={lines().length === 0 && paused()}>
+          <div class="log-empty">
+            <Pause size={24} style={{ color: "var(--muted-foreground)" }} />
+            <p style={{ color: "var(--muted-foreground)", "font-size": "var(--text-sm)" }}>
+              Paused. Resume to receive new log output.
+            </p>
+          </div>
+        </Show>
+
+        {/* Log output */}
+        <Show when={lines().length > 0}>
+          <div
+            ref={outputRef}
+            class="log-output"
+            onScroll={handleScroll}
+          >
+            <Show
+              when={filteredLines().length > 0}
+              fallback={
+                <div class="log-empty" style={{ "min-height": "220px" }}>
+                  <Search size={24} style={{ color: "var(--muted-foreground)" }} />
+                  <p style={{ color: "var(--muted-foreground)", "font-size": "var(--text-sm)" }}>
+                    No matches for this filter.
+                  </p>
+                </div>
+              }
+            >
+              <For each={filteredLines()}>
+                {(line) => {
+                  maybeScroll();
+                  return (
+                    <div class="log-line">
+                      <Show when={line.timestamp}>
+                        <span class="log-timestamp">{line.timestamp}</span>
+                      </Show>
+                      <span class="log-message">{line.message}</span>
+                    </div>
+                  );
+                }}
+              </For>
+            </Show>
+          </div>
+        </Show>
+
+        {/* Jump to bottom FAB */}
+        <Show when={showJumpFab()}>
+          <button
+            class="log-jump-fab"
+            onClick={() => {
+              setAutoScroll(true);
+              scrollToBottom();
+            }}
+            title="Jump to bottom"
+          >
+            <ArrowDown size={16} />
+          </button>
+        </Show>
       </div>
-    </div>
+    </PageShell>
   );
 }

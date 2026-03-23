@@ -1,51 +1,25 @@
-import type { ReactNode } from "react";
-import { cn } from "@/lib/utils";
+import type { JSX } from "solid-js";
+import { Show } from "solid-js";
 
 // ── PageShell ────────────────────────────────────────
-// Standardized route wrapper. Every page gets:
-//   1. A fixed h-12 header bar (bottom border)
-//   2. A scrollable content area with consistent max-width + padding
 
-interface PageShellProps {
-  /** Header slot — rendered inside the fixed header bar */
-  readonly header: ReactNode;
-  readonly children: ReactNode;
-  /** Max width for content area. Default "4xl" */
-  readonly maxWidth?: "2xl" | "3xl" | "4xl" | "5xl" | "full";
-  /** Additional className on root container */
-  readonly className?: string;
+export interface PageShellProps {
+  header: JSX.Element;
+  children: JSX.Element;
+  maxWidth?: "2xl" | "3xl" | "4xl" | "5xl" | "full";
 }
 
-const maxWidthMap = {
-  "2xl": "max-w-2xl",
-  "3xl": "max-w-3xl",
-  "4xl": "max-w-4xl",
-  "5xl": "max-w-5xl",
-  full: "w-full",
-} as const;
+export function PageShell(props: PageShellProps) {
+  const widthClass = () => `page-content-${props.maxWidth ?? "4xl"}`;
 
-export function PageShell({
-  header,
-  children,
-  maxWidth = "4xl",
-  className,
-}: PageShellProps) {
   return (
-    <div className={cn("flex h-full flex-col", className)}>
-      {/* Header bar */}
-      <div className="flex shrink-0 items-center gap-2 px-4 h-11 border-b border-border bg-muted">
-        {header}
+    <div class="page-shell">
+      <div class="page-header">
+        {props.header}
       </div>
-
-      {/* Scrollable content */}
-      <div className="flex-1 overflow-y-auto">
-        <div
-          className={cn(
-            maxWidthMap[maxWidth],
-            "mx-auto px-4 py-5 space-y-4",
-          )}
-        >
-          {children}
+      <div class="page-scroll">
+        <div class={`page-content ${widthClass()}`}>
+          {props.children}
         </div>
       </div>
     </div>
@@ -53,25 +27,51 @@ export function PageShell({
 }
 
 // ── PageTitle ────────────────────────────────────────
-// Icon + title for use inside PageShell header slot
 
-interface PageTitleProps {
-  readonly icon: ReactNode;
-  readonly title: string;
-  /** Optional trailing content (buttons, etc.) */
-  readonly children?: ReactNode;
+export interface PageTitleProps {
+  icon: JSX.Element;
+  title: string;
+  children?: JSX.Element;
 }
 
-export function PageTitle({ icon, title, children }: PageTitleProps) {
+export function PageTitle(props: PageTitleProps) {
   return (
-    <>
-      <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
-        {icon}
-      </div>
-      <h1 className="text-sm font-semibold text-foreground">{title}</h1>
-      {children != null && (
-        <div className="ml-auto flex items-center gap-2">{children}</div>
-      )}
-    </>
+    <div class="page-title-row">
+      <div class="page-title-icon">{props.icon}</div>
+      <h1 class="page-title">{props.title}</h1>
+      <Show when={props.children}>
+        <div class="page-title-actions">{props.children}</div>
+      </Show>
+    </div>
+  );
+}
+
+// ── FormField ────────────────────────────────────────
+
+export interface FormFieldProps {
+  label: string;
+  hint?: string;
+  error?: string;
+  inline?: boolean;
+  children: JSX.Element;
+}
+
+export function FormField(props: FormFieldProps) {
+  return (
+    <div class="form-field" classList={{ "form-field-inline": props.inline }}>
+      <Show when={!props.inline}>
+        <label class="form-label">{props.label}</label>
+      </Show>
+      {props.children}
+      <Show when={props.inline}>
+        <label class="form-label">{props.label}</label>
+      </Show>
+      <Show when={props.hint}>
+        <span class="form-hint">{props.hint}</span>
+      </Show>
+      <Show when={props.error}>
+        <span class="form-error">{props.error}</span>
+      </Show>
+    </div>
   );
 }

@@ -2,9 +2,9 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Rebuild React UI when web/ sources change
+    // Rebuild Solid UI when web/ sources change
     let web_dir = Path::new("web");
-    let out_dir = Path::new("static/react");
+    let out_dir = Path::new("static/solid");
 
     // Only attempt build if web/ source exists (not present in crates.io package)
     if web_dir.join("package.json").exists() {
@@ -12,11 +12,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rerun-if-changed=web/index.html");
         println!("cargo:rerun-if-changed=web/package.json");
         println!("cargo:rerun-if-changed=web/vite.config.ts");
-        println!("cargo:rerun-if-changed=web/tailwind.config.ts");
 
         // Skip if output already exists (make web was run manually)
         if out_dir.join("index.html").exists() {
-            println!("cargo:warning=static/react/ already exists, skipping web build");
+            println!("cargo:warning=static/solid/ already exists, skipping web build");
             return Ok(());
         }
 
@@ -28,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ("npm", &["ci"])
             };
 
-        println!("cargo:warning=Building React UI with {pm}...");
+        println!("cargo:warning=Building Solid UI with {pm}...");
 
         let status = Command::new(pm)
             .args(install_args)
@@ -48,7 +47,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
 
-        println!("cargo:warning=React UI built successfully into static/react/");
+        println!("cargo:warning=Solid UI built successfully into static/solid/");
     }
 
     Ok(())

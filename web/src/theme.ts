@@ -1,18 +1,9 @@
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { createSignal, createRoot } from "solid-js";
 
-// ── Theme presets ────────────────────────────────────
-// Each theme defines the full set of shadcn CSS variables using oklch.
-// Backgrounds have subtle chromatic tints — not pure neutral gray.
+// ── Theme definitions ───────────────────────────────
 
 const THEME_IDS = [
-  "zinc",
-  "ember",
-  "ocean",
-  "aurora",
-  "dusk",
-  "moss",
-  "slate",
-  "ruby",
+  "zinc", "ember", "ocean", "aurora", "dusk", "moss", "slate", "ruby",
 ] as const;
 
 export type ThemeId = (typeof THEME_IDS)[number];
@@ -20,25 +11,22 @@ export type ThemeId = (typeof THEME_IDS)[number];
 export interface ThemeMeta {
   readonly id: ThemeId;
   readonly label: string;
-  /** Preview swatch color (hex) */
   readonly swatch: string;
 }
 
 export const THEMES: readonly ThemeMeta[] = [
-  { id: "zinc", label: "Zinc", swatch: "#a1a1aa" },
-  { id: "ember", label: "Ember", swatch: "#f97316" },
-  { id: "ocean", label: "Ocean", swatch: "#06b6d4" },
+  { id: "zinc",   label: "Zinc",   swatch: "#a1a1aa" },
+  { id: "ember",  label: "Ember",  swatch: "#f97316" },
+  { id: "ocean",  label: "Ocean",  swatch: "#06b6d4" },
   { id: "aurora", label: "Aurora", swatch: "#a78bfa" },
-  { id: "dusk", label: "Dusk", swatch: "#f472b6" },
-  { id: "moss", label: "Moss", swatch: "#22c55e" },
-  { id: "slate", label: "Slate", swatch: "#64748b" },
-  { id: "ruby", label: "Ruby", swatch: "#ef4444" },
+  { id: "dusk",   label: "Dusk",   swatch: "#f472b6" },
+  { id: "moss",   label: "Moss",   swatch: "#22c55e" },
+  { id: "slate",  label: "Slate",  swatch: "#64748b" },
+  { id: "ruby",   label: "Ruby",   swatch: "#ef4444" },
 ] as const;
 
-/** CSS variable overrides per theme. Only non-default values need to be listed. */
 type ThemeTokens = Record<string, string>;
 
-// Zinc is the default (matches :root in global.css) — no overrides needed
 const THEME_TOKENS: Record<ThemeId, ThemeTokens> = {
   zinc: {},
 
@@ -253,51 +241,20 @@ const THEME_TOKENS: Record<ThemeId, ThemeTokens> = {
   },
 };
 
-// ── CSS variable names that each theme overrides ─────
-
+// CSS variable names to manage
 const CSS_VARS = Object.keys(THEME_TOKENS.ember);
-
-// ── Storage ──────────────────────────────────────────
-
 const STORAGE_KEY = "pinchy-theme";
 const DEFAULT_THEME: ThemeId = "zinc";
 
 function isValidTheme(value: unknown): value is ThemeId {
-  return typeof value === "string" && THEME_IDS.includes(value as ThemeId);
+  return typeof value === "string" && (THEME_IDS as readonly string[]).includes(value);
 }
 
-// ── External store (cross-component sync, no context) ─
-
-type Listener = () => void;
-const listeners = new Set<Listener>();
-let currentTheme: ThemeId = DEFAULT_THEME;
-
-function notify(): void {
-  for (const fn of listeners) fn();
-}
-
-function subscribe(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-function getSnapshot(): ThemeId {
-  return currentTheme;
-}
-
-function getServerSnapshot(): ThemeId {
-  return DEFAULT_THEME;
-}
-
-function applyTheme(id: ThemeId): void {
-  currentTheme = id;
+function applyThemeToDOM(id: ThemeId): void {
   const tokens = THEME_TOKENS[id];
   const style = document.documentElement.style;
 
   if (id === DEFAULT_THEME) {
-    // Clear overrides — fall back to :root stylesheet values
     for (const v of CSS_VARS) style.removeProperty(v);
   } else {
     for (const v of CSS_VARS) {
@@ -317,51 +274,31 @@ function applyTheme(id: ThemeId): void {
   } catch {
     // localStorage unavailable
   }
-
-  notify();
 }
 
-// ── Initialize on module load ────────────────────────
-
-function init(): void {
-  let stored: string | null = null;
+// Read initial theme from localStorage
+function readStoredTheme(): ThemeId {
   try {
-    stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return isValidTheme(stored) ? stored : DEFAULT_THEME;
   } catch {
-    // ignore
+    return DEFAULT_THEME;
   }
-  const resolved = isValidTheme(stored) ? stored : DEFAULT_THEME;
-  applyTheme(resolved);
 }
 
-init();
+// ── Global singleton signal (created outside component tree) ──
 
-// ── Hook ─────────────────────────────────────────────
+export const themeStore = createRoot(() => {
+  const initial = readStoredTheme();
+  const [theme, setThemeSignal] = createSignal<ThemeId>(initial);
 
-export interface UseThemeReturn {
-  readonly theme: ThemeId;
-  readonly setTheme: (id: ThemeId) => void;
-  readonly themes: readonly ThemeMeta[];
-}
+  // Apply on init
+  applyThemeToDOM(initial);
 
-export function useTheme(): UseThemeReturn {
-  const theme = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  function setTheme(id: ThemeId): void {
+    applyThemeToDOM(id);
+    setThemeSignal(id);
+  }
 
-  // Sync on mount if localStorage and current differ
-  useEffect(() => {
-    let stored: string | null = null;
-    try {
-      stored = localStorage.getItem(STORAGE_KEY);
-    } catch {
-      // ignore
-    }
-    const resolved = isValidTheme(stored) ? stored : DEFAULT_THEME;
-    if (currentTheme !== resolved) applyTheme(resolved);
-  }, []);
-
-  const setTheme = useCallback((id: ThemeId) => {
-    applyTheme(id);
-  }, []);
-
-  return { theme, setTheme, themes: THEMES };
-}
+  return { theme, setTheme, themes: THEMES } as const;
+});

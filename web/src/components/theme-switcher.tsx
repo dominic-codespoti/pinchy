@@ -1,105 +1,81 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Palette, Check } from "lucide-react";
-import { useTheme, type ThemeId } from "@/hooks/use-theme";
-import { cn } from "@/lib/utils";
+import { createSignal, For, Show, onCleanup } from "solid-js";
+import { themeStore } from "@/theme";
+import { Palette } from "@/components/icons";
 
 export function ThemeSwitcher() {
-  const { theme, setTheme, themes } = useTheme();
-  const [open, setOpen] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
-  const buttonRef = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = createSignal(false);
+  let triggerRef: HTMLButtonElement | undefined;
+  let panelRef: HTMLDivElement | undefined;
 
-  const toggle = useCallback(() => setOpen((p) => !p), []);
-
-  const select = useCallback(
-    (id: ThemeId) => {
-      setTheme(id);
-      setOpen(false);
-    },
-    [setTheme],
-  );
-
-  // Dismiss on outside click or Escape
-  useEffect(() => {
-    if (!open) return;
-    function onPointerDown(e: MouseEvent) {
-      const t = e.target;
-      if (!(t instanceof Node)) return;
-      if (panelRef.current?.contains(t) || buttonRef.current?.contains(t)) return;
+  function handleClickOutside(e: MouseEvent) {
+    if (
+      triggerRef && !triggerRef.contains(e.target as Node) &&
+      panelRef && !panelRef.contains(e.target as Node)
+    ) {
       setOpen(false);
     }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setOpen(false);
-    }
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === "Escape") setOpen(false);
+  }
+
+  // Attach/detach listeners when open
+  function attachListeners() {
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleKeyDown);
+  }
+
+  function detachListeners() {
+    document.removeEventListener("mousedown", handleClickOutside);
+    document.removeEventListener("keydown", handleKeyDown);
+  }
+
+  onCleanup(detachListeners);
+
+  function toggle() {
+    const next = !open();
+    setOpen(next);
+    if (next) attachListeners();
+    else detachListeners();
+  }
 
   return (
-    <div className="relative">
+    <div class="theme-switcher">
       <button
-        ref={buttonRef}
-        type="button"
+        ref={triggerRef}
+        class="btn btn-ghost btn-icon theme-trigger"
         onClick={toggle}
-        className={cn(
-          "flex h-9 w-9 items-center justify-center rounded-lg transition-colors",
-          open
-            ? "bg-primary/20 text-primary"
-            : "text-muted-foreground hover:bg-accent hover:text-foreground",
-        )}
-        title="Switch theme"
-        aria-label="Switch theme"
-        aria-expanded={open}
+        title="Change theme"
+        aria-label="Change theme"
+        aria-expanded={open()}
       >
-        <Palette className="h-4 w-4" />
+        <Palette size={16} />
       </button>
 
-      {open && (
-        <div
-          ref={panelRef}
-          role="listbox"
-          aria-label="Theme selection"
-          className={cn(
-            "absolute bottom-0 left-[calc(100%+8px)]",
-            "z-50 w-40 rounded-lg border border-border bg-popover p-1",
-            "shadow-md",
-            "animate-in fade-in slide-in-from-left-2 duration-150",
-          )}
-        >
-          <div className="px-2 py-1.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-            Theme
-          </div>
-          {themes.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              role="option"
-              aria-selected={t.id === theme}
-              onClick={() => select(t.id)}
-              className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors",
-                t.id === theme
-                  ? "bg-primary/10 text-primary"
-                  : "text-foreground hover:bg-accent",
-              )}
-            >
-              <span
-                className="h-3 w-3 shrink-0 rounded-full border border-border"
-                style={{ backgroundColor: t.swatch }}
-                aria-hidden="true"
-              />
-              <span className="truncate text-xs">{t.label}</span>
-              {t.id === theme && (
-                <Check className="ml-auto h-3 w-3 shrink-0 opacity-60" />
-              )}
-            </button>
-          ))}
+      <Show when={open()}>
+        <div ref={panelRef} class="theme-panel">
+          <For each={themeStore.themes}>
+            {(t) => (
+              <button
+                class="theme-option"
+                classList={{ "theme-option-active": themeStore.theme() === t.id }}
+                onClick={() => {
+                  themeStore.setTheme(t.id);
+                  setOpen(false);
+                  detachListeners();
+                }}
+              >
+                <span
+                  class="theme-swatch"
+                  style={{ background: t.swatch }}
+                />
+                <span class="theme-label">{t.label}</span>
+              </button>
+            )}
+          </For>
         </div>
-      )}
+      </Show>
     </div>
   );
 }

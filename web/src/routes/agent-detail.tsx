@@ -1,204 +1,495 @@
-import { useEffect, useState } from "react";
-import { Link, useParams } from "@tanstack/react-router";
-import { Bot, Save, Heart, Cpu, Clock, Brain, Search, X, Settings } from "lucide-react";
-import { Trash2 } from "lucide-react";
+import { createSignal, createMemo, createEffect, Show, For } from "solid-js";
+import { A, useParams, useNavigate } from "@solidjs/router";
 import {
-  useAgentQuery, useUpdateAgentMutation, useAgentFileQuery,
-  useSaveAgentFileMutation, useMemoryQuery, useDeleteMemoryMutation,
+  Bot, MessageSquare, ArrowLeft, Heart, Brain, Clock, Cpu,
+  Save, Search, Trash2, X, Settings, Copy,
+} from "@/components/icons";
+import { PageShell } from "@/components/layout";
+import { FormField } from "@/components/layout";
+import { createQuery, createMutation, invalidateQueries } from "@/api/use-api";
+import {
+  qk, fetchAgent, fetchAgentFile, saveAgentFile,
+  updateAgent, fetchMemory, deleteMemory,
 } from "@/api/queries";
-import type { MemoryEntry } from "@/api/schemas";
-import {
-  Card, CardContent, Button, Input, Badge, Textarea, Skeleton, EmptyState,
-} from "@/components/ui";
-import { PageShell, FormField } from "@/components/layout";
-import { cn, mutationOpts } from "@/lib/utils";
+import type { MemoryEntry, UpdateAgentPayload } from "@/api/schemas";
+import { toast } from "@/components/toast";
 
-type DetailTab = "overview" | "files" | "memory" | "settings";
-const TABS: readonly DetailTab[] = ["overview", "files", "memory", "settings"];
+// ── Types ────────────────────────────────────────────
 
-export function AgentDetailRoute() {
-  const { agentId } = useParams({ from: "/agents/$agentId" });
-  const { data, isLoading } = useAgentQuery(agentId);
-  const [tab, setTab] = useState<DetailTab>("overview");
+type DetailTab = "overview" | "files" | "settings" | "memory";
+const TABS: readonly DetailTab[] = ["overview", "files", "settings", "memory"];
+const FILE_NAMES = ["SOUL.md", "TOOLS.md", "HEARTBEAT.md"] as const;
 
-  if (isLoading) return <div className="p-8 flex justify-center"><Skeleton className="h-40 w-full max-w-xl" /></div>;
-  if (!data) return <p className="p-8 text-destructive">Agent not found.</p>;
+// ── Component ────────────────────────────────────────
+
+export default function AgentDetail() {
+  const params = useParams<{ agentId: string }>();
+  const agentId = params.agentId;
+  const navigate = useNavigate();
+
+  const agentQ = createQuery({
+    key: qk.agent(agentId),
+    fn: () => fetchAgent(agentId),
+  });
+
+  const [tab, setTab] = createSignal<DetailTab>("overview");
 
   return (
     <PageShell
-      maxWidth="3xl"
+      maxWidth="5xl"
       header={
-        <>
-          <Link to="/agents" className="text-muted-foreground hover:text-foreground text-xs mr-1">&larr;</Link>
-          <div className="flex h-6 w-6 items-center justify-center rounded-md bg-primary/10 text-primary">
-            <Bot className="h-3 w-3" />
-          </div>
-          <span className="text-sm font-semibold text-foreground">{agentId}</span>
-          <div className="h-5 w-px bg-border mx-1" />
-          {TABS.map((t) => (
-            <button key={t} type="button" onClick={() => setTab(t)}
-              className={cn("text-[11px] px-2 py-1 rounded-md capitalize",
-                tab === t ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground")}>
-              {t}
-            </button>
-          ))}
-        </>
+        <A href="/agents" class="agent-back-link">
+          <ArrowLeft size={14} />
+          Agents
+        </A>
       }
     >
-      {tab === "overview" && <OverviewTab model={data.model ?? "default"}
-        heartbeat={data.heartbeat_secs ?? null} cronCount={data.cron_job_count ?? 0}
-        sessionCount={data.session_count ?? 0} />}
-      {tab === "files" && <FilesTab agentId={agentId} />}
-      {tab === "memory" && <MemoryTab agentId={agentId} />}
-      {tab === "settings" && <SettingsTab agentId={agentId} model={data.model} heartbeatSecs={data.heartbeat_secs}
-        maxToolIter={data.max_tool_iterations} maxTurns={data.max_turns}
-        histMsgs={data.history_messages} effort={data.reasoning_effort} />}
+      {/* Loading */}
+      <Show when={agentQ.isLoading}>
+        <div style={{ padding: "var(--space-6)" }}>
+          <div class="skeleton" style={{ height: "160px", "border-radius": "var(--radius-lg)" }} />
+        </div>
+      </Show>
+
+      {/* Error */}
+      <Show when={agentQ.isError}>
+        <div class="empty-state">
+          <Bot size={24} />
+          <p>Couldn't load agent</p>
+          <button class="btn btn-secondary btn-sm" onClick={() => agentQ.refetch()}>Retry</button>
+        </div>
+      </Show>
+
+      {/* No data */}
+      <Show when={!agentQ.isLoading && !agentQ.isError && !agentQ.data}>
+        <div class="empty-state">
+          <Bot size={24} />
+          <p>Agent not found</p>
+          <A href="/agents" class="btn btn-secondary btn-sm">Back to agents</A>
+        </div>
+      </Show>
+
+      {/* Main content */}
+      <Show when={agentQ.data}>
+        {(() => {
+          const data = agentQ.data!;
+          return (
+            <div class="route-enter agent-detail-stack">
+              {/* Identity block */}
+              <div class="agent-identity">
+                <div class="agent-identity-left">
+                  <div class="agent-identity-header">
+                    <div class="agent-identity-icon">
+                      <Bot size={20} />
+                    </div>
+                    <div>
+                      <h1 class="agent-identity-name">{agentId}</h1>
+                      <p class="agent-identity-model">{data.model ?? "Default"}</p>
+                    </div>
+                  </div>
+                  <div class="agent-identity-chips">
+                    <span class="agent-chip">
+                      <Heart size={14} />
+                      {data.heartbeat_secs ? `${data.heartbeat_secs}s heartbeat` : "Heartbeat off"}
+                    </span>
+                    <span class="agent-chip">
+                      <Clock size={14} />
+                      {data.cron_job_count ?? 0} cron
+                    </span>
+                    <span class="agent-chip">
+                      <Brain size={14} />
+                      {data.enabled_skills?.length ?? 0} skills
+                    </span>
+                  </div>
+                </div>
+                <div class="agent-identity-actions">
+                  <A href={`/chat/${agentId}`} class="btn btn-primary btn-sm" style={{ "text-decoration": "none" }}>
+                    <MessageSquare size={14} />
+                    Chat
+                  </A>
+                  <button class="btn btn-secondary btn-sm" onClick={() => setTab("files")}>
+                    Edit files
+                  </button>
+                  <button class="btn btn-secondary btn-sm" onClick={() => setTab("settings")}>
+                    <Settings size={14} />
+                    Settings
+                  </button>
+                </div>
+              </div>
+
+              {/* Tab bar */}
+              <div class="agent-tabs">
+                <For each={TABS}>
+                  {(t) => (
+                    <button
+                      class={`agent-tab ${tab() === t ? "agent-tab-active" : "agent-tab-inactive"}`}
+                      onClick={() => setTab(t)}
+                    >
+                      {t}
+                    </button>
+                  )}
+                </For>
+              </div>
+
+              {/* Tab content */}
+              <Show when={tab() === "overview"}>
+                <OverviewTab
+                  model={data.model ?? "Default model"}
+                  heartbeat={data.heartbeat_secs ?? null}
+                  cronCount={data.cron_job_count ?? 0}
+                  sessionCount={data.session_count ?? 0}
+                  skillCount={data.enabled_skills?.length ?? 0}
+                />
+              </Show>
+              <Show when={tab() === "files"}>
+                <FilesTab agentId={agentId} />
+              </Show>
+              <Show when={tab() === "settings"}>
+                <SettingsTab
+                  agentId={agentId}
+                  model={data.model ?? undefined}
+                  heartbeatSecs={data.heartbeat_secs ?? undefined}
+                  maxToolIter={data.max_tool_iterations ?? undefined}
+                  maxTurns={data.max_turns ?? undefined}
+                  histMsgs={data.history_messages ?? undefined}
+                  effort={data.reasoning_effort ?? undefined}
+                />
+              </Show>
+              <Show when={tab() === "memory"}>
+                <MemoryTab agentId={agentId} />
+              </Show>
+            </div>
+          );
+        })()}
+      </Show>
     </PageShell>
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────
+// ── Overview Tab ─────────────────────────────────────
 
-function OverviewTab({ model, heartbeat, cronCount, sessionCount }: {
-  readonly model: string; readonly heartbeat: number | null;
-  readonly cronCount: number; readonly sessionCount: number;
+function OverviewTab(props: {
+  model: string;
+  heartbeat: number | null;
+  cronCount: number;
+  sessionCount: number;
+  skillCount: number;
 }) {
-  const items: readonly { readonly label: string; readonly value: string; readonly Icon: typeof Cpu }[] = [
-    { label: "Model", value: model, Icon: Cpu },
-    { label: "Heartbeat", value: heartbeat ? `${heartbeat}s` : "disabled", Icon: Heart },
-    { label: "Cron Jobs", value: String(cronCount), Icon: Clock },
-    { label: "Sessions", value: String(sessionCount), Icon: Settings },
+  const stats = () => [
+    { label: "Model", value: props.model, Icon: Cpu },
+    { label: "Heartbeat", value: props.heartbeat ? `${props.heartbeat}s` : "Off", Icon: Heart },
+    { label: "Cron jobs", value: String(props.cronCount), Icon: Clock },
+    { label: "Sessions", value: String(props.sessionCount), Icon: Settings },
   ];
-  return (
-    <div className="grid grid-cols-2 gap-2">
-      {items.map((it) => (
-        <Card key={it.label}><CardContent>
-          <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1"><it.Icon className="h-3 w-3" />{it.label}</div>
-          <p className="text-sm font-medium text-foreground">{it.value}</p>
-        </CardContent></Card>
-      ))}
-    </div>
-  );
-}
 
-const FILE_NAMES = ["SOUL.md", "TOOLS.md", "HEARTBEAT.md"] as const;
-
-function FilesTab({ agentId }: { readonly agentId: string }) {
-  const [active, setActive] = useState<string>(FILE_NAMES[0]);
   return (
-    <div className="space-y-2">
-      <div className="flex gap-1">
-        {FILE_NAMES.map((f) => (
-          <button key={f} type="button" onClick={() => setActive(f)}
-            className={cn("text-xs px-2 py-1 rounded-md",
-              active === f ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground")}>{f}</button>
-        ))}
+    <div class="agent-overview">
+      <div class="card">
+        <h2 class="card-title" style={{ "margin-bottom": "var(--space-4)" }}>Overview</h2>
+        <div class="agent-stat-grid">
+          <For each={stats()}>
+            {(item) => (
+              <div class="agent-stat-cell">
+                <div class="agent-stat-label">
+                  <item.Icon size={14} />
+                  {item.label}
+                </div>
+                <p class="agent-stat-value">{item.value}</p>
+              </div>
+            )}
+          </For>
+        </div>
       </div>
-      <FileEditor agentId={agentId} filename={active} />
-    </div>
-  );
-}
 
-function FileEditor({ agentId, filename }: { readonly agentId: string; readonly filename: string }) {
-  const { data, isLoading } = useAgentFileQuery(agentId, filename);
-  const saveMut = useSaveAgentFileMutation(agentId);
-  const [content, setContent] = useState("");
-
-  useEffect(() => { setContent(data?.content ?? ""); }, [data?.content, agentId, filename]);
-
-  if (isLoading) return <Skeleton className="h-64" />;
-  return (
-    <div className="space-y-2">
-      <Textarea className="min-h-[320px] font-mono text-xs" value={content} onChange={(e) => setContent(e.target.value)} />
-      <div className="flex justify-end">
-        <Button size="sm" disabled={saveMut.isPending}
-          onClick={() => saveMut.mutate({ filename, content },
-            mutationOpts(`Saved ${filename}`),
-          )}><Save className="h-3 w-3 mr-1" />{saveMut.isPending ? "..." : "Save"}</Button>
+      <div class="card">
+        <p class="card-title" style={{ "margin-bottom": "var(--space-3)" }}>State</p>
+        <div class="agent-state-badges">
+          <span class="badge badge-outline" style={{ "border-radius": "var(--radius-xl)", padding: "4px 10px" }}>
+            {props.skillCount} skills enabled
+          </span>
+          <span class="badge badge-outline" style={{ "border-radius": "var(--radius-xl)", padding: "4px 10px" }}>
+            {props.heartbeat ? `${props.heartbeat}s heartbeat` : "Heartbeat off"}
+          </span>
+        </div>
       </div>
     </div>
   );
 }
 
-function MemoryTab({ agentId }: { readonly agentId: string }) {
-  const [search, setSearch] = useState("");
-  const [q, setQ] = useState("");
-  const memOpts = q ? { q, limit: 100 } : { limit: 100 };
-  const { data, isLoading } = useMemoryQuery(agentId, memOpts);
-  const deleteMut = useDeleteMemoryMutation(agentId);
+// ── Files Tab ────────────────────────────────────────
 
-  useEffect(() => { const t = setTimeout(() => setQ(search), 300); return () => clearTimeout(t); }, [search]);
+function FilesTab(props: { agentId: string }) {
+  const [activeFile, setActiveFile] = createSignal<string>(FILE_NAMES[0]);
 
-  const entries: readonly MemoryEntry[] = data?.entries ?? [];
   return (
-    <div className="space-y-3">
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-        <Input className="pl-9 pr-8" placeholder="Search memories..." value={search} onChange={(e) => setSearch(e.target.value)} />
-        {search && <button type="button" onClick={() => setSearch("")}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="h-3.5 w-3.5" /></button>}
+    <div class="agent-files">
+      <div class="card">
+        <div class="agent-file-picker">
+          <For each={FILE_NAMES}>
+            {(filename) => (
+              <button
+                class={`agent-file-btn ${activeFile() === filename ? "agent-file-btn-active" : "agent-file-btn-inactive"}`}
+                onClick={() => setActiveFile(filename)}
+              >
+                {filename}
+              </button>
+            )}
+          </For>
+        </div>
       </div>
-      <p className="text-[10px] text-muted-foreground opacity-60">{entries.length} entries</p>
-      {isLoading && <Skeleton className="h-20" />}
-      {entries.map((entry) => (
-        <Card key={entry.key} className="group"><CardContent className="space-y-1">
-          <div className="flex justify-between items-start gap-2">
-            <p className="text-xs font-mono font-semibold text-foreground truncate">{entry.key}</p>
-            <button type="button" onClick={() => deleteMut.mutate(entry.key,
-              mutationOpts("Deleted"),
-            )} className="shrink-0 text-destructive/60 hover:text-destructive opacity-0 group-hover:opacity-100">
-              <Trash2 className="h-3 w-3" /></button>
-          </div>
-          <p className="text-xs text-muted-foreground line-clamp-3 whitespace-pre-wrap">{entry.value}</p>
-          <div className="flex gap-1.5 flex-wrap">
-            {entry.tags.map((t) => <Badge key={t} variant="default" className="!text-[9px]">{t}</Badge>)}
-            <span className="text-[10px] text-muted-foreground opacity-60 ml-auto">{new Date(entry.timestamp).toLocaleString()}</span>
-          </div>
-        </CardContent></Card>
-      ))}
-      {!isLoading && entries.length === 0 && (
-        <EmptyState icon={<Brain />} title={q ? "No matches" : "No memories yet"} />
-      )}
+
+      <FileEditor agentId={props.agentId} filename={activeFile()} />
     </div>
   );
 }
 
-function SettingsTab({ agentId, model, heartbeatSecs, maxToolIter, maxTurns, histMsgs, effort }: {
-  readonly agentId: string;
-  readonly model: string | undefined;
-  readonly heartbeatSecs: number | undefined;
-  readonly maxToolIter: number | undefined;
-  readonly maxTurns: number | undefined;
-  readonly histMsgs: number | undefined;
-  readonly effort: string | undefined;
-}) {
-  const updateMut = useUpdateAgentMutation(agentId);
-  const [f, setF] = useState({
-    model: model ?? "", hb: String(heartbeatSecs ?? ""), iter: String(maxToolIter ?? 15),
-    turns: String(maxTurns ?? 20), hist: String(histMsgs ?? 40), effort: effort ?? "",
+function FileEditor(props: { agentId: string; filename: string }) {
+  const fileQ = createQuery({
+    key: qk.agentFile(props.agentId, props.filename),
+    fn: () => fetchAgentFile(props.agentId, props.filename),
   });
-  const set = (k: keyof typeof f) => (v: string) => setF((p) => ({ ...p, [k]: v }));
 
-  const onSave = () => {
+  const [content, setContent] = createSignal("");
+  const [initialized, setInitialized] = createSignal(false);
+
+  // Reset content when file data loads or filename changes
+  createEffect(() => {
+    const c = fileQ.data?.content;
+    if (c != null) {
+      setContent(c);
+      setInitialized(true);
+    }
+  });
+
+  const isDirty = createMemo(() => {
+    if (!initialized()) return false;
+    return content() !== (fileQ.data?.content ?? "");
+  });
+
+  const saveMut = createMutation({
+    fn: (args: { filename: string; content: string }) =>
+      saveAgentFile(props.agentId, args.filename, args.content),
+    onSuccess: (_data, args) => {
+      invalidateQueries(qk.agentFile(props.agentId, props.filename));
+      invalidateQueries(qk.agent(props.agentId));
+      toast.success(`${args.filename} saved`);
+    },
+    onError: (msg) => toast.error(msg),
+  });
+
+  return (
+    <Show when={!fileQ.isLoading} fallback={
+      <div class="skeleton" style={{ height: "420px", "border-radius": "var(--radius-lg)" }} />
+    }>
+      <div class="card">
+        <div class="agent-file-editor-header">
+          <div style={{ display: "flex", "align-items": "center" }}>
+            <h2 class="agent-file-editor-title">{props.filename}</h2>
+            <Show when={isDirty()}>
+              <span class="agent-file-editor-dirty">Unsaved</span>
+            </Show>
+          </div>
+          <button
+            class="btn btn-primary btn-sm"
+            disabled={saveMut.isLoading}
+            onClick={() => saveMut.mutate({ filename: props.filename, content: content() })}
+          >
+            <Save size={14} />
+            {saveMut.isLoading ? "Saving..." : "Save"}
+          </button>
+        </div>
+        <textarea
+          class="agent-file-textarea"
+          value={content()}
+          onInput={(e) => setContent(e.currentTarget.value)}
+          style={{ "margin-top": "var(--space-3)" }}
+        />
+      </div>
+    </Show>
+  );
+}
+
+// ── Settings Tab ─────────────────────────────────────
+
+function SettingsTab(props: {
+  agentId: string;
+  model: string | undefined;
+  heartbeatSecs: number | undefined;
+  maxToolIter: number | undefined;
+  maxTurns: number | undefined;
+  histMsgs: number | undefined;
+  effort: string | undefined;
+}) {
+  const [model, setModel] = createSignal(props.model ?? "");
+  const [hb, setHb] = createSignal(props.heartbeatSecs != null ? String(props.heartbeatSecs) : "");
+  const [iter, setIter] = createSignal(String(props.maxToolIter ?? 15));
+  const [turns, setTurns] = createSignal(String(props.maxTurns ?? 20));
+  const [hist, setHist] = createSignal(String(props.histMsgs ?? 40));
+  const [effort, setEffort] = createSignal(props.effort ?? "");
+
+  const updateMut = createMutation({
+    fn: (payload: UpdateAgentPayload) => updateAgent(props.agentId, payload),
+    onSuccess: () => {
+      invalidateQueries(qk.agent(props.agentId));
+      invalidateQueries(qk.agents);
+      invalidateQueries(qk.heartbeatAgent(props.agentId));
+      invalidateQueries(qk.heartbeat);
+      toast.success("Settings saved");
+    },
+    onError: (msg) => toast.error(msg),
+  });
+
+  function handleSave() {
     updateMut.mutate({
-      model: f.model || undefined, heartbeat_secs: f.hb ? Number(f.hb) : null,
-      max_tool_iterations: Number(f.iter) || undefined, max_turns: Number(f.turns) || undefined,
-      history_messages: Number(f.hist) || undefined, reasoning_effort: f.effort || undefined,
-    }, mutationOpts("Saved"));
-  };
+      model: model() || undefined,
+      ...(hb().length > 0 ? { heartbeat_secs: Number(hb()) } : {}),
+      max_tool_iterations: Number(iter()) || undefined,
+      max_turns: Number(turns()) || undefined,
+      history_messages: Number(hist()) || undefined,
+      reasoning_effort: effort() || undefined,
+    });
+  }
 
-  const fields: readonly { readonly label: string; readonly key: keyof typeof f; readonly type?: string }[] = [
-    { label: "Model", key: "model" }, { label: "Heartbeat (secs)", key: "hb", type: "number" },
-    { label: "Max Tool Iterations", key: "iter", type: "number" }, { label: "Max Turns", key: "turns", type: "number" },
-    { label: "History Messages", key: "hist", type: "number" }, { label: "Reasoning Effort", key: "effort" },
+  const fields: readonly { label: string; get: () => string; set: (v: string) => void; type?: string; placeholder?: string }[] = [
+    { label: "Model", get: model, set: setModel },
+    { label: "Heartbeat (secs)", get: hb, set: setHb, type: "number", placeholder: "off" },
+    { label: "Max tool iterations", get: iter, set: setIter, type: "number" },
+    { label: "Max turns", get: turns, set: setTurns, type: "number" },
+    { label: "History messages", get: hist, set: setHist, type: "number" },
+    { label: "Reasoning effort", get: effort, set: setEffort },
   ];
-  return (<div className="space-y-4">
-    {fields.map((fd) => (
-      <FormField key={fd.key} label={fd.label}>
-        <Input type={fd.type ?? "text"} value={f[fd.key]} onChange={(e) => set(fd.key)(e.target.value)} />
-      </FormField>
-    ))}
-    <Button size="sm" disabled={updateMut.isPending} onClick={onSave}>
-      <Save className="h-3 w-3 mr-1" />{updateMut.isPending ? "Saving..." : "Save Settings"}</Button>
-  </div>);
+
+  return (
+    <div class="card">
+      <h2 class="card-title" style={{ "margin-bottom": "var(--space-4)" }}>Settings</h2>
+      <div class="agent-settings-grid">
+        <For each={fields}>
+          {(field) => (
+            <FormField label={field.label}>
+              <input
+                class="input"
+                type={field.type ?? "text"}
+                placeholder={field.placeholder}
+                value={field.get()}
+                onInput={(e) => field.set(e.currentTarget.value)}
+              />
+            </FormField>
+          )}
+        </For>
+      </div>
+      <div class="agent-settings-footer">
+        <button
+          class="btn btn-primary btn-sm"
+          disabled={updateMut.isLoading}
+          onClick={handleSave}
+        >
+          <Save size={14} />
+          {updateMut.isLoading ? "Saving..." : "Save settings"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Memory Tab ───────────────────────────────────────
+
+function MemoryTab(props: { agentId: string }) {
+  const [search, setSearch] = createSignal("");
+  const [debouncedQ, setDebouncedQ] = createSignal("");
+
+  // Debounce search
+  let searchTimeout: number | undefined;
+  createEffect(() => {
+    const val = search();
+    clearTimeout(searchTimeout);
+    searchTimeout = window.setTimeout(() => setDebouncedQ(val), 300);
+  });
+
+  const memoryQ = createQuery({
+    key: qk.memory(props.agentId, debouncedQ()),
+    fn: () => fetchMemory(props.agentId, {
+      q: debouncedQ() || undefined,
+      limit: 100,
+    }),
+  });
+
+  const entries = createMemo<readonly MemoryEntry[]>(() => memoryQ.data?.entries ?? []);
+
+  const deleteMut = createMutation({
+    fn: (key: string) => deleteMemory(props.agentId, key),
+    onSuccess: () => {
+      invalidateQueries(qk.memory(props.agentId));
+      toast.success("Memory entry deleted");
+    },
+    onError: (msg) => toast.error(msg),
+  });
+
+  return (
+    <div class="card">
+      <div class="memory-header">
+        <h2 class="card-title">Memory</h2>
+        <div class="memory-search">
+          <span class="memory-search-icon"><Search size={14} /></span>
+          <input
+            class="input memory-search-input"
+            placeholder="Search memory"
+            value={search()}
+            onInput={(e) => setSearch(e.currentTarget.value)}
+          />
+          <Show when={search().length > 0}>
+            <button class="memory-search-clear" onClick={() => setSearch("")}>
+              <X size={14} />
+            </button>
+          </Show>
+        </div>
+      </div>
+
+      <div style={{ "margin-top": "var(--space-4)" }}>
+        <Show when={memoryQ.isLoading}>
+          <div class="skeleton" style={{ height: "96px", "border-radius": "var(--radius-lg)" }} />
+        </Show>
+
+        <Show when={!memoryQ.isLoading && entries().length === 0}>
+          <div class="empty-state">
+            <Brain size={24} />
+            <p>{debouncedQ() ? "No matches" : "No memory yet"}</p>
+          </div>
+        </Show>
+
+        <Show when={!memoryQ.isLoading && entries().length > 0}>
+          <div class="memory-list">
+            <For each={entries()}>
+              {(entry) => (
+                <div class="memory-entry">
+                  <div class="memory-entry-header">
+                    <span class="memory-entry-key">{entry.key}</span>
+                    <button
+                      class="memory-entry-delete"
+                      title="Delete"
+                      onClick={() => deleteMut.mutate(entry.key)}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                  <p class="memory-entry-value">{entry.value}</p>
+                  <Show when={entry.tags.length > 0}>
+                    <div class="memory-entry-tags">
+                      <For each={entry.tags}>
+                        {(tag) => (
+                          <span class="badge badge-outline" style={{ "border-radius": "var(--radius-xl)", padding: "2px 8px", "font-size": "10px" }}>
+                            {tag}
+                          </span>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                  <span class="memory-entry-timestamp">{entry.timestamp}</span>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+      </div>
+    </div>
+  );
 }

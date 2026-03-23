@@ -1,150 +1,279 @@
-import { useState, useCallback } from "react";
-import { Link } from "@tanstack/react-router";
-import { Plus, Play, Trash2, Clock, ChevronDown, ChevronUp } from "lucide-react";
+import { createSignal, createMemo, Show, For } from "solid-js";
+import { A } from "@solidjs/router";
 import {
-  useCronJobsQuery, useCronJobRunsQuery,
-  useDeleteCronJobMutation, useTriggerCronJobMutation,
-} from "@/api/queries";
-import type { CronRun } from "@/api/schemas";
-import {
-  Card, CardHeader, CardTitle, CardContent,
-  Button, Badge, StatusPill, Skeleton, EmptyState,
-} from "@/components/ui";
+  Clock, Plus, Play, Trash2, ChevronRight, Pencil,
+} from "@/components/icons";
 import { PageShell, PageTitle } from "@/components/layout";
-import { formatTimestamp, mutationOpts } from "@/lib/utils";
+import { createQuery, createMutation, invalidateQueries } from "@/api/use-api";
+import {
+  qk, fetchCronJobs, fetchCronJobRuns,
+  deleteCronJob, triggerCronJob,
+} from "@/api/queries";
+import type { CronJob, CronRun } from "@/api/schemas";
+import { formatTimestamp } from "@/lib/utils";
+import { toast } from "@/components/toast";
 
-export function CronRoute() {
-  const jobsQuery = useCronJobsQuery();
-  const deleteMut = useDeleteCronJobMutation();
-  const triggerMut = useTriggerCronJobMutation();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
-  const jobs = jobsQuery.data?.jobs ?? [];
+// ── Status pill ──────────────────────────────────────
 
-  const handleTrigger = useCallback((jobId: string, jobName: string) => {
-    triggerMut.mutate(jobId, mutationOpts(`Triggered "${jobName}"`));
-  }, [triggerMut]);
+function StatusPill(props: { status: string }) {
+  const cls = () => {
+    const s = props.status.toLowerCase();
+    if (s === "success" || s === "ok" || s === "completed") return "cron-status-success";
+    if (s === "failed" || s === "error") return "cron-status-failed";
+    if (s === "running") return "cron-status-running";
+    return "cron-status-pending";
+  };
+  return <span class={`cron-status ${cls()}`}>{props.status}</span>;
+}
 
-  const handleDelete = useCallback((jobId: string) => {
-    deleteMut.mutate(jobId, mutationOpts("Cron job deleted", () => setConfirmDeleteId(null)));
-  }, [deleteMut]);
+// ── Run History ──────────────────────────────────────
+
+function RunHistory(props: { jobId: string }) {
+  const runsQ = createQuery({
+    key: qk.cronJobRuns(props.jobId),
+    fn: () => fetchCronJobRuns(props.jobId),
+  });
+
+  const runs = createMemo<readonly CronRun[]>(
+    () => runsQ.data?.runs ?? [],
+  );
+
+  return (
+    <div class="cron-runs">
+      <Show when={runsQ.isLoading}>
+        <div style={{ display: "flex", "flex-direction": "column", gap: "var(--space-1)" }}>
+          <div class="skeleton" style={{ height: "36px" }} />
+          <div class="skeleton" style={{ height: "36px" }} />
+        </div>
+      </Show>
+
+      <Show when={!runsQ.isLoading && runs().length === 0}>
+        <p class="cron-runs-empty">No runs recorded yet.</p>
+      </Show>
+
+      <Show when={!runsQ.isLoading && runs().length > 0}>
+        <p class="cron-runs-label">Recent runs</p>
+        <For each={runs().slice(0, 10)}>
+          {(run) => (
+            <div class="cron-run-row">
+              <StatusPill status={run.status} />
+              <span class="cron-run-time">
+                {run.executed_at != null ? formatTimestamp(run.executed_at) : "-"}
+              </span>
+              <Show when={run.duration_ms != null}>
+                <span class="cron-run-duration">{run.duration_ms}ms</span>
+              </Show>
+              <span class="cron-run-output">
+                {run.output_preview ?? run.error ?? ""}
+              </span>
+            </div>
+          )}
+        </For>
+      </Show>
+    </div>
+  );
+}
+
+// ── Job Card ─────────────────────────────────────────
+
+function JobCard(props: {
+  job: CronJob;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const [confirmDelete, setConfirmDelete] = createSignal(false);
+
+  const triggerMut = createMutation({
+    fn: (jobId: string) => triggerCronJob(jobId),
+    onSuccess: () => {
+      invalidateQueries(qk.cronJobs);
+      toast.success("Job triggered");
+    },
+    onError: (msg) => toast.error(msg),
+  });
+
+  const deleteMut = createMutation({
+    fn: (jobId: string) => deleteCronJob(jobId),
+    onSuccess: () => {
+      invalidateQueries(qk.cronJobs);
+      setConfirmDelete(false);
+      toast.success("Job deleted");
+    },
+    onError: (msg) => toast.error(msg),
+  });
+
+  return (
+    <div class="cron-card">
+      {/* Header: name + agent badge + status + actions */}
+      <div class="cron-card-header">
+        <div class="cron-card-info">
+          <span class="cron-card-name">{props.job.name}</span>
+          <span class="badge badge-outline" style={{ "font-size": "10px" }}>
+            {props.job.agent_id}
+          </span>
+          <StatusPill status={props.job.last_status ?? "PENDING"} />
+        </div>
+
+        <div class="cron-card-actions">
+          <button
+            class="btn btn-ghost btn-sm"
+            disabled={triggerMut.isLoading}
+            onClick={() => triggerMut.mutate(props.job.id)}
+            title="Run now"
+          >
+            <Play size={12} /> Run
+          </button>
+
+          <A
+            href={`/cron/edit/${props.job.id}`}
+            class="btn btn-ghost btn-sm"
+            style={{ "text-decoration": "none" }}
+            title="Edit"
+          >
+            <Pencil size={12} />
+          </A>
+
+          <Show when={!confirmDelete()}>
+            <button
+              class="btn btn-ghost btn-sm"
+              style={{ color: "oklch(from var(--destructive) l c h / 60%)" }}
+              onClick={() => setConfirmDelete(true)}
+              title="Delete"
+            >
+              <Trash2 size={12} />
+            </button>
+          </Show>
+
+          <Show when={confirmDelete()}>
+            <div class="cron-delete-confirm">
+              <button
+                class="btn btn-ghost btn-sm"
+                style={{ color: "var(--destructive)", "font-size": "var(--text-xs)" }}
+                disabled={deleteMut.isLoading}
+                onClick={() => deleteMut.mutate(props.job.id)}
+              >
+                {deleteMut.isLoading ? "..." : "Confirm"}
+              </button>
+              <button
+                class="btn btn-ghost btn-sm"
+                style={{ color: "var(--muted-foreground)", "font-size": "var(--text-xs)" }}
+                onClick={() => setConfirmDelete(false)}
+              >
+                Cancel
+              </button>
+            </div>
+          </Show>
+
+          <button
+            class="btn btn-ghost btn-icon btn-sm"
+            onClick={() => props.onToggle()}
+          >
+            <span
+              class="session-list-chevron"
+              classList={{ "session-list-chevron-open": props.isExpanded }}
+            >
+              <ChevronRight size={14} />
+            </span>
+          </button>
+        </div>
+      </div>
+
+      {/* Body: schedule + metadata */}
+      <div class="cron-card-body">
+        <div class="cron-card-meta">
+          <span class="cron-card-schedule">
+            <Clock size={12} style={{ opacity: 0.4 }} />
+            <code>{props.job.schedule}</code>
+          </span>
+          <Show when={props.job.max_retries != null && props.job.max_retries! > 0}>
+            <span>retries: {props.job.retry_count ?? 0}/{props.job.max_retries}</span>
+          </Show>
+          <Show when={props.job.retry_delay_secs != null && props.job.retry_delay_secs! > 0}>
+            <span>delay: {props.job.retry_delay_secs}s</span>
+          </Show>
+          <Show when={!!props.job.depends_on}>
+            <span>depends on: {props.job.depends_on}</span>
+          </Show>
+        </div>
+      </div>
+
+      {/* Collapsible run history */}
+      <Show when={props.isExpanded}>
+        <RunHistory jobId={props.job.id} />
+      </Show>
+    </div>
+  );
+}
+
+// ── Main Component ───────────────────────────────────
+
+export default function Cron() {
+  const [expandedId, setExpandedId] = createSignal<string | null>(null);
+
+  const jobsQ = createQuery({
+    key: qk.cronJobs,
+    fn: fetchCronJobs,
+  });
+
+  const jobs = createMemo<readonly CronJob[]>(() => jobsQ.data?.jobs ?? []);
 
   return (
     <PageShell
+      maxWidth="3xl"
       header={
-        <PageTitle icon={<Clock className="h-3.5 w-3.5" />} title="Cron Jobs">
-          <span className="text-xs text-muted-foreground">{jobs.length} job{jobs.length !== 1 ? "s" : ""}</span>
-          <Button asChild size="sm">
-            <Link to="/cron/$jobId" params={{ jobId: "new" }}><Plus className="h-3.5 w-3.5 mr-1" /> New Job</Link>
-          </Button>
+        <PageTitle icon={<Clock size={14} />} title="Cron Jobs">
+          <span style={{ "font-size": "10px", color: "var(--muted-foreground)", "font-variant-numeric": "tabular-nums" }}>
+            {jobs().length} job{jobs().length !== 1 ? "s" : ""}
+          </span>
+          <A href="/cron/edit" class="btn btn-primary btn-sm" style={{ "text-decoration": "none" }}>
+            <Plus size={14} /> New Job
+          </A>
         </PageTitle>
       }
     >
-      {jobsQuery.isLoading && (
-        <div className="space-y-2">
-          {[1, 2, 3].map((i) => <Skeleton key={i} className="h-20 w-full" />)}
-        </div>
-      )}
-      {jobsQuery.error && <p className="text-sm text-destructive">Failed to load cron jobs.</p>}
-      {!jobsQuery.isLoading && jobs.length === 0 && (
-        <EmptyState icon={<Clock />} title="No cron jobs yet" subtitle="Create a scheduled task to begin automation." />
-      )}
+      <div class="route-enter cron-stack">
+        {/* Loading */}
+        <Show when={jobsQ.isLoading}>
+          <div style={{ display: "flex", "flex-direction": "column", gap: "var(--space-3)" }}>
+            <div class="skeleton" style={{ height: "80px", "border-radius": "var(--radius-lg)" }} />
+            <div class="skeleton" style={{ height: "80px", "border-radius": "var(--radius-lg)" }} />
+            <div class="skeleton" style={{ height: "80px", "border-radius": "var(--radius-lg)" }} />
+          </div>
+        </Show>
 
-      {jobs.map((job) => {
-        const isExpanded = expandedId === job.id;
-        const isConfirming = confirmDeleteId === job.id;
-        return (
-          <Card key={job.id}>
-            <CardHeader>
-              <div className="flex items-center gap-2 min-w-0">
-                <CardTitle className="truncate">{job.name}</CardTitle>
-                <Badge variant="outline" className="text-[10px] shrink-0">{job.agent_id}</Badge>
-                <StatusPill status={job.last_status ?? "PENDING"} />
-              </div>
-              <div className="flex items-center gap-1 shrink-0">
-                <Button variant="ghost" size="sm" className="gap-1"
-                  disabled={triggerMut.isPending} onClick={() => handleTrigger(job.id, job.name)}>
-                  <Play className="h-3 w-3" /> Run
-                </Button>
-                {isConfirming ? (
-                  <div className="flex items-center gap-1">
-                    <Button variant="destructive" size="sm"
-                      disabled={deleteMut.isPending} onClick={() => handleDelete(job.id)}>
-                      {deleteMut.isPending ? "Deleting..." : "Confirm"}
-                    </Button>
-                    <Button variant="ghost" size="sm"
-                      onClick={() => setConfirmDeleteId(null)}>Cancel</Button>
-                  </div>
-                ) : (
-                  <Button variant="ghost" size="sm"
-                    className="text-destructive/60 hover:text-destructive"
-                    onClick={() => setConfirmDeleteId(job.id)}>
-                    <Trash2 className="h-3 w-3" />
-                  </Button>
-                )}
-                <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0"
-                  onClick={() => setExpandedId(isExpanded ? null : job.id)}>
-                  {isExpanded
-                    ? <ChevronUp className="h-3.5 w-3.5" />
-                    : <ChevronDown className="h-3.5 w-3.5" />}
-                </Button>
-              </div>
-            </CardHeader>
-            <CardContent className="pt-2">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <Clock className="h-3 w-3 text-primary opacity-40" />
-                  <code>{job.schedule}</code>
-                </span>
-                {job.max_retries != null && job.max_retries > 0 && (
-                  <span>retries: {job.retry_count ?? 0}/{job.max_retries}</span>
-                )}
-                {job.retry_delay_secs != null && job.retry_delay_secs > 0 && (
-                  <span>delay: {job.retry_delay_secs}s</span>
-                )}
-                {job.depends_on && <span>depends on: {job.depends_on}</span>}
-              </div>
-              {isExpanded && <RunHistory jobId={job.id} />}
-            </CardContent>
-          </Card>
-        );
-      })}
-    </PageShell>
-  );
-}
+        {/* Error */}
+        <Show when={jobsQ.isError}>
+          <p style={{ "font-size": "var(--text-sm)", color: "var(--destructive)" }}>
+            Failed to load cron jobs.
+          </p>
+        </Show>
 
-function RunHistory({ jobId }: { readonly jobId: string }) {
-  const runsQuery = useCronJobRunsQuery(jobId);
-  const runs = runsQuery.data?.runs ?? [];
-  if (runsQuery.isLoading) {
-    return (
-      <div className="mt-3 space-y-1">
-        {[1, 2].map((i) => <Skeleton key={i} className="h-12 w-full" />)}
+        {/* Empty */}
+        <Show when={!jobsQ.isLoading && !jobsQ.isError && jobs().length === 0}>
+          <div class="empty-state">
+            <Clock size={24} />
+            <p>No cron jobs yet</p>
+            <span style={{ "font-size": "var(--text-xs)", color: "var(--muted-foreground)" }}>
+              Create a scheduled task to begin automation.
+            </span>
+          </div>
+        </Show>
+
+        {/* Job list */}
+        <Show when={!jobsQ.isLoading && jobs().length > 0}>
+          <For each={jobs()}>
+            {(job) => (
+              <JobCard
+                job={job}
+                isExpanded={expandedId() === job.id}
+                onToggle={() =>
+                  setExpandedId(expandedId() === job.id ? null : job.id)
+                }
+              />
+            )}
+          </For>
+        </Show>
       </div>
-    );
-  }
-  if (runs.length === 0) {
-    return <p className="mt-3 text-xs text-muted-foreground opacity-60">No runs recorded yet.</p>;
-  }
-  return (
-    <div className="mt-3 space-y-1">
-      <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Recent runs</p>
-      {runs.slice(0, 10).map((run) => <RunRow key={String(run.id)} run={run} />)}
-    </div>
-  );
-}
-
-function RunRow({ run }: { readonly run: CronRun }) {
-  return (
-    <div className="flex items-center gap-3 rounded-lg border border-border bg-muted px-3 py-2 text-xs">
-      <StatusPill status={run.status} />
-      <span className="text-muted-foreground tabular-nums">
-        {run.executed_at != null ? formatTimestamp(run.executed_at) : "-"}
-      </span>
-      {run.duration_ms != null && <span className="text-muted-foreground opacity-60">{run.duration_ms}ms</span>}
-      <span className="ml-auto truncate max-w-[40%] text-foreground">
-        {run.output_preview ?? run.error ?? ""}
-      </span>
-    </div>
+    </PageShell>
   );
 }

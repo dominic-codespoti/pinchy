@@ -7,6 +7,7 @@
 pub mod azure_openai;
 pub mod copilot;
 pub mod openai;
+pub mod openai_codex;
 pub mod openai_compat;
 pub mod pricing;
 
@@ -220,6 +221,7 @@ pub trait ModelProvider: Send + Sync {
 pub use azure_openai::AzureOpenAIProvider;
 pub use copilot::CopilotProvider;
 pub use openai::OpenAIProvider;
+pub use openai_codex::OpenAICodexProvider;
 pub use openai_compat::OpenAICompatProvider;
 
 /// Extract token usage statistics from an OpenAI / Azure response JSON.
@@ -885,16 +887,41 @@ pub fn build_provider_with_config_fields(
             model_id.to_string(),
             headers.cloned(),
         ))
+    } else if matches!(provider_id, "openai-chatgpt" | "openai-codex") {
+        // ChatGPT OAuth Codex provider — uses access_token from ChatGPT OAuth.
+        match crate::auth::openai_chatgpt::retrieve_auth() {
+            Ok(Some(auth)) => match OpenAICodexProvider::from_auth(&auth, model_id.to_string()) {
+                Ok(provider) => Box::new(provider),
+                Err(e) => {
+                    warn!("openai-codex: failed to build provider from stored auth: {e} — using fallback");
+                    Box::new(FallbackProvider)
+                }
+            },
+            Ok(None) => {
+                warn!("openai-codex provider requested but no ChatGPT auth stored — run /chatgpt-login first — using fallback");
+                Box::new(FallbackProvider)
+            }
+            Err(e) => {
+                warn!(
+                    "openai-codex provider requested but failed to read auth: {e} — using fallback"
+                );
+                Box::new(FallbackProvider)
+            }
+        }
     } else if provider_id.contains("openai") {
-        if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
-            Box::new(OpenAIProvider::with_config(
-                api_key,
-                openai::DEFAULT_ENDPOINT.to_string(),
-                model_id.to_string(),
-            ))
-        } else {
+        let api_key = resolve_config_key(api_key, "openai");
+        if api_key.is_empty() {
             warn!("provider \"openai\" requested but OPENAI_API_KEY not set — using fallback");
             Box::new(FallbackProvider)
+        } else {
+            let endpoint = endpoint
+                .map(String::from)
+                .unwrap_or_else(|| openai::DEFAULT_ENDPOINT.to_string());
+            Box::new(OpenAIProvider::with_config(
+                api_key,
+                endpoint,
+                model_id.to_string(),
+            ))
         }
     } else {
         Box::new(FallbackProvider)

@@ -1,18 +1,29 @@
-import { z } from "zod";
+import { Effect, Schema as S } from "effect";
 
-/** Error thrown when an HTTP request fails */
-export class HttpError extends Error {
+// ── Error types ──────────────────────────────────────
+
+export class HttpError {
+  readonly _tag = "HttpError" as const;
   constructor(
-    public readonly status: number,
-    public readonly statusText: string,
-    public readonly body: string,
-  ) {
-    super(body || statusText || `HTTP ${status}`);
-    this.name = "HttpError";
+    readonly status: number,
+    readonly statusText: string,
+    readonly body: string,
+  ) {}
+
+  get message(): string {
+    return this.body || this.statusText || `HTTP ${this.status}`;
   }
 }
 
-/** Convert HeadersInit to a plain Record for spreading */
+export class ParseError {
+  readonly _tag = "ParseError" as const;
+  constructor(
+    readonly reason: string,
+  ) {}
+}
+
+// ── HTTP primitives ──────────────────────────────────
+
 function normalizeHeaders(
   headers: HeadersInit | undefined,
 ): Record<string, string> {
@@ -33,64 +44,98 @@ function normalizeHeaders(
 }
 
 /**
- * Type-safe fetch wrapper. Every call validates the response through a
- * Zod schema, guaranteeing the return type at runtime.
+ * Type-safe fetch wrapper returning an Effect.
+ * Validates the response through an Effect Schema.
  */
-export async function typedRequest<T>(
-  schema: z.ZodType<T>,
+export function typedRequest<A, I>(
+  schema: S.Schema<A, I>,
   input: string,
   init?: RequestInit,
-): Promise<T> {
-  const response = await fetch(input, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...normalizeHeaders(init?.headers),
-    },
+): Effect.Effect<A, HttpError | ParseError> {
+  return Effect.gen(function* () {
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(input, {
+          ...init,
+          headers: {
+            "Content-Type": "application/json",
+            ...normalizeHeaders(init?.headers),
+          },
+        }),
+      catch: (e) => new HttpError(0, "Network error", String(e)),
+    });
+
+    if (!response.ok) {
+      const body = yield* Effect.tryPromise({
+        try: () => response.text(),
+        catch: () => new HttpError(response.status, response.statusText, ""),
+      });
+      return yield* Effect.fail(
+        new HttpError(response.status, response.statusText, body as string),
+      );
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    const decode = S.decodeUnknown(schema);
+
+    if (contentType.includes("application/json")) {
+      const json = yield* Effect.tryPromise({
+        try: () => response.json() as Promise<unknown>,
+        catch: (e) => new ParseError(`JSON parse error: ${e}`),
+      });
+      return yield* Effect.mapError(decode(json), (e) => new ParseError(String(e)));
+    }
+
+    const text = yield* Effect.tryPromise({
+      try: () => response.text() as Promise<unknown>,
+      catch: (e) => new ParseError(`Text read error: ${e}`),
+    });
+    return yield* Effect.mapError(decode(text), (e) => new ParseError(String(e)));
   });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new HttpError(response.status, response.statusText, body);
-  }
-
-  const contentType = response.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    const json: unknown = await response.json();
-    return schema.parse(json);
-  }
-
-  // For non-JSON responses, parse as string through the schema
-  const text: unknown = await response.text();
-  return schema.parse(text);
 }
 
 /**
  * Untyped request for endpoints where we don't validate the shape
- * (e.g. config which is arbitrary JSON). Returns `unknown` — callers
- * must narrow the result themselves.
+ * (e.g. config which is arbitrary JSON).
  */
-export async function rawRequest(
+export function rawRequest(
   input: string,
   init?: RequestInit,
-): Promise<unknown> {
-  const response = await fetch(input, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...normalizeHeaders(init?.headers),
-    },
+): Effect.Effect<unknown, HttpError> {
+  return Effect.gen(function* () {
+    const response = yield* Effect.tryPromise({
+      try: () =>
+        fetch(input, {
+          ...init,
+          headers: {
+            "Content-Type": "application/json",
+            ...normalizeHeaders(init?.headers),
+          },
+        }),
+      catch: (e) => new HttpError(0, "Network error", String(e)),
+    });
+
+    if (!response.ok) {
+      const body = yield* Effect.tryPromise({
+        try: () => response.text(),
+        catch: () => new HttpError(response.status, response.statusText, ""),
+      });
+      return yield* Effect.fail(
+        new HttpError(response.status, response.statusText, body as string),
+      );
+    }
+
+    const contentType = response.headers.get("content-type") ?? "";
+    if (contentType.includes("application/json")) {
+      return yield* Effect.tryPromise({
+        try: () => response.json() as Promise<unknown>,
+        catch: (e) => new HttpError(0, "JSON parse error", String(e)),
+      });
+    }
+
+    return yield* Effect.tryPromise({
+      try: () => response.text(),
+      catch: (e) => new HttpError(0, "Text read error", String(e)),
+    });
   });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new HttpError(response.status, response.statusText, body);
-  }
-
-  const contentType = response.headers.get("content-type") ?? "";
-  if (contentType.includes("application/json")) {
-    return response.json() as Promise<unknown>;
-  }
-
-  return response.text();
 }

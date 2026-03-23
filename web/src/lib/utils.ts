@@ -1,11 +1,4 @@
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
-import { toast } from "sonner";
-
-/** Merge Tailwind classes with clsx + tailwind-merge */
-export function cn(...inputs: ReadonlyArray<ClassValue>): string {
-  return twMerge(clsx(inputs));
-}
+// ── Formatting helpers ───────────────────────────────
 
 /** Format bytes into human-readable string */
 export function humanBytes(bytes: number): string {
@@ -27,6 +20,63 @@ export function formatTimestamp(ts: number): string {
   return new Date(ms).toLocaleTimeString();
 }
 
+function toDate(value: number | string | Date): Date {
+  if (value instanceof Date) return value;
+  if (typeof value === "number") {
+    return new Date(value > 1e12 ? value : value * 1000);
+  }
+  return new Date(value);
+}
+
+/** Format a timestamp to a readable date + time string */
+export function formatDateTime(value: number | string | Date): string {
+  const date = toDate(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** Format a timestamp relative to now */
+export function formatRelativeTime(
+  value: number | string | Date | null | undefined,
+): string {
+  if (value == null) return "-";
+  const date = toDate(value);
+  if (Number.isNaN(date.getTime())) return "-";
+
+  const diffMs = date.getTime() - Date.now();
+  const diffAbs = Math.abs(diffMs);
+  const minutes = Math.round(diffAbs / 60_000);
+
+  if (minutes < 1) return diffMs >= 0 ? "in a moment" : "just now";
+  if (minutes < 60)
+    return `${diffMs >= 0 ? "in " : ""}${minutes}m${diffMs < 0 ? " ago" : ""}`;
+
+  const hours = Math.round(minutes / 60);
+  if (hours < 24)
+    return `${diffMs >= 0 ? "in " : ""}${hours}h${diffMs < 0 ? " ago" : ""}`;
+
+  const days = Math.round(hours / 24);
+  if (days < 7)
+    return `${diffMs >= 0 ? "in " : ""}${days}d${diffMs < 0 ? " ago" : ""}`;
+
+  return formatDateTime(date);
+}
+
+/** Truncate a long identifier in the middle */
+export function truncateMiddle(
+  value: string,
+  start = 10,
+  end = 6,
+): string {
+  if (value.length <= start + end + 1) return value;
+  return `${value.slice(0, start)}...${value.slice(-end)}`;
+}
+
 /** Coerce an unknown value to displayable text */
 export function toText(value: unknown): string {
   if (typeof value === "string") return value;
@@ -40,6 +90,8 @@ export function toText(value: unknown): string {
   }
   return String(value);
 }
+
+// ── Cron helpers ─────────────────────────────────────
 
 /** Regex to validate cron expressions */
 export const CRON_RE =
@@ -115,31 +167,21 @@ export function formatInTz(date: Date, tz?: string | null): string {
   });
 }
 
+// ── WebSocket URL ────────────────────────────────────
+
 /** Build a WebSocket URL from a path */
 export function wsUrl(path = "/ws"): string {
   const proto = window.location.protocol === "https:" ? "wss" : "ws";
   return `${proto}://${window.location.host}${path}`;
 }
 
+// ── Type guards ──────────────────────────────────────
+
 /** Type guard: is value a plain key-value object? */
 export function isRecord(
   value: unknown,
 ): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
-}
-
-/** Standard mutation callbacks: toast success/error */
-export function mutationOpts(
-  successMsg: string,
-  onSuccess?: () => void,
-): { onSuccess: () => void; onError: (e: Error) => void } {
-  return {
-    onSuccess: () => {
-      toast.success(successMsg);
-      onSuccess?.();
-    },
-    onError: (e: Error) => toast.error(e.message),
-  };
 }
 
 /** Coerce a string form value to its appropriate config type */

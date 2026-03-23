@@ -283,6 +283,52 @@ impl ModelProvider for OpenAIProvider {
         }
     }
 
+    async fn list_models(&self) -> Result<Option<Vec<super::ModelInfo>>, anyhow::Error> {
+        let base = self
+            .endpoint
+            .trim_end_matches('/')
+            .trim_end_matches("/chat/completions")
+            .trim_end_matches('/');
+        let url = format!("{base}/models");
+
+        let resp = self
+            .client
+            .get(&url)
+            .bearer_auth(&self.api_key)
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            return Ok(None);
+        }
+
+        let payload: serde_json::Value = resp.json().await?;
+        let data = payload
+            .get("data")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let models: Vec<super::ModelInfo> = data
+            .iter()
+            .filter_map(|m| {
+                let id = m.get("id")?.as_str()?.to_string();
+                Some(super::ModelInfo {
+                    name: id.clone(),
+                    id,
+                    vendor: m
+                        .get("owned_by")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()),
+                    supported_endpoints: vec!["chat".to_string()],
+                    is_default: false,
+                })
+            })
+            .collect();
+
+        Ok(Some(models))
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

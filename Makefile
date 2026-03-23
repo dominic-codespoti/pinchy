@@ -4,7 +4,7 @@
 dev:
 	@bash dev.sh
 
-# Build React frontend into static/react/
+# Build SolidJS frontend into static/solid/
 web:
 	@cd web && [ -d node_modules ] || pnpm install --frozen-lockfile
 	@cd web && pnpm run build
@@ -28,7 +28,7 @@ update:
 install: update
 	sudo cp target/release/pinchy /opt/pinchy/pinchy
 	sudo mkdir -p /opt/pinchy/static
-	sudo cp -r static/react /opt/pinchy/static/
+	sudo cp -r static/solid /opt/pinchy/static/
 	sudo systemctl restart pinchy
 	@echo "✅ Installed and restarted"
 

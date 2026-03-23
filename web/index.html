@@ -7,13 +7,17 @@
   </head>
   <body>
     <script>
-      // Apply saved theme before React renders to prevent flash
-      (function(){var t;try{t=localStorage.getItem("pinchy-theme")}catch(e){}
-      var v=["emerald","midnight","amber","rose","violet","cyan","copper","crimson","lime","frost"];
-      if(t&&v.indexOf(t)!==-1)document.documentElement.setAttribute("data-theme",t);
+      // Apply saved theme before Solid renders to prevent flash
+      (function(){
+        var t;
+        try { t = localStorage.getItem("pinchy-theme"); } catch(e) {}
+        var valid = ["zinc","ember","ocean","aurora","dusk","moss","slate","ruby"];
+        if (t && valid.indexOf(t) !== -1) {
+          document.documentElement.setAttribute("data-theme", t);
+        }
       })();
     </script>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/index.tsx"></script>
   </body>
 </html>

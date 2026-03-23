@@ -218,6 +218,23 @@ pub async fn start_gateway_with_config(
             get(handlers::config::api_config_get).put(handlers::config::api_config_put),
         )
         .route("/config/schema", get(handlers::config::api_config_schema))
+        // Provider auth
+        .route(
+            "/auth/providers",
+            get(handlers::provider_auth::api_provider_auth_status),
+        )
+        .route(
+            "/auth/copilot/login",
+            post(handlers::provider_auth::api_copilot_auth_start),
+        )
+        .route(
+            "/auth/chatgpt/login",
+            post(handlers::provider_auth::api_chatgpt_auth_start),
+        )
+        .route(
+            "/auth/chatgpt/logout",
+            post(handlers::provider_auth::api_chatgpt_auth_logout),
+        )
         // Agents
         .route(
             "/agents",
@@ -306,8 +323,16 @@ pub async fn start_gateway_with_config(
             delete(handlers::memory::api_memory_delete),
         )
         // Skills
-        .route("/skills", get(handlers::skills::api_skills_list))
-        .route("/skills/:name", delete(handlers::skills::api_skills_delete))
+        .route(
+            "/skills",
+            get(handlers::skills::api_skills_list).post(handlers::skills::api_skills_create),
+        )
+        .route(
+            "/skills/:name",
+            get(handlers::skills::api_skills_get)
+                .put(handlers::skills::api_skills_update)
+                .delete(handlers::skills::api_skills_delete),
+        )
         // AI
         .route(
             "/ai/enhance-prompt",
@@ -386,10 +411,15 @@ pub async fn start_gateway_with_config(
         // Dev / deployed-with-files: serve from disk (supports HMR proxy, etc.)
         let static_service = ServeDir::new(static_root.clone())
             .not_found_service(ServeFile::new(index_file.clone()));
-        let react_mount_service = ServeDir::new(static_root.clone());
+        let mount_service = ServeDir::new(static_root.clone());
+        let mount_path = if ui_label == "solid" {
+            "/solid"
+        } else {
+            "/react"
+        };
         app = app
             .route_service("/", ServeFile::new(index_file))
-            .nest_service("/react", react_mount_service)
+            .nest_service(mount_path, mount_service)
             .fallback_service(static_service);
     } else if has_embedded {
         // Installed via `cargo install` or crates.io: serve from embedded assets.
@@ -473,13 +503,17 @@ pub async fn spawn_gateway_if_enabled() -> Option<Gateway> {
 }
 
 fn resolve_ui_paths() -> (PathBuf, PathBuf, &'static str) {
-    let cwd_react_index = Path::new("static/react/index.html");
-    if cwd_react_index.exists() {
-        return (
-            PathBuf::from("static/react"),
-            PathBuf::from("static/react/index.html"),
-            "react",
-        );
+    // Prefer Solid UI if available, then fall back to React.
+    for ui_dir in &["static/solid", "static/react"] {
+        let cwd_index = Path::new(ui_dir).join("index.html");
+        if cwd_index.exists() {
+            let label = if ui_dir.ends_with("solid") {
+                "solid"
+            } else {
+                "react"
+            };
+            return (PathBuf::from(ui_dir), cwd_index, label);
+        }
     }
 
     // Only use CARGO_MANIFEST_DIR if it looks like a real project checkout
@@ -490,13 +524,16 @@ fn resolve_ui_paths() -> (PathBuf, PathBuf, &'static str) {
         .map(|s| s.contains(".cargo/registry"))
         .unwrap_or(false);
     if !is_registry_cache {
-        let manifest_react_index = manifest_dir.join("static/react/index.html");
-        if manifest_react_index.exists() {
-            return (
-                manifest_dir.join("static/react"),
-                manifest_react_index,
-                "react",
-            );
+        for ui_dir in &["static/solid", "static/react"] {
+            let manifest_index = manifest_dir.join(ui_dir).join("index.html");
+            if manifest_index.exists() {
+                let label = if ui_dir.ends_with("solid") {
+                    "solid"
+                } else {
+                    "react"
+                };
+                return (manifest_dir.join(ui_dir), manifest_index, label);
+            }
         }
     }
 
@@ -507,22 +544,30 @@ fn resolve_ui_paths() -> (PathBuf, PathBuf, &'static str) {
             .ok()
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))
         {
-            let exe_react_index = exe_dir.join("static/react/index.html");
-            if exe_react_index.exists() {
-                return (exe_dir.join("static/react"), exe_react_index, "react");
+            for ui_dir in &["static/solid", "static/react"] {
+                let exe_index = exe_dir.join(ui_dir).join("index.html");
+                if exe_index.exists() {
+                    let label = if ui_dir.ends_with("solid") {
+                        "solid"
+                    } else {
+                        "react"
+                    };
+                    return (exe_dir.join(ui_dir), exe_index, label);
+                }
             }
         }
     }
 
-    // Check inside PINCHY_HOME (e.g. ~/.pinchy/static/react/).
-    {
-        let home_react_index = crate::pinchy_home().join("static/react/index.html");
-        if home_react_index.exists() {
-            return (
-                crate::pinchy_home().join("static/react"),
-                home_react_index,
-                "react",
-            );
+    // Check inside PINCHY_HOME (e.g. ~/.pinchy/static/solid/ or ~/.pinchy/static/react/).
+    for ui_dir in &["static/solid", "static/react"] {
+        let home_index = crate::pinchy_home().join(ui_dir).join("index.html");
+        if home_index.exists() {
+            let label = if ui_dir.ends_with("solid") {
+                "solid"
+            } else {
+                "react"
+            };
+            return (crate::pinchy_home().join(ui_dir), home_index, label);
         }
     }
 
@@ -682,15 +727,15 @@ pub fn spawn_command_forwarder(mut commands_rx: mpsc::Receiver<String>) {
 // ---------------------------------------------------------------------------
 
 #[derive(Embed)]
-#[folder = "static/react/"]
+#[folder = "static/solid/"]
 #[prefix = ""]
 struct WebUiAssets;
 
 /// Serve a file from the embedded web UI assets.
 async fn embedded_static(uri: Uri) -> Response {
     let path = uri.path().trim_start_matches('/');
-    // Strip the /react/ prefix if present (for nested mount).
-    let path = path.strip_prefix("react/").unwrap_or(path);
+    // Strip the /solid/ prefix if present (for nested mount).
+    let path = path.strip_prefix("solid/").unwrap_or(path);
     // Serve the requested file, or fall back to index.html for SPA routing.
     let path = if path.is_empty() { "index.html" } else { path };
 

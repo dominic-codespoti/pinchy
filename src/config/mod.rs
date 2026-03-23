@@ -648,6 +648,8 @@ impl Config {
 
         const KNOWN_PROVIDERS: &[&str] = &[
             "openai",
+            "openai-chatgpt",
+            "openai-codex",
             "azure-openai",
             "azure_openai",
             "azure",

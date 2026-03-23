@@ -13,12 +13,12 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-# ── 1. Build the React frontend once (fast if unchanged) ──
-echo "⚡ Building React frontend…"
+# ── 1. Build the SolidJS frontend once (fast if unchanged) ──
+echo "⚡ Building SolidJS frontend…"
 (cd "$WEB" && pnpm run build)
 
-# ── 2. Start Vite dev server (HMR on :5173) ──
-echo "🔥 Starting Vite dev server (http://localhost:5173/react/)…"
+# ── 2. Start Vite dev server (HMR on :5174) ──
+echo "🔥 Starting Vite dev server (http://localhost:5174/solid/)…"
 (cd "$WEB" && pnpm exec vite --clearScreen false) &
 VITE_PID=$!
 
@@ -36,7 +36,7 @@ echo ""
 echo "┌─────────────────────────────────────────────┐"
 echo "│  Pinchy Dev Mode                            │"
 echo "│                                             │"
-echo "│  Frontend (HMR):  http://localhost:5173/react/  │"
+echo "│  Frontend (HMR):  http://localhost:5174/solid/  │"
 echo "│  Backend  (API):  http://localhost:3131      │"
 echo "│                                             │"
 echo "│  Press Ctrl+C to stop both                  │"

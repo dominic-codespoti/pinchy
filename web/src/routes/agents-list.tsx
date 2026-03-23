@@ -1,100 +1,423 @@
-import { useState } from "react";
-import { Link } from "@tanstack/react-router";
-import { Bot, Plus, Trash2, Heart, Cpu, Clock, Copy } from "lucide-react";
-import { toast } from "sonner";
-import {
-  useAgentsQuery, useCreateAgentMutation,
-  useDeleteAgentMutation, useCloneAgentMutation,
-} from "@/api/queries";
-import type { AgentListItem } from "@/api/schemas";
-import {
-  Card, CardContent, Button, Input,
-  Dialog, DialogContent, DialogTitle, DialogClose, Skeleton,
-} from "@/components/ui";
+import { createSignal, createMemo, Show, For, createEffect, onCleanup } from "solid-js";
+import { A, useNavigate } from "@solidjs/router";
+import { Bot, Plus, Copy, Trash2, Heart, Brain, Clock, ChevronRight, X, MessageSquare } from "@/components/icons";
 import { PageShell, PageTitle } from "@/components/layout";
-import { mutationOpts } from "@/lib/utils";
+import { createQuery, createMutation, invalidateQueries } from "@/api/use-api";
+import { qk, fetchAgents, createAgent, deleteAgent, cloneAgent } from "@/api/queries";
+import type { AgentListItem } from "@/api/schemas";
+import { HttpError } from "@/api/http";
+import { toast } from "@/components/toast";
 
-export function AgentsListRoute() {
-  const { data, isLoading } = useAgentsQuery();
-  const createMut = useCreateAgentMutation();
-  const deleteMut = useDeleteAgentMutation();
-  const cloneMut = useCloneAgentMutation();
-  const [newId, setNewId] = useState("");
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  const [cloneSrc, setCloneSrc] = useState<string | null>(null);
-  const [cloneNewId, setCloneNewId] = useState("");
-  const agents: readonly AgentListItem[] = data?.agents ?? [];
+// ── Helpers ──────────────────────────────────────────
 
-  const onCreate = () => {
-    const id = newId.trim();
-    if (!id) return void toast.error("Agent ID required");
-    createMut.mutate({ id }, mutationOpts(`Created ${id}`, () => setNewId("")));
-  };
+function getAgentIdIssue(id: string, existing: readonly string[]): string | null {
+  if (id.length === 0) return null;
+  if (!/^[A-Za-z0-9_-]+$/.test(id)) return "Use letters, numbers, hyphens, or underscores.";
+  if (existing.some((e) => e.toLowerCase() === id.toLowerCase())) return "That agent ID already exists.";
+  return null;
+}
+
+function suggestAgentId(existing: readonly string[]): string {
+  let i = 1;
+  let c = `agent_${i}`;
+  while (existing.some((e) => e.toLowerCase() === c.toLowerCase())) {
+    i++;
+    c = `agent_${i}`;
+  }
+  return c;
+}
+
+function suggestCloneId(src: string, existing: readonly string[]): string {
+  let candidate = `${src}_copy`;
+  if (!existing.some((e) => e.toLowerCase() === candidate.toLowerCase())) return candidate;
+  let i = 2;
+  candidate = `${src}_copy_${i}`;
+  while (existing.some((e) => e.toLowerCase() === candidate.toLowerCase())) {
+    i++;
+    candidate = `${src}_copy_${i}`;
+  }
+  return candidate;
+}
+
+function getMutationMessage(error: unknown): string {
+  if (error instanceof HttpError) {
+    try {
+      const parsed = JSON.parse(error.body) as { error?: unknown };
+      if (typeof parsed.error === "string" && parsed.error.length > 0) return parsed.error;
+    } catch { /* ignore */ }
+    return error.message;
+  }
+  if (error instanceof Error) return error.message;
+  return "Something went wrong.";
+}
+
+// ── Component ────────────────────────────────────────
+
+export default function AgentsList() {
+  const navigate = useNavigate();
+
+  const agentsQ = createQuery({
+    key: qk.agents,
+    fn: fetchAgents,
+    refetchInterval: 30_000,
+  });
+
+  const agents = createMemo<readonly AgentListItem[]>(() => agentsQ.data?.agents ?? []);
+  const existingIds = createMemo(() => agents().map((a) => a.id));
+
+  // ── Create ──
+  const [showCreate, setShowCreate] = createSignal(false);
+  const [newId, setNewId] = createSignal("");
+  const [createErr, setCreateErr] = createSignal<string | undefined>();
+
+  const createMut = createMutation({
+    fn: (payload: { id: string }) => createAgent(payload),
+    onSuccess: (_data, args) => {
+      invalidateQueries(qk.agents);
+      setShowCreate(false);
+      setNewId("");
+      setCreateErr(undefined);
+      toast.success(`Agent "${args.id}" created`);
+      navigate(`/agents/${args.id}`);
+    },
+    onError: (msg) => {
+      setCreateErr(msg);
+      toast.error(msg);
+    },
+  });
+
+  const trimmedNewId = createMemo(() => newId().trim());
+  const createIssue = createMemo(() => getAgentIdIssue(trimmedNewId(), existingIds()));
+
+  function handleCreate() {
+    const id = trimmedNewId();
+    if (id.length === 0 || createIssue() != null) return;
+    setCreateErr(undefined);
+    createMut.mutate({ id });
+  }
+
+  // ── Delete ──
+  const [deleteId, setDeleteId] = createSignal<string | null>(null);
+
+  const deleteMut = createMutation({
+    fn: (id: string) => deleteAgent(id),
+    onSuccess: (_data, id) => {
+      invalidateQueries(qk.agents);
+      setDeleteId(null);
+      toast.success(`Agent "${id}" deleted`);
+    },
+    onError: (msg) => toast.error(msg),
+  });
+
+  // ── Clone ──
+  const [cloneSrc, setCloneSrc] = createSignal<string | null>(null);
+  const [cloneNewId, setCloneNewId] = createSignal("");
+  const [cloneErr, setCloneErr] = createSignal<string | undefined>();
+
+  const cloneMut = createMutation({
+    fn: (args: { id: string; newId: string }) => cloneAgent(args.id, args.newId),
+    onSuccess: (_data, args) => {
+      invalidateQueries(qk.agents);
+      setCloneSrc(null);
+      setCloneNewId("");
+      setCloneErr(undefined);
+      toast.success(`Agent "${args.newId}" cloned`);
+      navigate(`/agents/${args.newId}`);
+    },
+    onError: (msg) => {
+      setCloneErr(msg);
+      toast.error(msg);
+    },
+  });
+
+  const trimmedCloneId = createMemo(() => cloneNewId().trim());
+  const cloneIssue = createMemo(() => getAgentIdIssue(trimmedCloneId(), existingIds()));
+
+  createEffect(() => {
+    if (!showCreate() && deleteId() == null && cloneSrc() == null) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setShowCreate(false);
+      setDeleteId(null);
+      setCloneSrc(null);
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    onCleanup(() => window.removeEventListener("keydown", onKeyDown));
+  });
+
+  function handleClone() {
+    const src = cloneSrc();
+    const id = trimmedCloneId();
+    if (src == null || id.length === 0 || cloneIssue() != null) return;
+    setCloneErr(undefined);
+    cloneMut.mutate({ id: src, newId: id });
+  }
 
   return (
     <PageShell
-      maxWidth="5xl"
+      maxWidth="4xl"
       header={
-        <PageTitle icon={<Bot className="h-3.5 w-3.5" />} title="Agents">
-          <span className="text-xs text-muted-foreground">{agents.length} agents</span>
+        <PageTitle icon={<Bot size={16} />} title="Agents">
+          <button
+            class="btn btn-primary btn-sm"
+            onClick={() => {
+              setShowCreate(true);
+              setNewId("");
+              setCreateErr(undefined);
+            }}
+          >
+            <Plus size={14} />
+            Create
+          </button>
         </PageTitle>
       }
     >
-      <div className="flex gap-2">
-        <Input placeholder="new-agent-id" value={newId} onChange={(e) => setNewId(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") onCreate(); }} />
-        <Button size="sm" onClick={onCreate} disabled={createMut.isPending}>
-          <Plus className="h-3.5 w-3.5 mr-1" />{createMut.isPending ? "..." : "Create"}
-        </Button>
-      </div>
-      {isLoading && <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-        {[1, 2, 3].map((i) => <Skeleton key={i} className="h-28 rounded-xl" />)}
-      </div>}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-        {agents.map((a) => (
-          <Card key={a.id} className="group"><CardContent className="space-y-2">
-            <Link to="/agents/$agentId" params={{ agentId: a.id }} className="block">
-              <p className="text-sm font-semibold text-foreground">{a.id}</p>
-              <div className="mt-1 space-y-0.5 text-xs text-muted-foreground">
-                <p className="flex items-center gap-1.5"><Cpu className="h-3 w-3" />{a.model ?? "default"}</p>
-                <p className="flex items-center gap-1.5"><Heart className="h-3 w-3" />{a.heartbeat_secs ? `${a.heartbeat_secs}s` : "off"}</p>
-                <p className="flex items-center gap-1.5"><Clock className="h-3 w-3" />{a.cron_job_count} cron</p>
-              </div>
-            </Link>
-            <div className="flex justify-between pt-1 border-t border-border">
-              <button type="button" className="text-[10px] text-primary/60 hover:text-primary flex items-center gap-1"
-                onClick={() => { setCloneSrc(a.id); setCloneNewId(`${a.id}-copy`); }}>
-                <Copy className="h-2.5 w-2.5" />Clone</button>
-              <button type="button" className="text-[10px] text-destructive/60 hover:text-destructive flex items-center gap-1"
-                onClick={() => setDeleteId(a.id)}><Trash2 className="h-2.5 w-2.5" />Delete</button>
+      <div class="route-enter agents-list-container">
+        {/* Summary strip */}
+        <div class="agents-summary" style={{ "flex-direction": "row", gap: "var(--space-4)" }}>
+          <span>{agents().length} agents</span>
+          <span>{agents().filter((a) => (a.cron_jobs_count ?? a.cron_job_count ?? 0) > 0).length} with cron</span>
+          <span>{agents().filter((a) => a.heartbeat_secs != null).length} with heartbeat</span>
+        </div>
+
+        {/* Agent list */}
+        <Show when={!agentsQ.isLoading} fallback={
+          <div class="card" style={{ padding: "var(--space-4)" }}>
+            <div style={{ display: "flex", "flex-direction": "column", gap: "var(--space-3)" }}>
+              <div class="skeleton" style={{ height: "52px" }} />
+              <div class="skeleton" style={{ height: "52px" }} />
+              <div class="skeleton" style={{ height: "52px" }} />
             </div>
-          </CardContent></Card>
-        ))}
+          </div>
+        }>
+          <Show when={agentsQ.isError}>
+            <div class="empty-state">
+              <Bot size={24} />
+              <p>Couldn't load agents</p>
+              <button class="btn btn-secondary btn-sm" onClick={() => agentsQ.refetch()}>Retry</button>
+            </div>
+          </Show>
+
+          <Show when={!agentsQ.isError && agents().length === 0}>
+            <div class="empty-state">
+              <Bot size={24} />
+              <p>No agents yet</p>
+            </div>
+          </Show>
+
+          <Show when={!agentsQ.isError && agents().length > 0}>
+            <div class="card" style={{ padding: 0, overflow: "hidden" }}>
+              <For each={agents()}>
+                {(agent) => {
+                  const cronCount = () => agent.cron_job_count ?? agent.cron_jobs_count ?? 0;
+                  const skillCount = () => agent.enabled_skills?.length ?? 0;
+
+                  return (
+                    <div class="agent-row">
+                      <A href={`/agents/${agent.id}`} class="agent-row-info" style={{ "text-decoration": "none", color: "inherit" }}>
+                        <span class="agent-row-name">{agent.id}</span>
+                        <div class="agent-row-meta">
+                          <span class="agent-row-model">{agent.model ?? "Default"}</span>
+                          <div class="agent-row-dots">
+                            <span class={`status-dot ${agent.has_soul ? "status-dot-success" : "status-dot-idle"}`} title="SOUL.md" />
+                            <span class={`status-dot ${agent.has_tools ? "status-dot-success" : "status-dot-idle"}`} title="TOOLS.md" />
+                            <span class={`status-dot ${agent.has_heartbeat ? "status-dot-success" : "status-dot-idle"}`} title="HEARTBEAT.md" />
+                          </div>
+                        </div>
+                        <span class="agent-row-stats">
+                          {cronCount()} cron &middot; {skillCount()} skills
+                          {agent.heartbeat_secs ? ` · ${agent.heartbeat_secs}s heartbeat` : ""}
+                        </span>
+                      </A>
+
+                      <div class="agent-row-actions">
+                        <A
+                          href={`/chat/${agent.id}`}
+                          class="btn btn-ghost btn-sm btn-icon"
+                          title="Chat"
+                          style={{ "text-decoration": "none" }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MessageSquare size={14} />
+                        </A>
+                        <button
+                          class="btn btn-ghost btn-sm btn-icon"
+                          title="Clone"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setCloneSrc(agent.id);
+                            setCloneNewId(suggestCloneId(agent.id, existingIds()));
+                            setCloneErr(undefined);
+                          }}
+                        >
+                          <Copy size={14} />
+                        </button>
+                        <button
+                          class="btn btn-ghost btn-sm btn-icon"
+                          title="Delete"
+                          style={{ color: "var(--destructive)" }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteId(agent.id);
+                          }}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+
+                      <A href={`/agents/${agent.id}`} class="agent-row-chevron" style={{ "text-decoration": "none" }}>
+                        <ChevronRight size={16} />
+                      </A>
+                    </div>
+                  );
+                }}
+              </For>
+            </div>
+          </Show>
+        </Show>
       </div>
-      <Dialog open={deleteId !== null} onOpenChange={(o) => { if (!o) setDeleteId(null); }}>
-        <DialogContent><DialogTitle>Delete {deleteId}?</DialogTitle>
-          <p className="text-sm text-muted-foreground px-4">This cannot be undone.</p>
-          <div className="flex justify-end gap-2 p-4">
-            <DialogClose asChild><Button variant="secondary" size="sm">Cancel</Button></DialogClose>
-            <Button variant="destructive" size="sm" disabled={deleteMut.isPending}
-              onClick={() => deleteId && deleteMut.mutate(deleteId,
-                mutationOpts("Deleted", () => setDeleteId(null)),
-              )}>{deleteMut.isPending ? "..." : "Delete"}</Button>
+
+      {/* Create Dialog */}
+      <Show when={showCreate()}>
+        <div class="overlay" onClick={() => setShowCreate(false)} />
+        <div class="dialog">
+          <div class="dialog-header" style={{ display: "flex", "align-items": "flex-start", "justify-content": "space-between", gap: "var(--space-3)" }}>
+            <h2 class="dialog-title">Create agent</h2>
+            <button class="btn btn-ghost btn-sm btn-icon" type="button" onClick={() => setShowCreate(false)} aria-label="Close dialog">
+              <X size={14} />
+            </button>
           </div>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={cloneSrc !== null} onOpenChange={(o) => { if (!o) setCloneSrc(null); }}>
-        <DialogContent><DialogTitle>Clone {cloneSrc}</DialogTitle>
-          <div className="p-4"><Input value={cloneNewId} onChange={(e) => setCloneNewId(e.target.value)} placeholder="new-agent-id" /></div>
-          <div className="flex justify-end gap-2 p-4 pt-0">
-            <DialogClose asChild><Button variant="secondary" size="sm">Cancel</Button></DialogClose>
-            <Button size="sm" disabled={cloneMut.isPending}
-              onClick={() => cloneSrc && cloneMut.mutate({ id: cloneSrc, newId: cloneNewId.trim() },
-                mutationOpts("Cloned", () => setCloneSrc(null)),
-              )}>{cloneMut.isPending ? "..." : "Clone"}</Button>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleCreate();
+            }}
+          >
+            <div class="form-field" style={{ "margin-bottom": "var(--space-3)" }}>
+              <label class="form-label">Agent ID</label>
+              <input
+                class="input"
+                autofocus
+                placeholder="support_bot"
+                value={newId()}
+                onInput={(e) => {
+                  setNewId(e.currentTarget.value);
+                  setCreateErr(undefined);
+                }}
+              />
+              <Show when={createIssue() || createErr()}>
+                <span class="form-error">{createIssue() ?? createErr()}</span>
+              </Show>
+            </div>
+            <div class="dialog-footer">
+              <button
+                type="button"
+                class="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setNewId(suggestAgentId(existingIds()));
+                  setCreateErr(undefined);
+                }}
+              >
+                Suggest ID
+              </button>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                onClick={() => setShowCreate(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                class="btn btn-primary btn-sm"
+                disabled={createMut.isLoading || trimmedNewId().length === 0 || createIssue() != null}
+              >
+                <Plus size={14} />
+                {createMut.isLoading ? "Creating..." : "Create and open"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </Show>
+
+      {/* Delete Dialog */}
+      <Show when={deleteId() !== null}>
+        <div class="overlay" onClick={() => setDeleteId(null)} />
+        <div class="dialog">
+          <div class="dialog-header" style={{ display: "flex", "align-items": "flex-start", "justify-content": "space-between", gap: "var(--space-3)" }}>
+            <div>
+              <h2 class="dialog-title">Delete {deleteId()}?</h2>
+              <p class="dialog-description">
+                This removes the agent configuration and workspace files.
+              </p>
+            </div>
+            <button class="btn btn-ghost btn-sm btn-icon" type="button" onClick={() => setDeleteId(null)} aria-label="Close dialog">
+              <X size={14} />
+            </button>
           </div>
-        </DialogContent>
-      </Dialog>
+          <div class="dialog-footer">
+            <button class="btn btn-secondary btn-sm" onClick={() => setDeleteId(null)}>Cancel</button>
+            <button
+              class="btn btn-destructive btn-sm"
+              disabled={deleteMut.isLoading}
+              onClick={() => {
+                const id = deleteId();
+                if (id) deleteMut.mutate(id);
+              }}
+            >
+              {deleteMut.isLoading ? "Deleting..." : "Delete"}
+            </button>
+          </div>
+        </div>
+      </Show>
+
+      {/* Clone Dialog */}
+      <Show when={cloneSrc() !== null}>
+        <div class="overlay" onClick={() => setCloneSrc(null)} />
+        <div class="dialog">
+          <div class="dialog-header" style={{ display: "flex", "align-items": "flex-start", "justify-content": "space-between", gap: "var(--space-3)" }}>
+            <h2 class="dialog-title">Clone {cloneSrc()}</h2>
+            <button class="btn btn-ghost btn-sm btn-icon" type="button" onClick={() => setCloneSrc(null)} aria-label="Close dialog">
+              <X size={14} />
+            </button>
+          </div>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleClone();
+            }}
+          >
+            <div class="form-field" style={{ "margin-bottom": "var(--space-3)" }}>
+              <label class="form-label">New agent ID</label>
+              <input
+                class="input"
+                autofocus
+                placeholder="new-agent-id"
+                value={cloneNewId()}
+                onInput={(e) => {
+                  setCloneNewId(e.currentTarget.value);
+                  setCloneErr(undefined);
+                }}
+              />
+              <Show when={cloneIssue() || cloneErr()}>
+                <span class="form-error">{cloneIssue() ?? cloneErr()}</span>
+              </Show>
+            </div>
+            <div class="dialog-footer">
+              <button type="button" class="btn btn-secondary btn-sm" onClick={() => setCloneSrc(null)}>Cancel</button>
+              <button
+                type="submit"
+                class="btn btn-primary btn-sm"
+                disabled={cloneMut.isLoading || trimmedCloneId().length === 0 || cloneIssue() != null}
+              >
+                {cloneMut.isLoading ? "Cloning..." : "Clone and open"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </Show>
     </PageShell>
   );
 }

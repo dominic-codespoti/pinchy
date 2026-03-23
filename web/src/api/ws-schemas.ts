@@ -1,93 +1,144 @@
-import { z } from "zod";
+import { Schema as S } from "effect";
 
 // ── WebSocket incoming event schemas ─────────────────
 //
 // The gateway sends JSON frames over /ws. Each frame has a "type"
-// discriminator. We model this as a Zod discriminated union so every
-// handler gets a fully typed event.
+// discriminator. We model these as individual schemas and create
+// a union parser.
 
-const wsAgentMessageSchema = z.object({
-  type: z.literal("agent_message"),
-  agent_id: z.string(),
-  session_id: z.string().optional(),
-  content: z.string(),
-  timestamp: z.number().optional(),
+const WsAgentMessageSchema = S.Struct({
+  type: S.Literal("agent_message"),
+  agent_id: S.String,
+  session_id: S.optional(S.String),
+  content: S.String,
+  timestamp: S.optional(S.Number),
 });
 
-const wsAgentChunkSchema = z.object({
-  type: z.literal("agent_chunk"),
-  agent_id: z.string(),
-  session_id: z.string().optional(),
-  content: z.string(),
-  done: z.boolean().optional(),
+const WsAgentChunkSchema = S.Struct({
+  type: S.Literal("agent_chunk"),
+  agent_id: S.String,
+  session_id: S.optional(S.String),
+  content: S.String,
+  done: S.optional(S.Boolean),
 });
 
-const wsToolActivitySchema = z.object({
-  type: z.literal("tool_activity"),
-  agent_id: z.string(),
-  session_id: z.string().optional(),
-  tool: z.string(),
-  status: z.string(),
-  args_summary: z.string().optional(),
-  result_summary: z.string().optional(),
-  error: z.string().optional(),
-  duration_ms: z.number().optional(),
+const WsToolActivitySchema = S.Struct({
+  type: S.Literal("tool_activity"),
+  agent_id: S.String,
+  session_id: S.optional(S.String),
+  tool: S.String,
+  status: S.String,
+  args_summary: S.optional(S.String),
+  result_summary: S.optional(S.String),
+  error: S.optional(S.String),
+  duration_ms: S.optional(S.Number),
 });
 
-const wsTypingSchema = z.object({
-  type: z.literal("typing"),
-  agent_id: z.string(),
-  is_typing: z.boolean(),
+const WsTypingSchema = S.Struct({
+  type: S.Literal("typing"),
+  agent_id: S.String,
+  is_typing: S.Boolean,
 });
 
-const wsSessionEventSchema = z.object({
-  type: z.literal("session_event"),
-  agent_id: z.string(),
-  event: z.string(),
-  session_id: z.string().optional(),
+const WsSessionEventSchema = S.Struct({
+  type: S.Literal("session_event"),
+  agent_id: S.String,
+  event: S.String,
+  session_id: S.optional(S.String),
 });
 
-const wsReceiptSchema = z.object({
-  type: z.literal("receipt"),
-  agent_id: z.string(),
-  session_id: z.string().optional(),
-  receipt: z.record(z.string(), z.unknown()),
+const WsReceiptSchema = S.Struct({
+  type: S.Literal("receipt"),
+  agent_id: S.String,
+  session_id: S.optional(S.String),
+  receipt: S.Record({ key: S.String, value: S.Unknown }),
 });
 
-const wsErrorSchema = z.object({
-  type: z.literal("error"),
-  message: z.string(),
-  agent_id: z.string().optional(),
+const WsErrorSchema = S.Struct({
+  type: S.Literal("error"),
+  message: S.String,
+  agent_id: S.optional(S.String),
 });
 
-const wsPongSchema = z.object({
-  type: z.literal("pong"),
+const WsPongSchema = S.Struct({
+  type: S.Literal("pong"),
 });
 
-const wsConnectedSchema = z.object({
-  type: z.literal("connected"),
-  message: z.string().optional(),
+const WsConnectedSchema = S.Struct({
+  type: S.Literal("connected"),
+  message: S.optional(S.String),
 });
 
-export const wsEventSchema = z.discriminatedUnion("type", [
-  wsAgentMessageSchema,
-  wsAgentChunkSchema,
-  wsToolActivitySchema,
-  wsTypingSchema,
-  wsSessionEventSchema,
-  wsReceiptSchema,
-  wsErrorSchema,
-  wsPongSchema,
-  wsConnectedSchema,
-]);
+const WsCopilotAuthStartedSchema = S.Struct({
+  type: S.Literal("copilot_auth_started"),
+  login: S.Struct({
+    login_id: S.String,
+    status: S.String,
+    verification_uri: S.optional(S.String),
+    user_code: S.optional(S.String),
+    error: S.optional(S.NullOr(S.String)),
+  }),
+});
 
-export type WsEvent = z.infer<typeof wsEventSchema>;
+const WsCopilotAuthUpdateSchema = S.Struct({
+  type: S.Literal("copilot_auth_update"),
+  login: S.Struct({
+    login_id: S.String,
+    status: S.String,
+    verification_uri: S.optional(S.String),
+    user_code: S.optional(S.String),
+    error: S.optional(S.NullOr(S.String)),
+  }),
+});
 
-export type WsAgentChunk = z.infer<typeof wsAgentChunkSchema>;
-export type WsToolActivity = z.infer<typeof wsToolActivitySchema>;
+const WsChatGptAuthStartedSchema = S.Struct({
+  type: S.Literal("chatgpt_auth_started"),
+  login: S.Struct({
+    login_id: S.String,
+    status: S.String,
+    auth_url: S.optional(S.String),
+    error: S.optional(S.NullOr(S.String)),
+  }),
+});
+
+const WsChatGptAuthUpdateSchema = S.Struct({
+  type: S.Literal("chatgpt_auth_update"),
+  login: S.Struct({
+    login_id: S.String,
+    status: S.String,
+    error: S.optional(S.NullOr(S.String)),
+  }),
+});
+
+// ── Union type (discriminated by "type" field) ───────
+
+const WsEventSchema = S.Union(
+  WsAgentMessageSchema,
+  WsAgentChunkSchema,
+  WsToolActivitySchema,
+  WsTypingSchema,
+  WsSessionEventSchema,
+  WsReceiptSchema,
+  WsErrorSchema,
+  WsPongSchema,
+  WsConnectedSchema,
+  WsCopilotAuthStartedSchema,
+  WsCopilotAuthUpdateSchema,
+  WsChatGptAuthStartedSchema,
+  WsChatGptAuthUpdateSchema,
+);
+
+export type WsEvent = S.Schema.Type<typeof WsEventSchema>;
+export type WsAgentMessage = S.Schema.Type<typeof WsAgentMessageSchema>;
+export type WsAgentChunk = S.Schema.Type<typeof WsAgentChunkSchema>;
+export type WsToolActivity = S.Schema.Type<typeof WsToolActivitySchema>;
+export type WsTyping = S.Schema.Type<typeof WsTypingSchema>;
+export type WsSessionEvent = S.Schema.Type<typeof WsSessionEventSchema>;
+
+const decodeWsEvent = S.decodeUnknownOption(WsEventSchema);
 
 /** Safely parse an incoming WS frame. Returns null for unknown shapes. */
 export function parseWsEvent(data: unknown): WsEvent | null {
-  const result = wsEventSchema.safeParse(data);
-  return result.success ? result.data : null;
+  const result = decodeWsEvent(data);
+  return result._tag === "Some" ? result.value : null;
 }
