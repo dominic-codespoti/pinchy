@@ -61,9 +61,7 @@ pub fn validate_skill_name(name: &str) -> Result<(), String> {
         .chars()
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
     {
-        return Err(
-            "skill name may only contain lowercase letters, digits, and hyphens".into(),
-        );
+        return Err("skill name may only contain lowercase letters, digits, and hyphens".into());
     }
     if name.starts_with('-') || name.ends_with('-') {
         return Err("skill name must not start or end with a hyphen".into());
@@ -402,7 +400,7 @@ mod tests {
     fn validate_skill_name_valid() {
         assert!(validate_skill_name("browser").is_ok());
         assert!(validate_skill_name("mcp").is_ok());
-        assert!(validate_skill_name("custom-skill_123").is_ok());
+        assert!(validate_skill_name("custom-skill-123").is_ok());
         assert!(validate_skill_name("data-analysis").is_ok());
         assert!(validate_skill_name("code-review").is_ok());
         assert!(validate_skill_name("a").is_ok());

@@ -109,6 +109,7 @@ pub(crate) async fn api_skills_create(Json(body): Json<CreateSkillBody>) -> impl
         license: None,
         compatibility: None,
         metadata: None,
+        allowed_tools: None,
         operator_managed: None,
     };
     let manifest = match serialize_skill_manifest(&meta) {

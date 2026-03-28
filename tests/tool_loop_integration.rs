@@ -107,12 +107,21 @@ async fn tool_loop_invokes_read_file_and_persists() {
     assert_eq!(reply, "Here is the content you asked for.");
 
     // The session should be created in the DB
-    let current = db.current_session("test-agent").unwrap().expect("should have current session");
+    let current = db
+        .current_session("test-agent")
+        .unwrap()
+        .expect("should have current session");
 
     // Check history length
     let history = db.load_full_history(&current).unwrap();
-    let user_msgs = history.iter().filter(|e| e.role == "user").collect::<Vec<_>>();
-    let assistant_msgs = history.iter().filter(|e| e.role == "assistant").collect::<Vec<_>>();
+    let user_msgs = history
+        .iter()
+        .filter(|e| e.role == "user")
+        .collect::<Vec<_>>();
+    let assistant_msgs = history
+        .iter()
+        .filter(|e| e.role == "assistant")
+        .collect::<Vec<_>>();
 
     // Fallback extraction creates two fake messages to inject into context, so the final counts are:
     // 1 user request, 1 assistant (fallback imitation), 1 user (tool result), 1 assistant (final text).
@@ -121,13 +130,20 @@ async fn tool_loop_invokes_read_file_and_persists() {
     assert!(assistant_msgs.len() >= 1);
 
     // It depends on the internal extraction mechanics, but the last assistant msg must be the content:
-    assert_eq!(assistant_msgs.last().unwrap().content, "Here is the content you asked for.");
+    assert_eq!(
+        assistant_msgs.last().unwrap().content,
+        "Here is the content you asked for."
+    );
 
     // And verify the tool calls were appended to receipts:
     let receipts = db.list_receipts_for_session(&current).unwrap();
     assert_eq!(receipts.len(), 1, "exactly one turn receipt expected");
     let rec = &receipts[0];
-    assert_eq!(rec.tool_calls.len(), 1, "should have one tool call recorded in receipt");
+    assert_eq!(
+        rec.tool_calls.len(),
+        1,
+        "should have one tool call recorded in receipt"
+    );
     assert_eq!(rec.tool_calls[0].tool, "read_file");
 }
 

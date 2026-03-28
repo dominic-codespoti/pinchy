@@ -27,4 +27,4 @@ config.yaml
 # Frontend workspace
 web/node_modules/
 web/.vite/
-static/react/
+static/

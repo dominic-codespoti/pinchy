@@ -56,7 +56,10 @@ impl ModelProvider for EnforcementMockProvider {
         match n {
             0 => {
                 // First call: plain text reply — no tool call.
-                Ok((ProviderResponse::Final("Sure, I can help with that!".to_string()), None))
+                Ok((
+                    ProviderResponse::Final("Sure, I can help with that!".to_string()),
+                    None,
+                ))
             }
             1 => {
                 // Second call (after corrective message): return a native function call
@@ -64,14 +67,19 @@ impl ModelProvider for EnforcementMockProvider {
                     ProviderResponse::FunctionCall {
                         id: "call_123".to_string(),
                         name: "write_file".to_string(),
-                        arguments: "{\"path\": \"output.txt\", \"content\": \"enforcement retry worked\"}".to_string(),
+                        arguments:
+                            "{\"path\": \"output.txt\", \"content\": \"enforcement retry worked\"}"
+                                .to_string(),
                     },
                     None,
                 ))
             }
             _ => {
                 // Third+ call: final reply after tool execution.
-                Ok((ProviderResponse::Final("Done! The file has been written.".to_string()), None))
+                Ok((
+                    ProviderResponse::Final("Done! The file has been written.".to_string()),
+                    None,
+                ))
             }
         }
     }
