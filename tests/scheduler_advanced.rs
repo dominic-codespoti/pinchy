@@ -212,6 +212,8 @@ async fn oneshot_job_removed_after_success() {
     };
     db.upsert_cron_job(&job).unwrap();
 
+    let _sub = mini_claw::comm::subscribe();
+
     let cfg = test_config(ws, "os-agent");
     let handle = mini_claw::scheduler::start(&cfg)
         .await

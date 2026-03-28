@@ -22,6 +22,8 @@ pub struct OpenAIProvider {
     client: Client,
     /// Model name sent in the request body (e.g. "gpt-4o-mini").
     model: String,
+    /// Context window size for the model.
+    context_window: usize,
 }
 
 impl Default for OpenAIProvider {
@@ -43,6 +45,7 @@ impl OpenAIProvider {
             endpoint: DEFAULT_ENDPOINT.to_string(),
             client: super::get_shared_http_client(),
             model: "gpt-4o-mini".to_string(),
+            context_window: 128_000,
         }
     }
 
@@ -54,6 +57,7 @@ impl OpenAIProvider {
             endpoint,
             client: super::get_shared_http_client(),
             model,
+            context_window: 128_000,
         }
     }
 
@@ -194,6 +198,12 @@ impl OpenAIProvider {
 
 #[async_trait]
 impl ModelProvider for OpenAIProvider {
+    fn context_window(&self) -> usize {
+        crate::models::pricing::lookup_pricing(&self.model)
+            .map(|p| p.context_window)
+            .unwrap_or(128_000)
+    }
+
     /// Send chat messages to the OpenAI completions endpoint and return
     /// the first choice's content.
     ///

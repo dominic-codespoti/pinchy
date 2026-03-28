@@ -63,6 +63,7 @@ pub async fn append_global_index(
     file.write_all(line.as_bytes())
         .await
         .with_context(|| format!("write to {}", path.display()))?;
+    file.sync_all().await.context("sync file")?;
 
     tracing::debug!(session_id, agent_id, "appended to global session index");
     Ok(())

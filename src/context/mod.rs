@@ -66,6 +66,10 @@ pub struct ContextBudget {
     /// Number of messages (including system) beyond which tool-result
     /// pruning kicks in.
     pub prune_message_threshold: usize,
+    /// Maximum context tokens of the underlying model.
+    pub max_context_tokens: usize,
+    /// What percentage of max string limits should trigger compaction.
+    pub target_context_pct: f64,
 }
 
 impl Default for ContextBudget {
@@ -74,6 +78,8 @@ impl Default for ContextBudget {
             max_turns: 20,
             compact_keep_recent_turns: 8,
             prune_message_threshold: 30,
+            max_context_tokens: 128_000,
+            target_context_pct: 0.75,
         }
     }
 }
@@ -108,15 +114,28 @@ pub fn prune_tool_results(messages: &mut [ChatMessage], keep_recent: usize) {
     let cutoff = messages.len() - keep_recent;
     let mut pruned_count = 0usize;
 
-    for msg in messages[..cutoff].iter_mut() {
+    for (i, msg) in messages[..cutoff].iter_mut().enumerate() {
         // PINNED: never touch system messages.
         if msg.is_system() {
             continue;
         }
 
+        let age_ratio = 1.0 - (i as f64 / cutoff as f64);
+        // age_ratio: 1.0 = oldest, 0.0 = just outside recent window
+        let max_chars = match age_ratio {
+            r if r > 0.8 => 100,    // oldest: aggressive trim
+            r if r > 0.5 => 300,    // middle: moderate trim
+            r if r > 0.2 => 1000,   // newer: light trim
+            _ => 3000,              // near-recent: keep more
+        };
+
         // Prune role:"tool" messages (function-calling path).
-        if msg.is_tool() && msg.content.len() > 300 {
-            msg.content = format!("[tool result pruned — {} chars]", msg.content.len());
+        if msg.is_tool() && msg.content.len() > max_chars {
+            msg.content = format!(
+                "{}...[tool result pruned — {} chars]",
+                &msg.content[..max_chars],
+                msg.content.len() - max_chars
+            );
             pruned_count += 1;
             continue;
         }
@@ -125,17 +144,19 @@ pub fn prune_tool_results(messages: &mut [ChatMessage], keep_recent: usize) {
         if msg.is_user() {
             if let Some(pos) = msg.content.find("[Tool Result for ") {
                 let after = pos + "[Tool Result for ".len();
-                let payload_start = msg.content[after..].find("]: ").map(|i| after + i + 3);
+                let payload_start = msg.content[after..].find("]: ").map(|idx| after + idx + 3);
                 if let Some(start) = payload_start {
                     let payload_len = msg.content.len() - start;
-                    if payload_len > 300 {
+                    if payload_len > max_chars {
                         let tool_name_end = msg.content[after..]
                             .find(']')
-                            .map(|i| after + i)
+                            .map(|idx| after + idx)
                             .unwrap_or(after);
                         let tool_name = &msg.content[after..tool_name_end];
                         msg.content = format!(
-                            "[Tool Result for {tool_name}]: [pruned — {payload_len} chars]"
+                            "[Tool Result for {tool_name}]: {}...[pruned — {} chars]",
+                            &msg.content[start..start + max_chars],
+                            payload_len - max_chars
                         );
                         pruned_count += 1;
                         continue;
@@ -158,18 +179,19 @@ pub fn prune_tool_results(messages: &mut [ChatMessage], keep_recent: usize) {
                 }
             }) {
                 let trimmed_len = end.min(original_len - pos);
-                if trimmed_len > 200 {
+                if trimmed_len > max_chars {
                     msg.content = format!(
-                        "{}[tool result pruned — {} chars]",
+                        "{}{}...[tool result pruned — {} chars]",
                         &msg.content[..pos],
-                        trimmed_len
+                        &msg.content[pos..pos + max_chars],
+                        trimmed_len - max_chars
                     );
                     pruned_count += 1;
                 }
             }
         }
         // Prune FUNCTION_CALL argument blobs
-        if msg.content.starts_with("FUNCTION_CALL:") && msg.content.len() > 300 {
+        if msg.content.starts_with("FUNCTION_CALL:") && msg.content.len() > max_chars {
             let name_end = msg.content.find('(').unwrap_or(msg.content.len());
             msg.content = format!("{}(…) [args pruned]", &msg.content[..name_end]);
             pruned_count += 1;
@@ -202,14 +224,19 @@ pub async fn compact_if_needed(
     provider: &dyn ModelProvider,
 ) -> bool {
     let turns = count_turns(messages);
-    if turns <= budget.max_turns {
+    let estimated = estimate_total(messages);
+    let token_limit = (budget.max_context_tokens as f64 * budget.target_context_pct) as usize;
+
+    if turns <= budget.max_turns && estimated <= token_limit {
         return false;
     }
 
     debug!(
         turns,
         max_turns = budget.max_turns,
-        "turn count exceeds threshold, compacting"
+        estimated,
+        token_limit,
+        "context exceeds max turns or token limit threshold, compacting"
     );
 
     let pinned_count = leading_system_count(messages);
@@ -373,8 +400,11 @@ pub async fn manage_context(
     budget: &ContextBudget,
     provider: &dyn ModelProvider,
 ) {
-    // Step 1: prune tool results if message count exceeds threshold.
-    if messages.len() > budget.prune_message_threshold {
+    let estimated = estimate_total(messages);
+    let token_limit = (budget.max_context_tokens as f64 * budget.target_context_pct) as usize;
+
+    // Step 1: prune tool results if message count exceeds threshold or token limit exceeded.
+    if messages.len() > budget.prune_message_threshold || estimated > token_limit {
         let before = messages.len();
         prune_tool_results(messages, 10);
         debug!(
@@ -384,8 +414,23 @@ pub async fn manage_context(
         );
     }
 
-    // Step 2: turn-based compaction.
-    compact_if_needed(messages, budget, provider).await;
+    let estimated_after = estimate_total(messages);
+    let needs_compaction = count_turns(messages) > budget.max_turns || estimated_after > token_limit;
+
+    // Step 2: compaction if turn count or token count still exceeds threshold.
+    if needs_compaction {
+        compact_if_needed(messages, budget, provider).await;
+    }
+}
+
+pub fn needs_pruning(messages: &[ChatMessage], token_limit: usize) -> bool {
+    estimate_total(messages) > token_limit
+}
+
+pub fn prune_if_needed(messages: &mut Vec<ChatMessage>, threshold: usize, token_limit: usize, keep_recent: usize) {
+    if messages.len() > threshold || estimate_total(messages) > token_limit {
+        prune_tool_results(messages, keep_recent);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -497,5 +542,7 @@ mod tests {
         assert_eq!(b.max_turns, 20);
         assert_eq!(b.compact_keep_recent_turns, 8);
         assert_eq!(b.prune_message_threshold, 30);
+        assert_eq!(b.max_context_tokens, 128_000);
+        assert_eq!(b.target_context_pct, 0.75);
     }
 }

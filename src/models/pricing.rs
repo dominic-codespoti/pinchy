@@ -15,22 +15,31 @@ pub struct ModelPricing {
     /// USD per 1M cached input tokens (if available).
     #[serde(default)]
     pub cached_per_1m: Option<f64>,
+    /// Maximum context window size in tokens.
+    #[serde(default = "default_context_window")]
+    pub context_window: usize,
+}
+
+fn default_context_window() -> usize {
+    128_000
 }
 
 impl ModelPricing {
-    const fn new(input: f64, output: f64) -> Self {
+    const fn new(input: f64, output: f64, context_window: usize) -> Self {
         Self {
             input_per_1m: input,
             output_per_1m: output,
             cached_per_1m: None,
+            context_window,
         }
     }
 
-    const fn with_cache(input: f64, output: f64, cached: f64) -> Self {
+    const fn with_cache(input: f64, output: f64, cached: f64, context_window: usize) -> Self {
         Self {
             input_per_1m: input,
             output_per_1m: output,
             cached_per_1m: Some(cached),
+            context_window,
         }
     }
 }
@@ -39,34 +48,34 @@ impl ModelPricing {
 static PRICING_TABLE: LazyLock<HashMap<&'static str, ModelPricing>> = LazyLock::new(|| {
     let mut m = HashMap::new();
     // OpenAI GPT-4o family
-    m.insert("gpt-4o", ModelPricing::with_cache(2.50, 10.00, 1.25));
+    m.insert("gpt-4o", ModelPricing::with_cache(2.50, 10.00, 1.25, 128_000));
     m.insert(
         "gpt-4o-2024-11-20",
-        ModelPricing::with_cache(2.50, 10.00, 1.25),
+        ModelPricing::with_cache(2.50, 10.00, 1.25, 128_000),
     );
-    m.insert("gpt-4o-mini", ModelPricing::with_cache(0.15, 0.60, 0.075));
+    m.insert("gpt-4o-mini", ModelPricing::with_cache(0.15, 0.60, 0.075, 128_000));
     m.insert(
         "gpt-4o-mini-2024-07-18",
-        ModelPricing::with_cache(0.15, 0.60, 0.075),
+        ModelPricing::with_cache(0.15, 0.60, 0.075, 128_000),
     );
     // GPT-4.1 family
-    m.insert("gpt-4.1", ModelPricing::with_cache(2.00, 8.00, 0.50));
-    m.insert("gpt-4.1-mini", ModelPricing::with_cache(0.40, 1.60, 0.10));
-    m.insert("gpt-4.1-nano", ModelPricing::with_cache(0.10, 0.40, 0.025));
+    m.insert("gpt-4.1", ModelPricing::with_cache(2.00, 8.00, 0.50, 128_000));
+    m.insert("gpt-4.1-mini", ModelPricing::with_cache(0.40, 1.60, 0.10, 128_000));
+    m.insert("gpt-4.1-nano", ModelPricing::with_cache(0.10, 0.40, 0.025, 128_000));
     // o-series (reasoning)
-    m.insert("o3", ModelPricing::with_cache(2.00, 8.00, 0.50));
-    m.insert("o3-mini", ModelPricing::with_cache(1.10, 4.40, 0.55));
-    m.insert("o4-mini", ModelPricing::with_cache(1.10, 4.40, 0.275));
-    m.insert("o1", ModelPricing::with_cache(15.00, 60.00, 7.50));
-    m.insert("o1-mini", ModelPricing::with_cache(1.10, 4.40, 0.55));
-    m.insert("o1-preview", ModelPricing::with_cache(15.00, 60.00, 7.50));
+    m.insert("o3", ModelPricing::with_cache(2.00, 8.00, 0.50, 200_000));
+    m.insert("o3-mini", ModelPricing::with_cache(1.10, 4.40, 0.55, 200_000));
+    m.insert("o4-mini", ModelPricing::with_cache(1.10, 4.40, 0.275, 200_000));
+    m.insert("o1", ModelPricing::with_cache(15.00, 60.00, 7.50, 200_000));
+    m.insert("o1-mini", ModelPricing::with_cache(1.10, 4.40, 0.55, 200_000));
+    m.insert("o1-preview", ModelPricing::with_cache(15.00, 60.00, 7.50, 200_000));
     // GPT-3.5
-    m.insert("gpt-3.5-turbo", ModelPricing::new(0.50, 1.50));
+    m.insert("gpt-3.5-turbo", ModelPricing::new(0.50, 1.50, 16_385));
     // GPT-4 legacy
-    m.insert("gpt-4", ModelPricing::new(30.00, 60.00));
-    m.insert("gpt-4-turbo", ModelPricing::with_cache(10.00, 30.00, 5.00));
+    m.insert("gpt-4", ModelPricing::new(30.00, 60.00, 8_192));
+    m.insert("gpt-4-turbo", ModelPricing::with_cache(10.00, 30.00, 5.00, 128_000));
     // Copilot (proxied OpenAI, cost is $0 for the user but track notionally)
-    m.insert("copilot", ModelPricing::new(0.0, 0.0));
+    m.insert("copilot", ModelPricing::new(0.0, 0.0, 128_000));
     m
 });
 

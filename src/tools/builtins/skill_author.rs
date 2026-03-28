@@ -41,20 +41,9 @@ pub async fn create_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("create_skill requires a 'name' string"))?;
 
-    // Validate name: lowercase alphanumeric + hyphens only (Agent Skills spec).
-    if name.is_empty()
-        || name.len() > 64
-        || !name
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-        || name.starts_with('-')
-        || name.ends_with('-')
-        || name.contains("--")
-    {
-        anyhow::bail!(
-            "skill name must be 1-64 chars, lowercase alphanumeric and hyphens only, \
-             must not start/end with a hyphen or contain consecutive hyphens"
-        );
+    // Validate name per Agent Skills spec.
+    if let Err(e) = crate::skills::validate_skill_name(name) {
+        anyhow::bail!("{}", e);
     }
 
     let description = args["description"]
@@ -100,17 +89,9 @@ pub async fn delete_skill(workspace: &Path, args: Value) -> anyhow::Result<Value
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("delete_skill requires a 'name' string"))?;
 
-    // Validate name (Agent Skills spec: lowercase alphanumeric + hyphens).
-    if name.is_empty()
-        || name.len() > 64
-        || !name
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-        || name.starts_with('-')
-        || name.ends_with('-')
-        || name.contains("--")
-    {
-        anyhow::bail!("skill name must be 1-64 chars, lowercase alphanumeric and hyphens only");
+    // Validate name per Agent Skills spec.
+    if let Err(e) = crate::skills::validate_skill_name(name) {
+        anyhow::bail!("{}", e);
     }
 
     let skill_dir = workspace

@@ -25,7 +25,7 @@ pub mod defaults;
 ///
 /// Follows the [Agent Skills](https://agentskills.io/specification) open
 /// format exactly: `name`, `description` (required), plus optional
-/// `license`, `compatibility`, and `metadata`.
+/// `license`, `compatibility`, `metadata`, and `allowed-tools`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SkillMeta {
     pub name: String,
@@ -36,10 +36,42 @@ pub struct SkillMeta {
     pub compatibility: Option<String>,
     #[serde(default)]
     pub metadata: Option<HashMap<String, String>>,
+    /// Space-delimited list of pre-approved tools the skill may use.
+    /// (Experimental — per the Agent Skills spec.)
+    #[serde(default, rename = "allowed-tools")]
+    pub allowed_tools: Option<String>,
     /// When `true` the skill is operator-managed and requires explicit
     /// inclusion via `SkillsConfig::operator_allowed`.
     #[serde(default)]
     pub operator_managed: Option<bool>,
+}
+
+// ── Name validation ─────────────────────────────────────────
+
+/// Validate a skill name per the Agent Skills spec:
+/// - 1–64 characters
+/// - Lowercase alphanumeric (`a-z`, `0-9`) and hyphens (`-`) only
+/// - Must not start or end with a hyphen
+/// - Must not contain consecutive hyphens (`--`)
+pub fn validate_skill_name(name: &str) -> Result<(), String> {
+    if name.is_empty() || name.len() > 64 {
+        return Err("skill name must be 1-64 characters".into());
+    }
+    if !name
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    {
+        return Err(
+            "skill name may only contain lowercase letters, digits, and hyphens".into(),
+        );
+    }
+    if name.starts_with('-') || name.ends_with('-') {
+        return Err("skill name must not start or end with a hyphen".into());
+    }
+    if name.contains("--") {
+        return Err("skill name must not contain consecutive hyphens".into());
+    }
+    Ok(())
 }
 
 /// A loaded skill ready for resolution.
@@ -52,6 +84,9 @@ pub struct Skill {
     pub manifest: String,
     /// Markdown body from `SKILL.md` — injected into agent prompts on activation.
     pub instructions: String,
+    /// Paths to extra files (relative to skill dir) discovered in
+    /// `references/`, `scripts/`, `assets/` subdirectories.
+    pub reference_files: Vec<String>,
 }
 
 // ── Registry ────────────────────────────────────────────────
@@ -145,6 +180,17 @@ impl SkillRegistry {
             let meta: SkillMeta = serde_yaml_ng::from_str(&raw)
                 .with_context(|| format!("parsing front-matter in {}", skill_dir.display()))?;
 
+            // Validate name per Agent Skills spec.
+            if let Err(e) = validate_skill_name(&meta.name) {
+                warn!(
+                    name = %meta.name,
+                    path = %skill_dir.display(),
+                    error = %e,
+                    "invalid skill name — skipping"
+                );
+                continue;
+            }
+
             // Spec: name must match parent directory name.
             let dir_name = skill_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if meta.name != dir_name {
@@ -155,9 +201,13 @@ impl SkillRegistry {
                 );
             }
 
+            // Discover extra files in references/, scripts/, assets/.
+            let reference_files = discover_extra_files(&skill_dir);
+
             info!(
                 name = %meta.name,
                 path = %skill_dir.display(),
+                refs = reference_files.len(),
                 "loaded skill"
             );
             if self.skills.contains_key(&meta.name) {
@@ -171,6 +221,7 @@ impl SkillRegistry {
                     path: skill_dir,
                     manifest: raw,
                     instructions,
+                    reference_files,
                 },
             );
         }
@@ -232,7 +283,7 @@ impl SkillRegistry {
         self.resolve(name).map(|s| s.meta.description.clone())
     }
 
-    // ── Prompt injection (progressive disclosure) ───────────
+    //─ Prompt injection (progressive disclosure) ───────────
 
     /// Build a metadata-only prompt fragment listing available skills
     /// (name + description). Full instructions are loaded on demand
@@ -265,9 +316,10 @@ impl SkillRegistry {
     pub fn get_skill_instructions(&self, name: &str) -> Option<String> {
         self.resolve(name).map(
             |s| format!(
-                "<skill_activated>\n<name>{}</name>\n<instructions>\n{}\n</instructions>\n</skill_activated>",
+                "<skill_activated>\n<name>{}</name>\n<instructions>\n{}\n</instructions>{}\n</skill_activated>",
                 s.meta.name,
                 s.instructions.replace("<!-- pinchy-builtin -->", "").trim(),
+                format_reference_files_hint(&s.path, &s.reference_files),
             ),
         )
     }
@@ -295,9 +347,82 @@ pub fn parse_skill_md(content: &str) -> anyhow::Result<(String, String)> {
     Ok((yaml, body))
 }
 
+// ── Extra-file discovery ────────────────────────────────────
+
+/// Spec subdirectories to scan for extra files.
+const EXTRA_SUBDIRS: &[&str] = &["references", "scripts", "assets"];
+
+/// Discover files in `references/`, `scripts/`, `assets/` under a skill
+/// directory. Returns paths relative to the skill dir (e.g. `references/commands.md`).
+fn discover_extra_files(skill_dir: &Path) -> Vec<String> {
+    let mut files = Vec::new();
+    for subdir in EXTRA_SUBDIRS {
+        let dir = skill_dir.join(subdir);
+        if !dir.is_dir() {
+            continue;
+        }
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    if let Ok(rel) = path.strip_prefix(skill_dir) {
+                        files.push(rel.to_string_lossy().into_owned());
+                    }
+                }
+            }
+        }
+    }
+    files.sort();
+    files
+}
+
+/// Format a hint block for reference files that the agent can `read_file`
+/// to get additional context. Returns empty string if no references exist.
+fn format_reference_files_hint(skill_dir: &Path, refs: &[String]) -> String {
+    if refs.is_empty() {
+        return String::new();
+    }
+    let mut lines = vec!["\n<reference_files>".to_string()];
+    for rel in refs {
+        let abs = skill_dir.join(rel);
+        lines.push(format!("  <file path=\"{}\">{}</file>", abs.display(), rel));
+    }
+    lines.push("  Use read_file to load any reference when you need more detail.".to_string());
+    lines.push("</reference_files>".to_string());
+    lines.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Name validation ─────────────────────────────────────
+
+    #[test]
+    fn validate_skill_name_valid() {
+        assert!(validate_skill_name("browser").is_ok());
+        assert!(validate_skill_name("mcp").is_ok());
+        assert!(validate_skill_name("custom-skill_123").is_ok());
+        assert!(validate_skill_name("data-analysis").is_ok());
+        assert!(validate_skill_name("code-review").is_ok());
+        assert!(validate_skill_name("a").is_ok());
+        assert!(validate_skill_name("a1b2c3").is_ok());
+    }
+
+    #[test]
+    fn validate_skill_name_invalid() {
+        assert!(validate_skill_name("").is_err());
+        assert!(validate_skill_name("PDF-Processing").is_err()); // uppercase
+        assert!(validate_skill_name("-pdf").is_err()); // starts with hyphen
+        assert!(validate_skill_name("pdf-").is_err()); // ends with hyphen
+        assert!(validate_skill_name("pdf--processing").is_err()); // consecutive hyphens
+        assert!(validate_skill_name("has space").is_err()); // space
+        assert!(validate_skill_name("has_underscore").is_err()); // underscore
+        let long = "a".repeat(65);
+        assert!(validate_skill_name(&long).is_err()); // too long
+    }
+
+    // ── Registry basics ─────────────────────────────────────
 
     #[test]
     fn empty_registry_resolve_returns_none() {
@@ -311,6 +436,8 @@ mod tests {
         assert!(reg.skill_description("nope").is_none());
     }
 
+    // ── SKILL.md parsing ────────────────────────────────────
+
     #[test]
     fn parse_skill_md_valid() {
         let content =
@@ -321,29 +448,46 @@ mod tests {
     }
 
     #[test]
+    fn parse_skill_md_with_allowed_tools() {
+        let content = "---\nname: test\ndescription: A test skill\nallowed-tools: exec_shell read_file\n---\n# Instructions\n";
+        let (yaml, body) = parse_skill_md(content).unwrap();
+        assert!(yaml.contains("allowed-tools:"));
+        let meta: SkillMeta = serde_yaml_ng::from_str(&yaml).unwrap();
+        assert_eq!(meta.allowed_tools.as_deref(), Some("exec_shell read_file"));
+        assert!(body.contains("# Instructions"));
+    }
+
+    #[test]
     fn parse_skill_md_no_frontmatter() {
         let content = "# Just markdown\n";
         assert!(parse_skill_md(content).is_err());
     }
 
-    #[test]
-    fn prompt_metadata_filters_by_enabled() {
-        let mut reg = SkillRegistry::new(None);
-        let mk = |id: &str, desc: &str| Skill {
+    // ── Prompt generation ───────────────────────────────────
+
+    fn mk_skill(id: &str, desc: &str) -> Skill {
+        Skill {
             meta: SkillMeta {
                 name: id.into(),
                 description: desc.into(),
                 license: None,
                 compatibility: None,
                 metadata: None,
+                allowed_tools: None,
                 operator_managed: None,
             },
             path: PathBuf::from("/tmp"),
             manifest: String::new(),
             instructions: "do stuff".into(),
-        };
-        reg.skills.insert("a".into(), mk("a", "skill A"));
-        reg.skills.insert("b".into(), mk("b", "skill B"));
+            reference_files: vec![],
+        }
+    }
+
+    #[test]
+    fn prompt_metadata_filters_by_enabled() {
+        let mut reg = SkillRegistry::new(None);
+        reg.skills.insert("a".into(), mk_skill("a", "skill A"));
+        reg.skills.insert("b".into(), mk_skill("b", "skill B"));
 
         let all = reg.prompt_metadata(None);
         assert!(all.contains("<name>a</name>"));
@@ -367,11 +511,13 @@ mod tests {
                     license: None,
                     compatibility: None,
                     metadata: None,
+                    allowed_tools: None,
                     operator_managed: None,
                 },
                 path: PathBuf::from("/tmp"),
                 manifest: String::new(),
                 instructions: "Navigate to URLs and click things.".into(),
+                reference_files: vec![],
             },
         );
 
@@ -393,11 +539,13 @@ mod tests {
                     license: None,
                     compatibility: None,
                     metadata: None,
+                    allowed_tools: None,
                     operator_managed: None,
                 },
                 path: PathBuf::from("/tmp"),
                 manifest: String::new(),
                 instructions: "do stuff".into(),
+                reference_files: vec![],
             },
         );
         assert!(reg.skills.contains_key("old"));

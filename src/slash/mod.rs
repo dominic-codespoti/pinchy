@@ -205,6 +205,22 @@ pub fn register_builtin_commands(registry: &Registry) {
 
                 // Persist to PinchyDb if available.
                 if let Some(db) = crate::store::global_db() {
+                    // Summarize existing session before rotating
+                    if let Some(prev) = db.current_session(&ctx.agent_id).ok().flatten() {
+                        let agent_id = ctx.agent_id.clone();
+                        let ws = ctx.workspace.clone();
+                        let db_clone = db.clone();
+                        tokio::spawn(async move {
+                            if let Some(pm) = crate::models::get_global_providers() {
+                                if let Ok(memory) = crate::memory::MemoryStore::open(&ws) {
+                                    let _ = crate::session::SessionStore::summarize_and_close(
+                                        &db_clone, &prev, &agent_id, &memory, pm.as_ref()
+                                    ).await;
+                                }
+                            }
+                        });
+                    }
+
                     let entry = crate::session::index::IndexEntry {
                         session_id: session_id.clone(),
                         agent_id: ctx.agent_id.clone(),
@@ -233,9 +249,24 @@ pub fn register_builtin_commands(registry: &Registry) {
         Arc::new(|ctx, _args| {
             Box::pin(async move {
                 if let Some(db) = crate::store::global_db() {
-                    if db.current_session(&ctx.agent_id).ok().flatten().is_none() {
-                        return Ok(SlashResponse::Text("no active session".to_string()));
-                    }
+                    let prev = match db.current_session(&ctx.agent_id).ok().flatten() {
+                        Some(p) => p,
+                        None => return Ok(SlashResponse::Text("no active session".to_string())),
+                    };
+
+                    let agent_id = ctx.agent_id.clone();
+                    let ws = ctx.workspace.clone();
+                    let db_clone = db.clone();
+                    tokio::spawn(async move {
+                        if let Some(pm) = crate::models::get_global_providers() {
+                            if let Ok(memory) = crate::memory::MemoryStore::open(&ws) {
+                                let _ = crate::session::SessionStore::summarize_and_close(
+                                    &db_clone, &prev, &agent_id, &memory, pm.as_ref()
+                                ).await;
+                            }
+                        }
+                    });
+
                     db.clear_current_session(&ctx.agent_id)
                         .map_err(|e| SlashError::Handler(format!("clear current: {e}")))?;
                 } else {

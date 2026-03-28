@@ -203,6 +203,11 @@ pub trait ModelProvider: Send + Sync {
         Ok(None)
     }
 
+    /// Get the max context window in tokens for this provider.
+    fn context_window(&self) -> usize {
+        128_000
+    }
+
     /// Discover available models from this provider.
     ///
     /// Returns `Ok(None)` when the provider does not support model
@@ -733,6 +738,13 @@ pub fn get_global_providers() -> Option<std::sync::Arc<ProviderManager>> {
 
 #[async_trait]
 impl ModelProvider for ProviderManager {
+    fn context_window(&self) -> usize {
+        self.providers
+            .first()
+            .map(|p| p.context_window())
+            .unwrap_or(128_000)
+    }
+
     async fn send_chat(&self, messages: &[ChatMessage]) -> Result<String, anyhow::Error> {
         self.send_chat_with_retry(messages, self.max_retries).await
     }

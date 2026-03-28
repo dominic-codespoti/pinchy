@@ -87,7 +87,7 @@ async fn append_creates_file_and_loads_back() {
     let history = SessionStore::load_history(dir.path(), id, 100)
         .await
         .unwrap();
-    assert_eq!(history.len(), 2);
+    assert_eq!(history.len(), 2, "history was length {}", history.len());
     assert_eq!(history[0].role, "user");
     assert_eq!(history[0].content, "ping");
     assert_eq!(history[0].timestamp, 1000);

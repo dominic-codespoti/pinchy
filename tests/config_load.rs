@@ -78,7 +78,7 @@ struct AgentConfig {
 
 #[test]
 fn config_yaml_parses() {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("templates/config.yaml");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/cli/default_templates/config.yaml");
     let contents = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
 
@@ -169,6 +169,7 @@ async fn bak_fallback_when_primary_missing() {
     let cfg = mini_claw::config::Config::load(&primary)
         .await
         .expect("should fall back to .bak file");
+    println!("{:?}", cfg.agents);
     assert!(cfg.agents.is_empty());
 }
 
@@ -208,6 +209,7 @@ async fn pinchy_home_fallback_when_project_config_missing() {
     let cfg = mini_claw::config::Config::load(missing)
         .await
         .expect("should fall back to ~/.pinchy/config.yaml");
+    println!("{:?}", cfg.agents);
     assert!(cfg.agents.is_empty());
 
     // Cleanup
@@ -240,6 +242,7 @@ async fn pinchy_home_bak_fallback() {
     let cfg = mini_claw::config::Config::load(missing)
         .await
         .expect("should fall back to ~/.pinchy/config.yaml.bak");
+    println!("{:?}", cfg.agents);
     assert!(cfg.agents.is_empty());
 
     unsafe {
