@@ -2,18 +2,32 @@
 //! writes the per-agent session file, sets CURRENT_SESSION, and
 //! appends to the global index.
 
-use std::path::PathBuf;
+use std::path::Path;
 
 use mini_claw::session::SessionStore;
-use mini_claw::slash::{self, SlashResponse};
+use mini_claw::slash::{self, Context, SlashResponse};
+use mini_claw::store::PinchyDb;
+use std::path::PathBuf;
+
+fn ensure_test_db() -> &'static PinchyDb {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let tmp = std::env::temp_dir().join("pinchy_slash_test");
+        let _ = std::fs::create_dir_all(&tmp);
+        let db = PinchyDb::open(&tmp).expect("open test db");
+        mini_claw::store::set_global_db(db);
+    });
+    mini_claw::store::global_db().expect("test DB should be set")
+}
 
 /// Helper: build a [`slash::Context`] pointing at a temp workspace.
 fn test_ctx(
     workspace: &std::path::Path,
     agent_id: &str,
     pinchy_home: &std::path::Path,
-) -> slash::Context {
-    slash::Context {
+) -> Context {
+    Context {
         agent_id: agent_id.to_string(),
         agent_root: workspace.parent().unwrap_or(workspace).to_path_buf(),
         workspace: workspace.to_path_buf(),
@@ -25,6 +39,8 @@ fn test_ctx(
 
 #[tokio::test]
 async fn slash_new_creates_session_and_updates_index() {
+    let db = ensure_test_db();
+
     // Use a temp dir so we don't pollute the real workspace.
     let tmp = tempfile::tempdir().unwrap();
     let workspace = tmp.path().join("workspace");
@@ -55,36 +71,32 @@ async fn slash_new_creates_session_and_updates_index() {
         "session id should be a valid UUID: {session_id}"
     );
 
-    // 1. Session file exists and is empty.
-    let session_file = workspace
-        .join("sessions")
-        .join(format!("{session_id}.jsonl"));
-    assert!(session_file.exists(), "session .jsonl file should exist");
-    let contents = tokio::fs::read_to_string(&session_file).await.unwrap();
-    assert!(
-        contents.is_empty(),
-        "session file should be empty initially"
-    );
+    // 1. Session is inserted in DB
+    let sessions = db.list_sessions_for_agent("test-agent").unwrap();
+    let session = sessions.iter().find(|s| s.session_id == session_id).expect("session should exist in db");
+    assert_eq!(session.session_id, session_id);
+    assert_eq!(session.agent_id, "test-agent");
 
-    // 2. CURRENT_SESSION is set to the new session id.
-    let current = SessionStore::load_current_async(&workspace).await;
+    // 2. CURRENT_SESSION is set to the new session id in DB.
+    let current = db.current_session("test-agent").unwrap();
     assert_eq!(
         current.as_deref(),
         Some(session_id),
         "CURRENT_SESSION should point to the new session"
     );
 
-    // 3. Global index contains an entry for this session.
-    let index_path = tmp.path().join("sessions").join("index.jsonl");
-    assert!(index_path.exists(), "global index file should exist");
-    let index_contents = tokio::fs::read_to_string(&index_path).await.unwrap();
-    let entry: serde_json::Value = serde_json::from_str(index_contents.trim()).unwrap();
-    assert_eq!(entry["session_id"].as_str(), Some(session_id));
-    assert_eq!(entry["agent_id"].as_str(), Some("test-agent"));
+    // 3. Global index contains an entry for this session in DB
+    let sessions = db.list_sessions_for_agent("test-agent").unwrap();
+    assert!(
+        sessions.iter().any(|s| s.session_id == session_id),
+        "session should be listed for agent"
+    );
 }
 
 #[tokio::test]
 async fn slash_new_multiple_sessions_append_to_index() {
+    let db = ensure_test_db();
+
     let tmp = tempfile::tempdir().unwrap();
     let workspace = tmp.path().join("workspace");
     tokio::fs::create_dir_all(&workspace).await.unwrap();
@@ -116,24 +128,13 @@ async fn slash_new_multiple_sessions_append_to_index() {
     // They should be different UUIDs.
     assert_ne!(id1, id2);
 
+    // Both should be in the DB
+    let sessions = db.list_sessions_for_agent("multi-agent").unwrap();
+
+    assert!(sessions.iter().any(|s| s.session_id == id1));
+    assert!(sessions.iter().any(|s| s.session_id == id2));
+
     // CURRENT_SESSION should be the second one.
-    let current = SessionStore::load_current_async(&workspace).await.unwrap();
-    assert_eq!(current, id2);
-
-    // Both session files should exist.
-    assert!(workspace
-        .join("sessions")
-        .join(format!("{id1}.jsonl"))
-        .exists());
-    assert!(workspace
-        .join("sessions")
-        .join(format!("{id2}.jsonl"))
-        .exists());
-
-    // Global index should have 2 entries.
-    let index_contents = tokio::fs::read_to_string(tmp.path().join("sessions/index.jsonl"))
-        .await
-        .unwrap();
-    let lines: Vec<&str> = index_contents.trim().lines().collect();
-    assert_eq!(lines.len(), 2, "global index should have 2 entries");
+    let current = db.current_session("multi-agent").unwrap();
+    assert_eq!(current.as_deref(), Some(id2.as_str()), "current session should be the last one created");
 }

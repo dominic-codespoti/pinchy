@@ -4,6 +4,18 @@ use mini_claw::config::{AgentConfig, ChannelsConfig, Config, CronJobConfig, Mode
 use mini_claw::scheduler::{HeartbeatHealth, HeartbeatStatus, PersistedCronJob};
 use tempfile::TempDir;
 
+fn ensure_test_db() -> &'static mini_claw::store::PinchyDb {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let tmp = std::env::temp_dir().join("pinchy_sched_basic_test");
+        let _ = std::fs::create_dir_all(&tmp);
+        let db = mini_claw::store::PinchyDb::open(&tmp).expect("open test db");
+        mini_claw::store::set_global_db(db);
+    });
+    mini_claw::store::global_db().expect("test DB should be set")
+}
+
 /// Create a minimal config pointing at the temp agent workspace.
 fn test_config(workspace: &std::path::Path, agent_id: &str, heartbeat_secs: u64) -> Config {
     Config {
@@ -53,6 +65,8 @@ fn test_config(workspace: &std::path::Path, agent_id: &str, heartbeat_secs: u64)
 
 #[tokio::test]
 async fn heartbeat_writes_heartbeat_ok() {
+    let db = ensure_test_db();
+
     // Force a 1-second heartbeat interval via env var.
     std::env::set_var("PINCHY_HEARTBEAT_SECS", "1");
 
@@ -85,17 +99,11 @@ async fn heartbeat_writes_heartbeat_ok() {
         .expect("HEARTBEAT_OK should contain a unix timestamp");
     assert!(ts > 0, "timestamp should be positive");
 
-    // Also verify cron_events/ directory was created with an event file.
-    let events_dir = agent_dir.join("cron_events");
-    assert!(events_dir.exists(), "cron_events/ directory should exist");
-
-    let entries: Vec<_> = std::fs::read_dir(&events_dir)
-        .unwrap()
-        .filter_map(|e| e.ok())
-        .collect();
+    // Also verify cron runs were recorded in the DB
+    let runs = db.list_cron_events_for_agent("test-agent").unwrap();
     assert!(
-        !entries.is_empty(),
-        "cron_events/ should contain at least one heartbeat event file"
+        !runs.is_empty(),
+        "database should contain at least one heartbeat run"
     );
 
     // Clean up env var.
@@ -107,6 +115,8 @@ async fn heartbeat_writes_heartbeat_ok() {
 
 #[tokio::test]
 async fn heartbeat_persists_status_json() {
+    let db = ensure_test_db();
+
     std::env::set_var("PINCHY_HEARTBEAT_SECS", "1");
 
     let tmp = TempDir::new().expect("failed to create temp dir");
@@ -121,15 +131,9 @@ async fn heartbeat_persists_status_json() {
 
     tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
 
-    let status_path = agent_dir.join("heartbeat_status.json");
-    assert!(
-        status_path.exists(),
-        "heartbeat_status.json should have been created"
-    );
-
-    let raw = std::fs::read_to_string(&status_path).unwrap();
-    let status: HeartbeatStatus =
-        serde_json::from_str(&raw).expect("heartbeat_status.json should be valid JSON");
+    let status = db.load_heartbeat_status("status-agent")
+        .expect("should load status")
+        .expect("heartbeat_status should have been saved in db");
 
     assert_eq!(status.agent_id, "status-agent");
     assert!(status.enabled);

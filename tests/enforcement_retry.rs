@@ -39,30 +39,7 @@ impl ModelProvider for EnforcementMockProvider {
         Box::pin(async_stream::try_stream! { let r = self.send_chat(messages).await?; yield r; })
     }
     async fn send_chat(&self, _messages: &[ChatMessage]) -> Result<String, anyhow::Error> {
-        let n = self.calls.fetch_add(1, Ordering::SeqCst);
-
-        match n {
-            0 => {
-                // First call: plain text reply — no tool call.
-                Ok("Sure, I can help with that!".to_string())
-            }
-            1 => {
-                // Second call (after corrective message): return a fenced
-                // TOOL_CALL for write_file.
-                Ok("```json\n{\
-                        \"name\": \"write_file\", \
-                        \"args\": {\
-                            \"path\": \"output.txt\", \
-                            \"content\": \"enforcement retry worked\"\
-                        }\
-                    }\n```"
-                    .to_string())
-            }
-            _ => {
-                // Third+ call: final reply after tool execution.
-                Ok("Done! The file has been written.".to_string())
-            }
-        }
+        unreachable!("send_chat should not be called when testing function calls")
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -71,11 +48,32 @@ impl ModelProvider for EnforcementMockProvider {
 
     async fn send_chat_with_functions(
         &self,
-        messages: &[ChatMessage],
+        _messages: &[ChatMessage],
         _functions: &[serde_json::Value],
     ) -> Result<(ProviderResponse, Option<TokenUsage>), anyhow::Error> {
-        let reply = self.send_chat(messages).await?;
-        Ok((ProviderResponse::Final(reply), None))
+        let n = self.calls.fetch_add(1, Ordering::SeqCst);
+
+        match n {
+            0 => {
+                // First call: plain text reply — no tool call.
+                Ok((ProviderResponse::Final("Sure, I can help with that!".to_string()), None))
+            }
+            1 => {
+                // Second call (after corrective message): return a native function call
+                Ok((
+                    ProviderResponse::FunctionCall {
+                        id: "call_123".to_string(),
+                        name: "write_file".to_string(),
+                        arguments: "{\"path\": \"output.txt\", \"content\": \"enforcement retry worked\"}".to_string(),
+                    },
+                    None,
+                ))
+            }
+            _ => {
+                // Third+ call: final reply after tool execution.
+                Ok((ProviderResponse::Final("Done! The file has been written.".to_string()), None))
+            }
+        }
     }
 }
 

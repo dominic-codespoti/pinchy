@@ -54,6 +54,15 @@ pub struct SkillEntry {
     pub instructions: String,
     pub description: String,
     pub operator_managed: Option<bool>,
+    /// Space-delimited list of pre-approved tools (from `allowed-tools` front-matter).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allowed_tools: Option<String>,
+    /// Absolute path to the skill directory (for reference file resolution).
+    #[serde(skip)]
+    pub skill_dir: std::path::PathBuf,
+    /// Extra files (relative to skill dir) in references/, scripts/, assets/.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub reference_files: Vec<String>,
 }
 
 /// Combined registry entry: metadata + optional handler + optional skill data.
@@ -476,6 +485,9 @@ pub fn sync_skills(registry: &crate::skills::SkillRegistry) {
             instructions: skill.instructions.clone(),
             description: skill.meta.description.clone(),
             operator_managed: skill.meta.operator_managed,
+            allowed_tools: skill.meta.allowed_tools.clone(),
+            skill_dir: skill.path.clone(),
+            reference_files: skill.reference_files.clone(),
         };
 
         // If a builtin tool already exists with this name, enrich it
@@ -560,10 +572,23 @@ pub fn get_skill_instructions(name: &str) -> Option<String> {
         .find(|e| e.meta.name == name && e.skill.is_some())
         .map(|e| {
             let skill = e.skill.as_ref().unwrap();
+            let refs_section = if skill.reference_files.is_empty() {
+                String::new()
+            } else {
+                let mut lines = vec!["\n<reference_files>".to_string()];
+                for rel in &skill.reference_files {
+                    let abs = skill.skill_dir.join(rel);
+                    lines.push(format!("  <file path=\"{}\">{}</file>", abs.display(), rel));
+                }
+                lines.push("  Use read_file to load any reference when you need more detail.".to_string());
+                lines.push("</reference_files>".to_string());
+                lines.join("\n")
+            };
             format!(
-                "<skill_activated>\n<name>{}</name>\n<instructions>\n{}\n</instructions>\n</skill_activated>",
+                "<skill_activated>\n<name>{}</name>\n<instructions>\n{}\n</instructions>{}\n</skill_activated>",
                 e.meta.name,
-                skill.instructions.trim()
+                skill.instructions.trim(),
+                refs_section,
             )
         })
 }

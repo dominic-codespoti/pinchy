@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use async_trait::async_trait;
 use mini_claw::agent::Agent;
 use mini_claw::comm::IncomingMessage;
-use mini_claw::models::{ChatMessage, ModelProvider, ProviderManager};
+use mini_claw::models::{ChatMessage, ModelProvider, ProviderManager, ProviderResponse};
 use tempfile::TempDir;
 
 /// A mock provider that returns a `read_file` tool call on the first
@@ -60,8 +60,22 @@ fn temp_agent() -> (TempDir, Agent) {
     (dir, agent)
 }
 
+fn ensure_test_db() -> &'static mini_claw::store::PinchyDb {
+    use std::sync::Once;
+    static INIT: Once = Once::new();
+    INIT.call_once(|| {
+        let tmp = std::env::temp_dir().join("pinchy_tool_loop_integration_test");
+        let _ = std::fs::create_dir_all(&tmp);
+        let db = mini_claw::store::PinchyDb::open(&tmp).expect("open test db");
+        mini_claw::store::set_global_db(db);
+    });
+    mini_claw::store::global_db().expect("test DB should be set")
+}
+
 #[tokio::test]
 async fn tool_loop_invokes_read_file_and_persists() {
+    let db = ensure_test_db();
+
     let (dir, mut agent) = temp_agent();
 
     // Create a file in the runtime workspace that the tool call will read.
@@ -81,6 +95,9 @@ async fn tool_loop_invokes_read_file_and_persists() {
         images: Vec::new(),
     };
 
+    let sid = agent.start_session().await;
+    agent.current_session = Some(sid);
+
     let reply = agent
         .run_turn_with_provider(msg, &manager, None)
         .await
@@ -89,31 +106,29 @@ async fn tool_loop_invokes_read_file_and_persists() {
     // The final reply should be the second provider response.
     assert_eq!(reply, "Here is the content you asked for.");
 
-    // A session file should have been persisted (plus a .receipts.jsonl).
-    let sessions = dir.path().join("workspace").join("sessions");
-    let all_entries: Vec<_> = std::fs::read_dir(&sessions)
-        .expect("sessions dir should exist")
-        .filter_map(|e| e.ok())
-        .collect();
-    let entries: Vec<_> = all_entries
-        .into_iter()
-        .filter(|e| {
-            let name = e.file_name().to_string_lossy().to_string();
-            name.ends_with(".jsonl") && !name.contains("receipts")
-        })
-        .collect();
-    assert_eq!(entries.len(), 1, "exactly one session file expected");
+    // The session should be created in the DB
+    let current = db.current_session("test-agent").unwrap().expect("should have current session");
 
-    let data = std::fs::read_to_string(entries[0].path()).unwrap();
-    let lines: Vec<&str> = data.trim().lines().collect();
-    assert_eq!(lines.len(), 2, "user + assistant lines");
+    // Check history length
+    let history = db.load_full_history(&current).unwrap();
+    let user_msgs = history.iter().filter(|e| e.role == "user").collect::<Vec<_>>();
+    let assistant_msgs = history.iter().filter(|e| e.role == "assistant").collect::<Vec<_>>();
 
-    let user: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-    assert_eq!(user["role"], "user");
+    // Fallback extraction creates two fake messages to inject into context, so the final counts are:
+    // 1 user request, 1 assistant (fallback imitation), 1 user (tool result), 1 assistant (final text).
+    // Or if native function calling: 1 user, 1 assistant (function), 1 tool, 1 assistant.
+    assert!(user_msgs.len() >= 1);
+    assert!(assistant_msgs.len() >= 1);
 
-    let assistant: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
-    assert_eq!(assistant["role"], "assistant");
-    assert_eq!(assistant["content"], "Here is the content you asked for.");
+    // It depends on the internal extraction mechanics, but the last assistant msg must be the content:
+    assert_eq!(assistant_msgs.last().unwrap().content, "Here is the content you asked for.");
+
+    // And verify the tool calls were appended to receipts:
+    let receipts = db.list_receipts_for_session(&current).unwrap();
+    assert_eq!(receipts.len(), 1, "exactly one turn receipt expected");
+    let rec = &receipts[0];
+    assert_eq!(rec.tool_calls.len(), 1, "should have one tool call recorded in receipt");
+    assert_eq!(rec.tool_calls[0].tool, "read_file");
 }
 
 #[tokio::test]

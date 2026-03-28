@@ -53,6 +53,54 @@ pub struct Exchange {
 pub struct SessionStore;
 
 impl SessionStore {
+    // -- auto summarization --------------------------------------------
+
+    /// Summarize a completed session and save the extracted knowledge to memory.
+    pub async fn summarize_and_close(
+        db: &crate::store::PinchyDb,
+        session_id: &str,
+        agent_id: &str,
+        memory: &crate::memory::MemoryStore,
+        provider: &dyn crate::models::ModelProvider,
+    ) -> anyhow::Result<()> {
+        let history = db.load_history(session_id, 20)?;
+        if history.len() < 3 {
+            // Too short to be worth summarizing
+            return Ok(());
+        }
+
+        let mut to_summarize: Vec<String> = Vec::new();
+        for ex in &history {
+            if ex.role == "system" { continue; }
+            let content = crate::utils::truncate_str(&ex.content, 400);
+            to_summarize.push(format!("[{}]: {}", ex.role, content));
+        }
+
+        let prompt = format!(
+            "Summarize this conversation in 2-3 sentences. Include: \
+             the main topic, key decisions made, important file paths \
+             or technical details mentioned, and any unresolved items.\n\n{}",
+            to_summarize.join("\n")
+        );
+
+        let messages = vec![
+            crate::models::ChatMessage::system("You are a concise conversation summarizer. Focus on facts and decisions."),
+            crate::models::ChatMessage::user(prompt),
+        ];
+
+        let summary = provider.send_chat(&messages).await?;
+
+        let key = format!("session/{}", session_id);
+        memory.save(
+            &key,
+            &summary,
+            &["session-summary".to_string(), agent_id.to_string()]
+        )?;
+
+        tracing::info!(session = %session_id, "auto-summarized closed session");
+        Ok(())
+    }
+
     // -- current session bookkeeping ------------------------------------
 
     /// Read the `CURRENT_SESSION` file from `workspace` and return the
@@ -140,11 +188,7 @@ impl SessionStore {
             .with_context(|| format!("open session file {}", path.display()))?;
 
         file.write_all(buf.as_bytes()).await?;
-        debug!(
-            path = %path.display(),
-            count = exchanges.len(),
-            "exchanges batch-appended"
-        );
+        file.sync_all().await?;
         Ok(())
     }
 

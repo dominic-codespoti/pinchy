@@ -322,11 +322,8 @@ pub async fn exec_shell(workspace: &Path, args: Value) -> anyhow::Result<Value> 
     let stdout = truncate_utf8_owned(full_stdout, MAX_OUTPUT);
     let stderr = truncate_utf8_owned(full_stderr, MAX_OUTPUT);
 
-    let mut result = json!({ "stdout": stdout });
+    let mut result = json!({ "stdout": stdout, "exit_code": code });
 
-    if code != 0 {
-        result["exit_code"] = json!(code);
-    }
     if !stderr.is_empty() {
         result["stderr"] = json!(stderr);
     }

@@ -69,9 +69,42 @@ async fn run_tool_loop_inner(
     let mut consecutive_failures: u32 = 0;
 
     for _iter in 0..max_iters {
-        match response {
-            ProviderResponse::Final(_) => {
-                break;
+        match response.clone() {
+            ProviderResponse::Final(text) => {
+                // Legacy fallback: if a provider doesn't support native func calling,
+                // it might return a formatted JSON block.
+                let parsed_req = crate::tools::parsing::extract_fenced_json(&text)
+                    .and_then(|j| serde_json::from_str::<crate::tools::parsing::ToolRequest>(&j).ok());
+                if let Some(req) = parsed_req {
+                    let id = format!("call_fallback_{}", crate::agent::types::epoch_millis());
+                    let name = req.name;
+                    let arguments = serde_json::to_string(&req.args).unwrap_or_default();
+                    
+                    debug!(tool = %name, "invoking tool (fallback JSON extraction)");
+
+                    let inv = make_invocation(&id, &name, &arguments);
+                    let tr = execute_tool(&inv, workspace, agent_id, session_id).await;
+
+                    // Push basic fallback messages to history
+                    messages.push(ChatMessage {
+                        role: "assistant".into(),
+                        content: text.clone(),
+                        tool_calls: None,
+                        tool_call_id: None,
+                        images: Vec::new(),
+                    });
+                    messages.push(ChatMessage {
+                        role: "user".into(), // user role since it's a fallback imitation
+                        content: tr.result_json.clone(),
+                        tool_calls: None,
+                        tool_call_id: None,
+                        images: Vec::new(),
+                    });
+
+                    tool_calls.push(tr.record);
+                } else {
+                    break;
+                }
             }
             ProviderResponse::FunctionCall {
                 ref id,
