@@ -61,9 +61,7 @@ pub fn validate_skill_name(name: &str) -> Result<(), String> {
         .chars()
         .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
     {
-        return Err(
-            "skill name may only contain lowercase letters, digits, and hyphens".into(),
-        );
+        return Err("skill name may only contain lowercase letters, digits, and hyphens".into());
     }
     if name.starts_with('-') || name.ends_with('-') {
         return Err("skill name must not start or end with a hyphen".into());

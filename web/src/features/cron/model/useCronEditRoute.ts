@@ -55,6 +55,7 @@ export function useCronEditRoute() {
   const [runningJobId, setRunningJobId] = useState<string | null>(null);
   const [showRuns, setShowRuns] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [showActionSheet, setShowActionSheet] = useState(false);
 
   const runsQuery = useQuery({
     queryKey: ["cron-runs", decodedJobId],
@@ -137,7 +138,8 @@ export function useCronEditRoute() {
       enhancedText, setEnhancedText,
       runningJobId, setRunningJobId,
       showRuns, setShowRuns,
-      confirmDelete, setConfirmDelete
+      confirmDelete, setConfirmDelete,
+      showActionSheet, setShowActionSheet
     },
     computed: {
       agentTz, schedulePreview

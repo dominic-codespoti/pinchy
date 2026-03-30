@@ -1,5 +1,5 @@
-import { useRef, useEffect } from "react";
-import { Plus, Save, Trash2, Settings, FileCode, Sparkles, ChevronDown, ChevronRight, Search, X } from "lucide-react";
+import { useRef, useEffect, useState } from "react";
+import { Plus, Save, Trash2, Settings, FileCode, Sparkles, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import * as yaml from "js-yaml";
 import { EditorView, lineNumbers, highlightActiveLine, highlightActiveLineGutter } from "@codemirror/view";
@@ -7,208 +7,13 @@ import { EditorState } from "@codemirror/state";
 import { yaml as yamlLang } from "@codemirror/lang-yaml";
 import { oneDark } from "@codemirror/theme-one-dark";
 
-import { useConfigForm, useModelsConfig, useChannelsConfig, useModelDiscovery, type JsonSchema, type SchemaProperty, type Mode, resolveProp, primaryType } from "../model";
+import { useConfigForm, useModelsConfig, useChannelsConfig, useModelDiscovery, type Mode, resolveProp } from "../model";
 import { Input, Separator } from "@/shared/ui/components/ui";
-
-// ── Schema field renderer ─────────────────────────────
-
-/** Extract a short placeholder from the description or generate one from the field name + type. */
-function shortPlaceholder(fieldKey: string, type: string, desc?: string): string {
-  if (desc) {
-    const exMatch = desc.match(/(?:e\.g\.?\s*["`]([^"`]+)["`])|(?:["`]([^"`]+)["`])/);
-    if (exMatch) return `e.g. ${exMatch[1] || exMatch[2]}`;
-    const defMatch = desc.match(/Default:\s*(\S+)/i);
-    if (defMatch) return `e.g. ${defMatch[1].replace(/[.]$/, "")}`;
-  }
-  if (type === "integer" || type === "number") return "0";
-  if (type === "array") return "value1, value2, …";
-  if (/path/i.test(fieldKey)) return "e.g. /usr/bin/…";
-  if (/service/i.test(fieldKey)) return "e.g. my-service";
-  if (/agent/i.test(fieldKey)) return "e.g. default";
-  return "";
-}
-
-function SchemaField({
-  schema,
-  prop,
-  path,
-  values,
-  onChange,
-}: {
-  schema: JsonSchema;
-  prop: SchemaProperty;
-  path: string[];
-  values: Record<string, unknown>;
-  onChange: (path: string[], value: unknown) => void;
-}) {
-  const resolved = resolveProp(schema, prop);
-  const type = primaryType(resolved);
-  const fieldKey = path[path.length - 1];
-  const label = fieldKey.replace(/_/g, " ");
-  const desc = prop.description || resolved.description;
-  
-  function getPath(obj: Record<string, unknown>, path: string[]): unknown {
-    let cur: unknown = obj;
-    for (const key of path) {
-      if (cur && typeof cur === "object" && !Array.isArray(cur)) {
-        cur = (cur as Record<string, unknown>)[key];
-      } else {
-        return undefined;
-      }
-    }
-    return cur;
-  }
-  
-  const rawValue = getPath(values, path);
-  const placeholder = shortPlaceholder(fieldKey, type, desc);
-
-  if (type === "object" && resolved.properties) {
-    return (
-      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 mb-6">
-        <div className="flex items-center gap-2 mb-1">
-          <Settings className="h-3.5 w-3.5 text-emerald-400/60" />
-          <span className="text-xs font-medium text-slate-300 capitalize">{label}</span>
-        </div>
-        {desc && <p className="text-[10px] text-slate-500 mb-4">{desc}</p>}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {Object.entries(resolved.properties).map(([childKey, childProp]) => (
-            <SchemaField
-              key={childKey}
-              schema={schema}
-              prop={childProp}
-              path={[...path, childKey]}
-              values={values}
-              onChange={onChange}
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  if (type === "array") {
-    const currentArr = Array.isArray(rawValue) ? rawValue : [];
-    const strValue = currentArr.join(", ");
-    return (
-      <div className="space-y-1">
-        <label className="text-[9px] uppercase tracking-widest text-slate-600 block">{label}</label>
-        <Input
-          value={strValue}
-          onChange={(e) => {
-            const arr = e.target.value.split(",").map((s) => s.trim()).filter(Boolean);
-            onChange(path, arr.length > 0 ? arr : undefined);
-          }}
-          placeholder={placeholder}
-          className="min-w-0 flex-1 bg-transparent py-2 text-sm text-slate-100 placeholder:text-slate-500/80 outline-none"
-        />
-        {desc && <p className="text-[10px] leading-relaxed text-slate-500 mt-1">{desc}</p>}
-      </div>
-    );
-  }
-
-  if (type === "boolean") {
-    const checked = rawValue === true;
-    return (
-      <div className="space-y-1">
-        <label className="flex items-center gap-2.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={checked}
-            onChange={(e) => onChange(path, e.target.checked)}
-            className="rounded border-white/10 bg-white/5 text-emerald-400 focus:ring-emerald-400/30"
-          />
-          <span className="text-[9px] uppercase tracking-widest text-slate-600">{label}</span>
-        </label>
-        {desc && <p className="text-[10px] leading-relaxed text-slate-500 ml-[26px]">{desc}</p>}
-      </div>
-    );
-  }
-
-  if (type === "integer" || type === "number") {
-    const strVal = rawValue !== undefined && rawValue !== null ? String(rawValue) : "";
-    return (
-      <div className="space-y-1">
-        <label className="text-[9px] uppercase tracking-widest text-slate-600 block">{label}</label>
-        <Input
-          type="number"
-          value={strVal}
-          onChange={(e) => {
-            const v = e.target.value.trim();
-            if (v === "") {
-              onChange(path, undefined);
-            } else {
-              const num = Number(v);
-              onChange(path, isNaN(num) ? undefined : num);
-            }
-          }}
-          placeholder={placeholder}
-        />
-        {desc && <p className="text-[10px] leading-relaxed text-slate-500 mt-1">{desc}</p>}
-      </div>
-    );
-  }
-
-  const strVal = typeof rawValue === "string" ? rawValue : rawValue !== undefined && rawValue !== null ? String(rawValue) : "";
-  return (
-    <div className="space-y-1">
-      <label className="text-[9px] uppercase tracking-widest text-slate-600 block">{label}</label>
-      <Input
-        value={strVal}
-        onChange={(e) => {
-          const v = e.target.value;
-          onChange(path, v || undefined);
-        }}
-        placeholder={placeholder}
-      />
-      {desc && <p className="text-[10px] leading-relaxed text-slate-500 mt-1">{desc}</p>}
-    </div>
-  );
-}
-
-// ── Collapsible section wrapper ──────────────────────
-
-function CollapsibleSection({
-  sectionKey,
-  label,
-  icon: Icon,
-  collapsed,
-  onToggle,
-  actions,
-  description,
-  children,
-}: {
-  sectionKey: string;
-  label: string;
-  icon?: React.ComponentType<{ className?: string }>;
-  collapsed: boolean;
-  onToggle: (key: string) => void;
-  actions?: React.ReactNode;
-  description?: string;
-  children: React.ReactNode;
-}) {
-  const Chevron = collapsed ? ChevronRight : ChevronDown;
-  return (
-    <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
-      <button
-        type="button"
-        onClick={() => onToggle(sectionKey)}
-        className="flex items-center gap-2 w-full p-5 pb-0 text-left"
-      >
-        <Chevron className="h-3 w-3 text-slate-600 shrink-0" />
-        {Icon && <Icon className="h-3.5 w-3.5 text-emerald-400/60" />}
-        <span className="text-xs font-medium text-slate-300">{label}</span>
-        {actions && (
-          <div className="ml-auto" onClick={(e) => e.stopPropagation()}>
-            {actions}
-          </div>
-        )}
-      </button>
-      {description && !collapsed && <p className="text-[10px] text-slate-500 px-5 mt-1">{description}</p>}
-      {!collapsed && <div className="p-5 pt-4">{children}</div>}
-      {collapsed && <div className="h-2" />}
-    </div>
-  );
-}
+import { BottomSheet } from "@/shared/ui/components/BottomSheet";
+import { useViewport } from "@/shared/lib/useViewport";
+import { usePullToRefresh } from "@/shared/lib/useTouch";
+import { SchemaField } from "./SchemaField";
+import { CollapsibleSection } from "./CollapsibleSection";
 
 // ── Model Combobox ───────────────────────────────────
 
@@ -223,12 +28,91 @@ function ModelCombobox({
   configModelId: string;
   placeholder?: string;
 }) {
+  const { isMobile } = useViewport();
   const { state, refs, actions, getFiltered } = useModelDiscovery(configModelId);
   const { open, setOpen, loading, error } = state;
   const { wrapperRef } = refs;
   const { fetchModels } = actions;
   const filtered = getFiltered(value);
+  const [showSheet, setShowSheet] = useState(false);
 
+  // Mobile: Use BottomSheet
+  if (isMobile) {
+    return (
+      <>
+        <div
+          onClick={() => setShowSheet(true)}
+          className={[
+            "flex h-12 w-full items-center overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.03] px-4",
+            "shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md",
+            "hover:border-white/[0.14] hover:bg-white/[0.05]",
+            "transition-all duration-200 ease-out",
+            "cursor-pointer",
+          ].join(" ")}
+        >
+          <span className={`flex-1 text-base ${value ? "text-slate-100" : "text-slate-500/80"}`}>
+            {value || (placeholder ?? "Select model...")}
+          </span>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              fetchModels();
+            }}
+            disabled={loading || !configModelId}
+            className="ml-2 flex-shrink-0 text-slate-500 hover:text-slate-200 transition-colors duration-200 disabled:opacity-40"
+            title={configModelId ? "Discover available models" : "Save the model config first (need an ID)"}
+          >
+            {loading ? (
+              <span className="block h-4 w-4 animate-spin rounded-full border-2 border-slate-500 border-t-transparent" />
+            ) : (
+              <Search className="h-4 w-4" />
+            )}
+          </button>
+        </div>
+        
+        <BottomSheet
+          isOpen={showSheet}
+          onClose={() => setShowSheet(false)}
+          title="Select Model"
+          snapPoints={[60, 85]}
+        >
+          <div className="space-y-3">
+            {filtered.length > 0 ? (
+              <div className="space-y-1">
+                {filtered.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      onChange(m.id);
+                      setShowSheet(false);
+                    }}
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-xl text-left transition-colors ${
+                      m.id === value ? "bg-emerald-400/10 text-emerald-400" : "text-slate-300 hover:bg-white/[0.06]"
+                    }`}
+                  >
+                    <div>
+                      <span className="block text-sm font-medium">{m.name}</span>
+                      {m.vendor && <span className="block text-xs text-slate-500">{m.vendor}</span>}
+                    </div>
+                    {m.id === value && <span className="text-emerald-400">✓</span>}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-sm text-slate-500">No models found</p>
+                <p className="text-xs text-slate-600 mt-1">Try searching with the 🔍 button</p>
+              </div>
+            )}
+            {error && <p className="text-xs text-rose-400 px-4">{error}</p>}
+          </div>
+        </BottomSheet>
+      </>
+    );
+  }
+
+  // Desktop: Original dropdown
   return (
     <div ref={wrapperRef} className="relative">
       <div
@@ -287,6 +171,7 @@ function ModelCombobox({
 // ── YAML Editor ────────────────────────────────────────
 
 function YamlEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const { isMobile } = useViewport();
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const onChangeRef = useRef(onChange);
@@ -299,15 +184,16 @@ function YamlEditor({ value, onChange }: { value: string; onChange: (v: string) 
       "&": {
         backgroundColor: "rgba(0, 0, 0, 0.3)",
         color: "#cbd5e1",
-        fontSize: "12px",
+        fontSize: isMobile ? "14px" : "12px",
         borderRadius: "8px",
         border: "1px solid rgba(255, 255, 255, 0.06)",
-        minHeight: "24rem",
+        minHeight: isMobile ? "16rem" : "24rem",
+        maxHeight: isMobile ? "40vh" : "60vh",
       },
       ".cm-content": {
         fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
         caretColor: "#34d399",
-        padding: "8px 0",
+        padding: isMobile ? "12px 0" : "8px 0",
       },
       ".cm-cursor": { borderLeftColor: "#34d399" },
       ".cm-activeLine": { backgroundColor: "rgba(255, 255, 255, 0.03)" },
@@ -321,6 +207,11 @@ function YamlEditor({ value, onChange }: { value: string; onChange: (v: string) 
       ".cm-selectionBackground": { backgroundColor: "rgba(52, 211, 153, 0.15) !important" },
       "&.cm-focused .cm-selectionBackground": { backgroundColor: "rgba(52, 211, 153, 0.2) !important" },
       ".cm-matchingBracket": { backgroundColor: "rgba(52, 211, 153, 0.2)", outline: "none" },
+      // Touch-friendly scroll
+      ".cm-scroller": {
+        overflow: "auto",
+        "-webkit-overflow-scrolling": "touch",
+      },
     });
 
     const state = EditorState.create({
@@ -369,6 +260,9 @@ function YamlEditor({ value, onChange }: { value: string; onChange: (v: string) 
 // ── Main component ───────────────────────────────────
 
 export function ConfigRoute() {
+  const { isMobile, touchSupported } = useViewport();
+  const contentRef = useRef<HTMLDivElement>(null);
+  
   const {
     state,
     computed,
@@ -382,7 +276,7 @@ export function ConfigRoute() {
     computed: { schema, scalarFields, objectFields, configuredAgents },
     queries: { configQuery },
     mutations: { saveMutation },
-    actions: { toggleSection, matchesFilter, handleFieldChange, onSubmit, onSaveYaml },
+    actions: { toggleSection, matchesFilter, handleFieldChange, onSubmit, onSaveYaml, refetchConfig },
   } = {
     state,
     computed,
@@ -390,6 +284,11 @@ export function ConfigRoute() {
     mutations,
     actions,
   };
+
+  // Pull-to-refresh for config
+  const { pullDistance, isRefreshing } = usePullToRefresh(contentRef as React.RefObject<HTMLElement>, async () => {
+    await refetchConfig();
+  });
 
   const modelsConfig = useModelsConfig(values, setValues);
   const { formModels, actions: modelActions } = modelsConfig;
@@ -402,12 +301,12 @@ export function ConfigRoute() {
   return (
     <div className="flex flex-col h-full bg-[var(--bg)]">
       {/* ── Top bar ──────────────────────────────── */}
-      <div className="flex items-center gap-2 px-4 h-12 border-b border-white/[0.06] bg-white/[0.02] backdrop-blur-sm shrink-0">
+      <div className={`flex items-center gap-2 px-4 h-12 border-b border-white/[0.06] bg-white/[0.02] backdrop-blur-sm shrink-0 ${isMobile ? "h-14" : ""}`}>
         <div className="flex items-center gap-2">
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-400/10">
-            <Settings className="h-3.5 w-3.5 text-emerald-400" />
+          <span className={`inline-flex items-center justify-center rounded-md bg-emerald-400/10 ${isMobile ? "h-7 w-7" : "h-6 w-6"}`}>
+            <Settings className={`text-emerald-400 ${isMobile ? "h-4 w-4" : "h-3.5 w-3.5"}`} />
           </span>
-          <span className="text-sm font-semibold text-slate-100">Config</span>
+          <span className={`font-semibold text-slate-100 ${isMobile ? "text-base" : "text-sm"}`}>Config</span>
         </div>
 
         <Separator className="!h-5 !w-px !bg-white/[0.08]" />
@@ -421,13 +320,15 @@ export function ConfigRoute() {
               key={value}
               type="button"
               onClick={() => setMode(value as Mode)}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-all duration-200 ${
+              className={`flex items-center gap-1.5 rounded-lg font-medium transition-all duration-200 ${
+                isMobile ? "px-3 py-2 text-xs" : "px-2.5 py-1.5 text-[11px]"
+              } ${
                 mode === value
                   ? "bg-emerald-400/10 text-emerald-300"
                   : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]"
               }`}
             >
-              <Icon className="h-3 w-3" />
+              <Icon className={isMobile ? "h-3.5 w-3.5" : "h-3 w-3"} />
               {label}
             </button>
           ))}
@@ -435,7 +336,7 @@ export function ConfigRoute() {
 
         <div className="ml-auto flex items-center gap-2">
           {mode === "form" && (
-            <div className="relative">
+            <div className={`relative ${isMobile ? "hidden" : ""}`}>
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-600" />
               <input
                 value={sectionFilter}
@@ -454,17 +355,24 @@ export function ConfigRoute() {
               )}
             </div>
           )}
-          {configQuery.isLoading && <span className="text-[10px] text-slate-500">Loading…</span>}
-          {configQuery.error && <span className="text-[10px] text-rose-400">Failed to load</span>}
+          {configQuery.isLoading && <span className={`text-slate-500 ${isMobile ? "text-xs" : "text-[10px]"}`}>Loading…</span>}
+          {configQuery.error && <span className={`text-rose-400 ${isMobile ? "text-xs" : "text-[10px]"}`}>Failed to load</span>}
         </div>
       </div>
 
       {/* ── Content ──────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
+      <div 
+        ref={contentRef}
+        className={`flex-1 overflow-y-auto ${touchSupported ? "touch-pan-y" : ""}`}
+        style={{ 
+          transform: pullDistance > 0 ? `translateY(${Math.min(pullDistance, 80)}px)` : undefined,
+          transition: isRefreshing ? undefined : 'transform 0.2s ease-out'
+        }}
+      >
         <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
 
           {mode === "form" && (
-            <form onSubmit={onSubmit} className="space-y-6">
+            <form onSubmit={onSubmit} className={`space-y-6 ${isMobile ? "pb-24" : ""}`}>
               {/* ── Models (special UX: add/remove) ── */}
               {matchesFilter("models") && (
               <CollapsibleSection
@@ -477,26 +385,33 @@ export function ConfigRoute() {
                   <button
                     type="button"
                     onClick={addModel}
-                    className="flex items-center gap-1 rounded-lg border border-white/[0.06] px-2 py-1 text-[10px] text-slate-400 hover:text-slate-200 hover:border-white/[0.12] transition-all duration-200"
+                    className={`flex items-center gap-1 rounded-lg border border-white/[0.06] text-slate-400 hover:text-slate-200 hover:border-white/[0.12] transition-all duration-200 ${
+                      isMobile ? "px-3 py-1.5 text-xs" : "px-2 py-1 text-[10px]"
+                    }`}
                   >
-                    <Plus className="h-3 w-3" /> Add Model
+                    <Plus className={isMobile ? "h-3.5 w-3.5" : "h-3 w-3"} /> Add Model
                   </button>
                 }
               >
                 <div className="space-y-5">
                   {formModels.map((model, index) => (
-                    <article key={`model-${index}`} className="rounded-lg border border-white/[0.04] bg-white/[0.01] p-4 space-y-3">
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    <article key={`model-${index}`} className={`rounded-lg border border-white/[0.04] bg-white/[0.01] ${isMobile ? "p-3 space-y-4" : "p-4 space-y-3"}`}>
+                      <div className={`grid grid-cols-1 gap-3 ${isMobile ? "" : "md:grid-cols-3"}`}>
                         {(["id", "provider"] as const).map((field) => (
-                          <div key={field} className="space-y-1">
-                            <label className="text-[9px] uppercase tracking-widest text-slate-600 block">
+                          <div key={field} className="space-y-2">
+                            <label className={`uppercase tracking-widest text-slate-600 block ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>
                               {field === "id" ? "ID" : "Provider"}
                             </label>
-                            <Input value={String(model[field] ?? "")} onChange={(e) => updateModel(index, field, e.target.value)} placeholder={field === "id" ? "e.g. gpt4" : "e.g. openai"} />
+                            <Input 
+                              value={String(model[field] ?? "")} 
+                              onChange={(e) => updateModel(index, field, e.target.value)} 
+                              placeholder={field === "id" ? "e.g. gpt4" : "e.g. openai"}
+                              className={isMobile ? "py-3 text-base" : ""}
+                            />
                           </div>
                         ))}
-                        <div className="space-y-1">
-                          <label className="text-[9px] uppercase tracking-widest text-slate-600 block">
+                        <div className="space-y-2">
+                          <label className={`uppercase tracking-widest text-slate-600 block ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>
                             Model
                           </label>
                           <ModelCombobox
@@ -506,52 +421,59 @@ export function ConfigRoute() {
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                      <div className={`grid grid-cols-1 gap-3 ${isMobile ? "" : "md:grid-cols-2"}`}>
                         {(["api_key", "endpoint", "api_version", "embedding_deployment"] as const).map((field) => (
-                          <div key={field} className="space-y-1">
-                            <label className="text-[9px] uppercase tracking-widest text-slate-600 block">
+                          <div key={field} className="space-y-2">
+                            <label className={`uppercase tracking-widest text-slate-600 block ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>
                               {field.replace(/_/g, " ")}
                             </label>
-                            <Input value={String(model[field] ?? "")} onChange={(e) => updateModel(index, field, e.target.value)} placeholder={field === "api_key" ? "sk-…" : field === "endpoint" ? "https://…" : field.replace(/_/g, " ")} />
+                            <Input 
+                              value={String(model[field] ?? "")} 
+                              onChange={(e) => updateModel(index, field, e.target.value)} 
+                              placeholder={field === "api_key" ? "sk-…" : field === "endpoint" ? "https://…" : field.replace(/_/g, " ")}
+                              className={isMobile ? "py-3 text-base" : ""}
+                            />
                           </div>
                         ))}
                       </div>
                       {/* ── Headers (key-value rows) ── */}
-                      <div className="space-y-3">
+                      <div className={`space-y-3 ${isMobile ? "pt-2" : ""}`}>
                         <div className="flex items-center justify-between">
-                          <label className="text-[9px] uppercase tracking-widest text-slate-600">Headers</label>
+                          <label className={`uppercase tracking-widest text-slate-600 ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>Headers</label>
                           <button
                             type="button"
                             onClick={() => addModelHeader(index)}
-                            className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+                            className={`flex items-center gap-1 text-slate-500 hover:text-slate-300 transition-colors ${isMobile ? "text-xs px-2 py-1" : "text-[10px]"}`}
                           >
-                            <Plus className="h-2.5 w-2.5" /> Add Row
+                            <Plus className={isMobile ? "h-3 w-3" : "h-2.5 w-2.5"} /> Add Row
                           </button>
                         </div>
                         {getModelHeaders(model).map(([hKey, hVal], hIdx) => (
-                          <div key={`header-${hIdx}`} className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_1fr_auto] items-end">
-                            <div className="space-y-1">
-                              <label className="text-[9px] uppercase tracking-widest text-slate-600 block">Name</label>
+                          <div key={`header-${hIdx}`} className={`grid grid-cols-1 gap-3 items-end ${isMobile ? "" : "md:grid-cols-[1fr_1fr_auto]"}`}>
+                            <div className="space-y-2">
+                              <label className={`uppercase tracking-widest text-slate-600 block ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>Name</label>
                               <Input
                                 value={hKey}
                                 onChange={(e) => updateModelHeader(index, hKey, e.target.value, hVal)}
                                 placeholder="X-Custom-Header"
+                                className={isMobile ? "py-3 text-base" : ""}
                               />
                             </div>
-                            <div className="space-y-1">
-                              <label className="text-[9px] uppercase tracking-widest text-slate-600 block">Value</label>
+                            <div className="space-y-2">
+                              <label className={`uppercase tracking-widest text-slate-600 block ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>Value</label>
                               <Input
                                 value={hVal}
                                 onChange={(e) => updateModelHeader(index, hKey, hKey, e.target.value)}
                                 placeholder="value"
+                                className={isMobile ? "py-3 text-base" : ""}
                               />
                             </div>
                             <button
                               type="button"
                               onClick={() => removeModelHeader(index, hKey)}
-                              className="mb-2 text-rose-400/50 hover:text-rose-300 transition-colors shrink-0"
+                              className={`text-rose-400/50 hover:text-rose-300 transition-colors shrink-0 ${isMobile ? "py-2 px-3" : "mb-2"}`}
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <Trash2 className={isMobile ? "h-4 w-4" : "h-3.5 w-3.5"} />
                             </button>
                           </div>
                         ))}
@@ -559,9 +481,9 @@ export function ConfigRoute() {
                       <button
                         type="button"
                         onClick={() => removeModel(index)}
-                        className="flex items-center gap-1 text-[10px] text-rose-400/60 hover:text-rose-300 transition-colors"
+                        className={`flex items-center gap-1 text-rose-400/60 hover:text-rose-300 transition-colors ${isMobile ? "text-xs py-2 px-3 -ml-3" : "text-[10px]"}`}
                       >
-                        <Trash2 className="h-3 w-3" /> Remove
+                        <Trash2 className={isMobile ? "h-4 w-4" : "h-3 w-3"} /> Remove
                       </button>
                     </article>
                   ))}
@@ -579,38 +501,40 @@ export function ConfigRoute() {
                 onToggle={toggleSection}
                 description="Channel (e.g. Discord) settings."
               >
-                <div className="space-y-4">
-                  <div className="space-y-1">
-                    <label className="text-[9px] uppercase tracking-widest text-slate-600 block">Discord Token</label>
+                <div className={`space-y-4 ${isMobile ? "pt-2" : ""}`}>
+                  <div className="space-y-2">
+                    <label className={`uppercase tracking-widest text-slate-600 block ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>Discord Token</label>
                     <Input
                       value={secretToString(discord.token)}
                       onChange={(e) => updateChannel("discord.token", e.target.value)}
                       placeholder="Bot token or secret ref"
+                      className={isMobile ? "py-3 text-base" : ""}
                     />
-                    <p className="text-[10px] leading-relaxed text-slate-500">Discord bot token. Can be a plain string or a secret reference like <code className="text-[10px] text-slate-400">env:DISCORD_TOKEN</code>.</p>
+                    <p className={`leading-relaxed text-slate-500 ${isMobile ? "text-xs" : "text-[10px]"}`}>Discord bot token. Can be a plain string or a secret reference like <code className={`text-slate-400 ${isMobile ? "text-xs" : "text-[10px]"}`}>env:DISCORD_TOKEN</code>.</p>
                   </div>
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                    <div className="space-y-1">
-                      <label className="text-[9px] uppercase tracking-widest text-slate-600 block">Default Channel ID</label>
+                  <div className={`grid grid-cols-1 gap-4 ${isMobile ? "" : "md:grid-cols-2"}`}>
+                    <div className="space-y-2">
+                      <label className={`uppercase tracking-widest text-slate-600 block ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>Default Channel ID</label>
                       <Input
                         value={defaultChannel.id}
                         onChange={(e) => updateChannel("default_channel.id", e.target.value)}
                         placeholder="e.g. 123456789012345678"
+                        className={isMobile ? "py-3 text-base" : ""}
                       />
-                      <p className="text-[10px] leading-relaxed text-slate-500">The channel or user ID Pinchy sends messages to by default.</p>
+                      <p className={`leading-relaxed text-slate-500 ${isMobile ? "text-xs" : "text-[10px]"}`}>The channel or user ID Pinchy sends messages to by default.</p>
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-[9px] uppercase tracking-widest text-slate-600 block">Default Channel Kind</label>
+                    <div className="space-y-2">
+                      <label className={`uppercase tracking-widest text-slate-600 block ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>Default Channel Kind</label>
                       <select
                         value={defaultChannel.kind}
                         onChange={(e) => updateChannel("default_channel.kind", e.target.value)}
-                        className="w-full rounded-lg border border-white/[0.06] bg-white/[0.03] px-2.5 py-1.5 text-xs text-slate-200 outline-none focus:border-emerald-400/30"
+                        className={`w-full rounded-lg border border-white/[0.06] bg-white/[0.03] text-slate-200 outline-none focus:border-emerald-400/30 ${isMobile ? "px-4 py-3 text-base" : "px-2.5 py-1.5 text-xs"}`}
                       >
                         <option value="channel">channel</option>
                         <option value="user">user (DM)</option>
                         <option value="group">group</option>
                       </select>
-                      <p className="text-[10px] leading-relaxed text-slate-500">Whether the default target is a channel, DM, or group.</p>
+                      <p className={`leading-relaxed text-slate-500 ${isMobile ? "text-xs" : "text-[10px]"}`}>Whether the default target is a channel, DM, or group.</p>
                     </div>
                   </div>
                 </div>
@@ -627,7 +551,7 @@ export function ConfigRoute() {
                   onToggle={toggleSection}
                   description="Instance-level settings."
                 >
-                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className={`grid grid-cols-1 gap-4 ${isMobile ? "" : "md:grid-cols-2"}`}>
                     {scalarFields.map(({ key, prop }) => (
                       <SchemaField
                         key={key}
@@ -656,7 +580,7 @@ export function ConfigRoute() {
                     onToggle={toggleSection}
                     description={prop.description || resolveProp(schema, prop).description}
                   >
-                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className={`grid grid-cols-1 gap-4 ${isMobile ? "" : "md:grid-cols-2"}`}>
                       {Object.entries(resolveProp(schema, prop).properties ?? {}).map(([childKey, childProp]) => (
                         <SchemaField
                           key={childKey}
@@ -683,17 +607,17 @@ export function ConfigRoute() {
               >
                 <div className="space-y-1.5">
                   {configuredAgents.map((agent) => (
-                    <p key={agent.id} className="text-xs text-slate-500">
+                    <p key={agent.id} className={`text-slate-500 ${isMobile ? "text-sm" : "text-xs"}`}>
                       {agent.id} · model: {agent.model}
                     </p>
                   ))}
                   {!configuredAgents.length && (
                     <div className="flex flex-col items-center justify-center py-8 text-center">
-                      <p className="text-xs text-slate-600">No agents configured</p>
-                      <p className="text-[10px] text-slate-700 mt-0.5">Create an agent from the Agents page to get started.</p>
+                      <p className={`text-slate-600 ${isMobile ? "text-sm" : "text-xs"}`}>No agents configured</p>
+                      <p className={`text-slate-700 mt-0.5 ${isMobile ? "text-xs" : "text-[10px]"}`}>Create an agent from the Agents page to get started.</p>
                     </div>
                   )}
-                  <p className="text-[10px] text-slate-600 mt-2">Edit agent settings and files in the Agents page.</p>
+                  <p className={`text-slate-600 mt-2 ${isMobile ? "text-xs" : "text-[10px]"}`}>Edit agent settings and files in the Agents page.</p>
                 </div>
               </CollapsibleSection>
               )}
@@ -701,22 +625,26 @@ export function ConfigRoute() {
               <button
                 type="submit"
                 disabled={saveMutation.isPending}
-                className="flex items-center gap-1.5 h-8 px-4 rounded-lg bg-emerald-400 text-slate-950 text-xs font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200"
+                className={`flex items-center gap-1.5 rounded-lg bg-emerald-400 text-slate-950 font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200 ${
+                  isMobile 
+                    ? "fixed bottom-6 right-4 h-12 px-5 text-sm shadow-lg shadow-emerald-400/20 z-40" 
+                    : "h-8 px-4 text-xs"
+                }`}
               >
-                <Save className="h-3 w-3" />
+                <Save className={isMobile ? "h-4 w-4" : "h-3 w-3"} />
                 {saveMutation.isPending ? "Saving..." : "Save Config"}
               </button>
             </form>
           )}
 
           {mode === "yaml" && (
-            <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <FileCode className="h-3.5 w-3.5 text-emerald-400/60" />
-                <span className="text-xs font-medium text-slate-300">Raw YAML</span>
+            <div className={`rounded-xl border border-white/[0.06] bg-white/[0.02] ${isMobile ? "p-3 space-y-2 pb-24" : "p-4 space-y-3"}`}>
+              <div className={`flex items-center gap-2 ${isMobile ? "" : ""}`}>
+                <FileCode className={`text-emerald-400/60 ${isMobile ? "h-4 w-4" : "h-3.5 w-3.5"}`} />
+                <span className={`font-medium text-slate-300 ${isMobile ? "text-sm" : "text-xs"}`}>Raw YAML</span>
               </div>
               <YamlEditor value={rawYaml} onChange={setRawYaml} />
-              <div className="flex justify-end gap-2">
+              <div className={`flex justify-end gap-2 ${isMobile ? "pb-4" : ""}`}>
                 <button
                   type="button"
                   onClick={() => {
@@ -732,17 +660,21 @@ export function ConfigRoute() {
                       toast.error(`Cannot prettify: ${(e as Error).message}`);
                     }
                   }}
-                  className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+                  className={`flex items-center gap-1 text-slate-500 hover:text-slate-300 transition-colors ${isMobile ? "text-xs px-2 py-1" : "text-[10px]"}`}
                 >
-                  <Sparkles className="h-3 w-3" /> Prettify
+                  <Sparkles className={isMobile ? "h-3.5 w-3.5" : "h-3 w-3"} /> Prettify
                 </button>
                 <button
                   type="button"
                   onClick={onSaveYaml}
                   disabled={saveMutation.isPending}
-                  className="flex items-center gap-1.5 h-8 px-4 rounded-lg bg-emerald-400 text-slate-950 text-xs font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200"
+                  className={`flex items-center gap-1.5 rounded-lg bg-emerald-400 text-slate-950 font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200 ${
+                    isMobile 
+                      ? "fixed bottom-6 right-4 h-12 px-5 text-sm shadow-lg shadow-emerald-400/20 z-40" 
+                      : "h-8 px-4 text-xs"
+                  }`}
                 >
-                  <Save className="h-3 w-3" />
+                  <Save className={isMobile ? "h-4 w-4" : "h-3 w-3"} />
                   {saveMutation.isPending ? "Saving..." : "Save YAML"}
                 </button>
               </div>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { toast } from "sonner";
@@ -20,6 +20,8 @@ import {
   X,
   Eye,
   Copy,
+  ChevronLeft,
+  Menu,
 } from "lucide-react";
 
 import {
@@ -31,16 +33,43 @@ import {
 } from "@/shared/api/client";
 import { useAgentsListRoute, useAgentDetailRoute } from "../model";
 import { Button, Checkbox, Dialog, DialogContent, Input, Separator, Skeleton, TextArea } from "@/shared/ui/components/ui";
+import { BottomSheet, ActionSheet } from "@/shared/ui/components/BottomSheet";
 import { humanBytes, minutesAgo } from "@/shared/lib/utils";
+import { useViewport } from "@/shared/lib/useViewport";
+import { usePullToRefresh } from "@/shared/lib/useTouch";
 
 const fileTabs = ["SOUL.md", "TOOLS.md", "HEARTBEAT.md"] as const;
 
 type AgentTab = "settings" | "skills" | (typeof fileTabs)[number];
 type AgentDetailTab = AgentTab | "sessions" | "memory";
 
+// Haptic feedback helper
+function triggerHaptic(type: "light" | "medium" | "heavy" = "light") {
+  if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+    const patterns = {
+      light: [10],
+      medium: [20],
+      heavy: [30, 50, 30],
+    };
+    navigator.vibrate(patterns[type]);
+  }
+}
+
 export function AgentsListRoute() {
   const navigate = useNavigate();
   const { form, ui, queries, mutations } = useAgentsListRoute();
+  const { isMobile } = useViewport();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
+
+  // Pull-to-refresh for mobile
+  const { pullDistance, isRefreshing } = usePullToRefresh(
+    contentRef,
+    async () => {
+      triggerHaptic("light");
+      await queryClient.invalidateQueries({ queryKey: queryKeys.agents });
+    }
+  );
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg)]">
@@ -53,9 +82,9 @@ export function AgentsListRoute() {
           <span className="text-sm font-semibold text-slate-100">Agents</span>
         </div>
 
-        <Separator className="!h-5 !w-px !bg-white/[0.08]" />
+        <Separator className="!h-5 !w-px !bg-white/[0.08] hidden sm:block" />
 
-        <span className="text-xs text-slate-500">Manage AI agents</span>
+        <span className="text-xs text-slate-500 hidden sm:inline">Manage AI agents</span>
 
         <div className="ml-auto flex items-center gap-2">
           <span className="text-[10px] tabular-nums text-slate-500">
@@ -65,7 +94,32 @@ export function AgentsListRoute() {
       </div>
 
       {/* ── Content ──────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        ref={contentRef}
+        className="flex-1 overflow-y-auto relative touch-pan-y"
+      >
+        {/* Pull-to-refresh indicator */}
+        {isMobile && (
+          <div
+            className="absolute top-0 left-0 right-0 flex items-center justify-center transition-transform duration-200 pointer-events-none z-10"
+            style={{ transform: `translateY(${Math.min(pullDistance - 60, 0)}px)` }}
+          >
+            <div className="flex items-center gap-2 px-4 py-2 bg-slate-900/90 backdrop-blur-sm rounded-full border border-white/[0.06]">
+              {isRefreshing ? (
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400/30 border-t-emerald-400" />
+              ) : (
+                <div
+                  className="h-4 w-4 rounded-full border-2 border-emerald-400/30 border-t-emerald-400 transition-transform"
+                  style={{ transform: `rotate(${Math.min(pullDistance * 2, 360)}deg)` }}
+                />
+              )}
+              <span className="text-xs text-slate-400">
+                {isRefreshing ? "Refreshing..." : pullDistance > 80 ? "Release to refresh" : "Pull to refresh"}
+              </span>
+            </div>
+          </div>
+        )}
+
         <div className="max-w-5xl mx-auto px-4 py-5 space-y-5">
 
           {/* ── Create agent ────────────────────────── */}
@@ -79,14 +133,16 @@ export function AgentsListRoute() {
                 placeholder="agent-id"
                 value={form.newAgentId}
                 onChange={(event) => form.setNewAgentId(event.target.value)}
+                className="min-h-[44px]"
               />
               <Input
                 placeholder="model"
                 value={form.newAgentModel}
                 onChange={(event) => form.setNewAgentModel(event.target.value)}
+                className="min-h-[44px]"
               />
               <div className="space-y-1">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 min-h-[44px]">
                   <Checkbox
                     checked={form.newAgentHeartbeat !== null}
                     onCheckedChange={(next) => {
@@ -105,14 +161,18 @@ export function AgentsListRoute() {
                     placeholder="heartbeat"
                     value={form.newAgentHeartbeat}
                     onChange={(event) => form.setNewAgentHeartbeat(parseInt(event.target.value, 10) || 0)}
+                    className="min-h-[44px]"
                   />
                 )}
               </div>
               <button
                 type="button"
-                onClick={form.onCreate}
+                onClick={() => {
+                  triggerHaptic("medium");
+                  form.onCreate();
+                }}
                 disabled={mutations.createMutation.isPending}
-                className="flex items-center justify-center gap-1.5 h-[42px] rounded-xl bg-emerald-400 text-slate-950 text-sm font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200"
+                className="flex items-center justify-center gap-1.5 h-[44px] min-h-[44px] rounded-xl bg-emerald-400 text-slate-950 text-sm font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200 touch-manipulation active:scale-95"
               >
                 <Plus className="h-3.5 w-3.5" />
                 {mutations.createMutation.isPending ? "Creating..." : "Create"}
@@ -121,49 +181,59 @@ export function AgentsListRoute() {
           </div>
 
           {/* ── Agent cards ─────────────────────────── */}
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
             {queries.visibleAgents.map((agent) => (
               <div
                 key={agent.id}
-                className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 transition-all duration-200 hover:border-emerald-400/20 hover:bg-white/[0.04]"
+                className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 transition-all duration-200 hover:border-emerald-400/20 hover:bg-white/[0.04] touch-manipulation"
               >
                 <button
                   type="button"
-                  className="w-full text-left"
-                  onClick={() =>
+                  className="w-full text-left min-h-[44px]"
+                  onClick={() => {
+                    triggerHaptic("light");
                     navigate({
                       to: "/agents/$agentId",
                       params: { agentId: agent.id },
-                    })
-                  }
+                    });
+                  }}
                 >
                   <div className="flex items-center gap-2.5 mb-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-400/10">
-                      <Bot className="h-4 w-4 text-emerald-400" />
+                    <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-400/10">
+                      <Bot className="h-5 w-5 text-emerald-400" />
                     </div>
                     <p className="text-sm font-semibold text-slate-100">{agent.id}</p>
                   </div>
-                  <div className="space-y-1 text-xs text-slate-500">
-                    <p className="flex items-center gap-1.5"><Cpu className="h-3 w-3" /> {agent.model ?? "default"}</p>
-                    <p className="flex items-center gap-1.5"><Heart className="h-3 w-3" /> {agent.heartbeat_secs ? `${agent.heartbeat_secs}s` : "disabled"}</p>
-                    <p className="flex items-center gap-1.5"><Sparkles className="h-3 w-3" /> {(agent.enabled_skills ?? []).length || "none"} skills</p>
-                    <p className="flex items-center gap-1.5"><Clock className="h-3 w-3" /> {agent.cron_jobs_count ?? agent.cron_job_count ?? "-"} cron jobs</p>
+                  <div className="space-y-2 text-xs text-slate-500">
+                    <p className="flex items-center gap-1.5 min-h-[20px]"><Cpu className="h-3.5 w-3.5" /> {agent.model ?? "default"}</p>
+                    <p className="flex items-center gap-1.5 min-h-[20px]"><Heart className="h-3.5 w-3.5" /> {agent.heartbeat_secs ? `${agent.heartbeat_secs}s` : "disabled"}</p>
+                    <p className="flex items-center gap-1.5 min-h-[20px]"><Sparkles className="h-3.5 w-3.5" /> {(agent.enabled_skills ?? []).length || "none"} skills</p>
+                    <p className="flex items-center gap-1.5 min-h-[20px]"><Clock className="h-3.5 w-3.5" /> {agent.cron_jobs_count ?? agent.cron_job_count ?? "-"} cron jobs</p>
                   </div>
                 </button>
                 <div className="mt-3 pt-2 border-t border-white/[0.06] flex justify-between items-center">
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); ui.setCloneAgentId(agent.id); form.setCloneNewId(`${agent.id}-clone`); }}
-                    className="text-[10px] text-emerald-400/50 hover:text-emerald-300 transition-colors flex items-center gap-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      triggerHaptic("light");
+                      ui.setCloneAgentId(agent.id);
+                      form.setCloneNewId(`${agent.id}-clone`);
+                    }}
+                    className="text-xs text-emerald-400/50 hover:text-emerald-300 transition-colors flex items-center gap-1 min-h-[44px] px-2 py-1.5 rounded-lg hover:bg-white/[0.04] touch-manipulation active:scale-95"
                   >
-                    <Copy className="h-2.5 w-2.5" /> Clone
+                    <Copy className="h-3.5 w-3.5" /> Clone
                   </button>
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); ui.setConfirmDeleteId(agent.id); }}
-                    className="text-[10px] text-rose-400/50 hover:text-rose-300 transition-colors flex items-center gap-1"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      triggerHaptic("medium");
+                      ui.setConfirmDeleteId(agent.id);
+                    }}
+                    className="text-xs text-rose-400/50 hover:text-rose-300 transition-colors flex items-center gap-1 min-h-[44px] px-2 py-1.5 rounded-lg hover:bg-rose-400/10 touch-manipulation active:scale-95"
                   >
-                    <Trash2 className="h-2.5 w-2.5" /> Delete
+                    <Trash2 className="h-3.5 w-3.5" /> Delete
                   </button>
                 </div>
               </div>
@@ -171,7 +241,7 @@ export function AgentsListRoute() {
           </div>
 
           {queries.agentsQuery.isLoading || ui.loadingFallback ? (
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
               {[1, 2].map((i) => <div key={i} className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-2"><Skeleton className="h-5 w-32" /><Skeleton className="h-4 w-48" /><Skeleton className="h-4 w-40" /></div>)}
             </div>
           ) : null}
@@ -192,12 +262,16 @@ export function AgentsListRoute() {
       </div>
 
       {/* ── Delete Confirmation Dialog ──────────── */}
-      <Dialog open={!!ui.confirmDeleteId} onOpenChange={(open) => { if (!open) ui.setConfirmDeleteId(null); }}>
-        <DialogContent>
-          <div className="p-5 space-y-4">
+      {isMobile ? (
+        <BottomSheet
+          isOpen={!!ui.confirmDeleteId}
+          onClose={() => ui.setConfirmDeleteId(null)}
+          title="Delete Agent"
+        >
+          <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-400/10">
-                <Trash2 className="h-5 w-5 text-rose-400" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-rose-400/10">
+                <Trash2 className="h-6 w-6 text-rose-400" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-100">Delete Agent</p>
@@ -207,29 +281,72 @@ export function AgentsListRoute() {
             <p className="text-sm text-slate-300">
               Are you sure you want to delete <span className="font-mono text-rose-300">{ui.confirmDeleteId}</span>?
             </p>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={() => ui.setConfirmDeleteId(null)}>Cancel</Button>
-              <Button
-                variant="primary"
-                size="sm"
-                className="!bg-rose-500 hover:!bg-rose-400"
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => ui.setConfirmDeleteId(null)}
+                className="w-full h-[48px] rounded-xl bg-white/[0.06] text-slate-200 text-sm font-medium hover:bg-white/[0.08] transition-colors touch-manipulation active:scale-95"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
                 disabled={mutations.listDeleteMutation.isPending}
-                onClick={() => { if (ui.confirmDeleteId) mutations.listDeleteMutation.mutate(ui.confirmDeleteId); }}
+                onClick={() => {
+                  triggerHaptic("heavy");
+                  if (ui.confirmDeleteId) mutations.listDeleteMutation.mutate(ui.confirmDeleteId);
+                }}
+                className="w-full h-[48px] rounded-xl bg-rose-500 text-white text-sm font-medium hover:bg-rose-400 disabled:opacity-40 transition-colors touch-manipulation active:scale-95"
               >
                 {mutations.listDeleteMutation.isPending ? "Deleting..." : "Delete"}
-              </Button>
+              </button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </BottomSheet>
+      ) : (
+        <Dialog open={!!ui.confirmDeleteId} onOpenChange={(open) => { if (!open) ui.setConfirmDeleteId(null); }}>
+          <DialogContent>
+            <div className="p-5 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-400/10">
+                  <Trash2 className="h-5 w-5 text-rose-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-100">Delete Agent</p>
+                  <p className="text-xs text-slate-500">This action cannot be undone.</p>
+                </div>
+              </div>
+              <p className="text-sm text-slate-300">
+                Are you sure you want to delete <span className="font-mono text-rose-300">{ui.confirmDeleteId}</span>?
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" size="sm" onClick={() => ui.setConfirmDeleteId(null)}>Cancel</Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="!bg-rose-500 hover:!bg-rose-400"
+                  disabled={mutations.listDeleteMutation.isPending}
+                  onClick={() => { if (ui.confirmDeleteId) mutations.listDeleteMutation.mutate(ui.confirmDeleteId); }}
+                >
+                  {mutations.listDeleteMutation.isPending ? "Deleting..." : "Delete"}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* ── Clone Agent Dialog ──────────────────── */}
-      <Dialog open={!!ui.cloneAgentId} onOpenChange={(open) => { if (!open) ui.setCloneAgentId(null); }}>
-        <DialogContent>
-          <div className="p-5 space-y-4">
+      {isMobile ? (
+        <BottomSheet
+          isOpen={!!ui.cloneAgentId}
+          onClose={() => ui.setCloneAgentId(null)}
+          title="Clone Agent"
+        >
+          <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-400/10">
-                <Copy className="h-5 w-5 text-emerald-400" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-400/10">
+                <Copy className="h-6 w-6 text-emerald-400" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-100">Clone Agent</p>
@@ -243,72 +360,162 @@ export function AgentsListRoute() {
                 value={form.cloneNewId}
                 onChange={(e) => form.setCloneNewId(e.target.value)}
                 autoFocus
+                className="min-h-[48px]"
               />
             </div>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={() => ui.setCloneAgentId(null)}>Cancel</Button>
-              <Button
-                variant="primary"
-                size="sm"
-                className="!bg-emerald-500 hover:!bg-emerald-400"
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => ui.setCloneAgentId(null)}
+                className="w-full h-[48px] rounded-xl bg-white/[0.06] text-slate-200 text-sm font-medium hover:bg-white/[0.08] transition-colors touch-manipulation active:scale-95"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
                 disabled={mutations.cloneMutation.isPending}
-                onClick={form.onClone}
+                onClick={() => {
+                  triggerHaptic("medium");
+                  form.onClone();
+                }}
+                className="w-full h-[48px] rounded-xl bg-emerald-500 text-slate-950 text-sm font-medium hover:bg-emerald-400 disabled:opacity-40 transition-colors touch-manipulation active:scale-95"
               >
                 {mutations.cloneMutation.isPending ? "Cloning..." : "Clone Agent"}
-              </Button>
+              </button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </BottomSheet>
+      ) : (
+        <Dialog open={!!ui.cloneAgentId} onOpenChange={(open) => { if (!open) ui.setCloneAgentId(null); }}>
+          <DialogContent>
+            <div className="p-5 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-400/10">
+                  <Copy className="h-5 w-5 text-emerald-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-100">Clone Agent</p>
+                  <p className="text-xs text-slate-500">Creates a copy of the agent definition and config.</p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-[10px] uppercase font-bold text-slate-500 tracking-wider">New Agent ID</label>
+                <Input
+                  placeholder="new-agent-id"
+                  value={form.cloneNewId}
+                  onChange={(e) => form.setCloneNewId(e.target.value)}
+                  autoFocus
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" size="sm" onClick={() => ui.setCloneAgentId(null)}>Cancel</Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="!bg-emerald-500 hover:!bg-emerald-400"
+                  disabled={mutations.cloneMutation.isPending}
+                  onClick={form.onClone}
+                >
+                  {mutations.cloneMutation.isPending ? "Cloning..." : "Clone Agent"}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
 
 export function AgentDetailRoute() {
-    const navigate = useNavigate();
+  const navigate = useNavigate();
   const { form, ui, queries, mutations, computed, agentId } = useAgentDetailRoute();
+  const { isMobile } = useViewport();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  const tabs = [
+    ["settings", "Settings", Settings],
+    ["skills", "Skills", Sparkles],
+    ["sessions", "Sessions", Layers],
+    ["memory", "Memory", Brain],
+    ...fileTabs.map((f) => [f, f, FileText] as const),
+  ] as const;
 
   return (
     <div className="flex flex-col h-full bg-[var(--bg)]">
       {/* ── Top bar ──────────────────────────────── */}
-      <div className="flex items-center gap-2 px-4 h-12 border-b border-white/[0.06] bg-white/[0.02] backdrop-blur-sm shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-400/10">
+      <div className="flex items-center gap-2 px-3 sm:px-4 h-12 border-b border-white/[0.06] bg-white/[0.02] backdrop-blur-sm shrink-0">
+        {/* Mobile back button */}
+        {isMobile && (
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic("light");
+              navigate({ to: "/agents" });
+            }}
+            className="flex items-center justify-center h-10 w-10 -ml-2 rounded-lg hover:bg-white/[0.04] transition-colors touch-manipulation active:scale-95"
+          >
+            <ChevronLeft className="h-5 w-5 text-slate-400" />
+          </button>
+        )}
+
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-400/10 shrink-0">
             <Bot className="h-3.5 w-3.5 text-emerald-400" />
           </span>
-          <span className="text-sm font-semibold text-slate-100">{agentId}</span>
+          <span className="text-sm font-semibold text-slate-100 truncate">{agentId}</span>
         </div>
 
-        <Separator className="!h-5 !w-px !bg-white/[0.08]" />
+        <Separator className="!h-5 !w-px !bg-white/[0.08] hidden sm:block" />
 
         {/* ── Tab buttons ──────────────────────────── */}
-        <div className="flex items-center gap-0.5">
-          {([
-            ["settings", "Settings", Settings],
-            ["skills", "Skills", Sparkles],
-            ["sessions", "Sessions", Layers],
-            ["memory", "Memory", Brain],
-            ...fileTabs.map((f) => [f, f, FileText] as const),
-          ] as const).map(([value, label, Icon]) => (
+        {isMobile ? (
+          <>
             <button
-              key={value}
               type="button"
-              onClick={() => ui.setTab(value as AgentDetailTab)}
-              className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-[11px] font-medium transition-all duration-200 ${
-                ui.tab === value
-                  ? "bg-emerald-400/10 text-emerald-300"
-                  : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]"
-              }`}
+              onClick={() => setMobileMenuOpen(true)}
+              className="ml-auto flex items-center gap-1.5 h-9 px-3 rounded-lg bg-white/[0.04] text-xs font-medium text-slate-300 hover:bg-white/[0.08] transition-colors touch-manipulation active:scale-95"
             >
-              <Icon className="h-3 w-3" />
-              {label}
+              <Menu className="h-4 w-4" />
+              <span className="capitalize">{ui.tab}</span>
             </button>
-          ))}
-        </div>
 
-        <div className="ml-auto flex items-center gap-3">
+            <ActionSheet
+              isOpen={mobileMenuOpen}
+              onClose={() => setMobileMenuOpen(false)}
+              actions={tabs.map(([value, label, Icon]) => ({
+                label,
+                icon: Icon,
+                onClick: () => {
+                  triggerHaptic("light");
+                  ui.setTab(value as AgentDetailTab);
+                },
+              }))}
+            />
+          </>
+        ) : (
+          <div className="flex items-center gap-0.5 overflow-x-auto scrollbar-hide">
+            {tabs.map(([value, label, Icon]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => ui.setTab(value as AgentDetailTab)}
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-2 text-[11px] font-medium transition-all duration-200 min-h-[36px] whitespace-nowrap touch-manipulation active:scale-95 ${
+                  ui.tab === value
+                    ? "bg-emerald-400/10 text-emerald-300"
+                    : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]"
+                }`}
+              >
+                <Icon className="h-3 w-3" />
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className="ml-auto flex items-center gap-2 sm:gap-3">
           {computed.hb && (
-            <div className="flex items-center gap-1.5 text-[10px]">
+            <div className="hidden sm:flex items-center gap-1.5 text-[10px]">
               <span className={`inline-block h-2 w-2 rounded-full ${
                 computed.hb.health === "ok" ? "bg-emerald-400 animate-status-pulse" :
                 computed.hb.health === "stale" ? "bg-amber-400" : "bg-slate-600"
@@ -328,18 +535,21 @@ export function AgentDetailRoute() {
           )}
           <button
             type="button"
-            onClick={form.onDelete}
+            onClick={() => {
+              triggerHaptic("medium");
+              form.onDelete();
+            }}
             disabled={mutations.deleteMutation.isPending}
-            className="flex items-center gap-1 text-[10px] text-rose-400/60 hover:text-rose-300 disabled:opacity-40 transition-colors"
+            className="flex items-center gap-1 text-[10px] text-rose-400/60 hover:text-rose-300 disabled:opacity-40 transition-colors min-h-[44px] px-2 py-1.5 rounded-lg hover:bg-rose-400/10 touch-manipulation active:scale-95"
           >
-            <Trash2 className="h-3 w-3" /> Delete
+            <Trash2 className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Delete</span>
           </button>
         </div>
       </div>
 
       {/* ── Content ──────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 py-5">
+        <div className="max-w-3xl mx-auto px-3 sm:px-4 py-4 sm:py-5">
 
           {/* ── Heartbeat + Cron summary card ────── */}
           {computed.initialized && ui.tab === "settings" && (
@@ -416,12 +626,12 @@ export function AgentDetailRoute() {
             <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-4">
                 <div>
                   <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">Model</label>
-                  <Input value={form.model} onChange={(event) => form.setModel(event.target.value)} />
+                  <Input value={form.model} onChange={(event) => form.setModel(event.target.value)} className="min-h-[44px]" />
                 </div>
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
                     <label className="text-[10px] uppercase tracking-widest text-slate-500">Heartbeat (seconds)</label>
-                    <label className="flex items-center gap-2 cursor-pointer">
+                    <label className="flex items-center gap-2 cursor-pointer min-h-[44px]">
                       <Checkbox
                         checked={form.heartbeatSecs !== null}
                         onCheckedChange={(next) => {
@@ -436,33 +646,33 @@ export function AgentDetailRoute() {
                     </label>
                   </div>
                   {form.heartbeatSecs !== null ? (
-                    <Input type="number" value={form.heartbeatSecs} onChange={(event) => form.setHeartbeatSecs(parseInt(event.target.value, 10) || 0)} />
+                    <Input type="number" value={form.heartbeatSecs} onChange={(event) => form.setHeartbeatSecs(parseInt(event.target.value, 10) || 0)} className="min-h-[44px]" />
                   ) : (
                     <p className="text-xs text-slate-600 py-1">Heartbeat disabled — agent will only respond when invoked.</p>
                   )}
                 </div>
                 <div>
                   <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">Max Tool Iterations</label>
-                  <Input type="number" value={form.maxToolIterations} onChange={(event) => form.setMaxToolIterations(parseInt(event.target.value, 10) || 0)} />
+                  <Input type="number" value={form.maxToolIterations} onChange={(event) => form.setMaxToolIterations(parseInt(event.target.value, 10) || 0)} className="min-h-[44px]" />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">Max Turns Before Compaction</label>
-                  <Input type="number" value={form.maxTurns} onChange={(event) => form.setMaxTurns(parseInt(event.target.value, 10) || 0)} />
+                  <Input type="number" value={form.maxTurns} onChange={(event) => form.setMaxTurns(parseInt(event.target.value, 10) || 0)} className="min-h-[44px]" />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">Recent Turns to Keep After Compaction</label>
-                  <Input type="number" value={form.compactKeepRecentTurns} onChange={(event) => form.setCompactKeepRecentTurns(parseInt(event.target.value, 10) || 0)} />
+                  <Input type="number" value={form.compactKeepRecentTurns} onChange={(event) => form.setCompactKeepRecentTurns(parseInt(event.target.value, 10) || 0)} className="min-h-[44px]" />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">History Messages</label>
-                  <Input type="number" value={form.historyMessages} onChange={(event) => form.setHistoryMessages(parseInt(event.target.value, 10) || 0)} />
+                  <Input type="number" value={form.historyMessages} onChange={(event) => form.setHistoryMessages(parseInt(event.target.value, 10) || 0)} className="min-h-[44px]" />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase tracking-widest text-slate-500 mb-1.5 block">Reasoning Effort</label>
                   <select
                     value={form.reasoningEffort}
                     onChange={(e) => form.setReasoningEffort(e.target.value)}
-                    className="flex h-9 w-full rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1 text-sm text-slate-200 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/50"
+                    className="flex h-11 min-h-[44px] w-full rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-1 text-sm text-slate-200 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-emerald-400/50"
                   >
                     <option value="">Default (none)</option>
                     <option value="low">Low</option>
@@ -472,11 +682,14 @@ export function AgentDetailRoute() {
                 </div>
                 <button
                   type="button"
-                  onClick={form.onSaveSettings}
+                  onClick={() => {
+                    triggerHaptic("medium");
+                    form.onSaveSettings();
+                  }}
                   disabled={mutations.updateMutation.isPending}
-                  className="flex items-center gap-1.5 h-8 px-4 rounded-lg bg-emerald-400 text-slate-950 text-xs font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200"
+                  className="flex items-center justify-center gap-1.5 h-11 min-h-[44px] w-full sm:w-auto px-6 rounded-lg bg-emerald-400 text-slate-950 text-sm font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200 touch-manipulation active:scale-95"
                 >
-                  <Save className="h-3 w-3" />
+                  <Save className="h-4 w-4" />
                   {mutations.updateMutation.isPending ? "Saving..." : "Save Settings"}
                 </button>
               </div>
@@ -491,7 +704,7 @@ export function AgentDetailRoute() {
                     <Sparkles className="h-3.5 w-3.5 text-emerald-400/60" />
                     <span className="text-xs font-medium text-slate-300">Enabled Skills</span>
                   </div>
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className="flex items-center gap-2 cursor-pointer min-h-[44px]">
                     <Checkbox
                       checked={form.allSkillsMode}
                       onCheckedChange={(next) => {
@@ -505,13 +718,13 @@ export function AgentDetailRoute() {
                 {form.allSkillsMode ? (
                   <p className="text-xs text-slate-500">All available skills are enabled for this agent. Uncheck &quot;All skills enabled&quot; to select specific skills.</p>
                 ) : (
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   {(queries.skillsQuery.data?.skills ?? []).map((skill) => {
                     const checked = form.enabledSkills.includes(skill.id);
                     return (
                       <label
                         key={skill.id}
-                        className="flex items-start gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 cursor-pointer hover:border-white/[0.12] transition-all duration-200"
+                        className="flex items-start gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 cursor-pointer hover:border-white/[0.12] transition-all duration-200 touch-manipulation active:scale-95 min-h-[44px]"
                       >
                         <Checkbox
                           checked={checked}
@@ -536,11 +749,14 @@ export function AgentDetailRoute() {
                 )}
                 <button
                   type="button"
-                  onClick={form.onSaveSkills}
+                  onClick={() => {
+                    triggerHaptic("medium");
+                    form.onSaveSkills();
+                  }}
                   disabled={mutations.updateMutation.isPending}
-                  className="mt-4 flex items-center gap-1.5 h-8 px-4 rounded-lg bg-emerald-400 text-slate-950 text-xs font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200"
+                  className="mt-4 flex items-center justify-center gap-1.5 h-11 min-h-[44px] w-full sm:w-auto px-6 rounded-lg bg-emerald-400 text-slate-950 text-sm font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200 touch-manipulation active:scale-95"
                 >
-                  <Save className="h-3 w-3" />
+                  <Save className="h-4 w-4" />
                   {mutations.updateMutation.isPending ? "Saving..." : "Save Skills"}
                 </button>
               </div>
@@ -552,7 +768,7 @@ export function AgentDetailRoute() {
               {computed.agentSessions.map((session) => (
                 <article
                   key={session.file}
-                  className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 hover:border-white/[0.12] transition-all duration-200"
+                  className="flex items-center justify-between gap-2 rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 hover:border-white/[0.12] transition-all duration-200 touch-manipulation active:scale-95 min-h-[44px]"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium text-slate-200">{session.session_id}</p>
@@ -565,13 +781,14 @@ export function AgentDetailRoute() {
                   </div>
                   <button
                     type="button"
-                    onClick={() =>
+                    onClick={() => {
+                      triggerHaptic("light");
                       navigate({
                         to: "/sessions/$agentId/$sessionFile",
                         params: { agentId, sessionFile: session.file },
-                      })
-                    }
-                    className="shrink-0 text-[10px] text-emerald-400/60 hover:text-emerald-300 transition-colors"
+                      });
+                    }}
+                    className="shrink-0 text-xs text-emerald-400/60 hover:text-emerald-300 transition-colors min-h-[44px] px-3 py-1.5 rounded-lg hover:bg-emerald-400/10 touch-manipulation active:scale-95"
                   >
                     Open →
                   </button>
@@ -613,12 +830,16 @@ export function AgentDetailRoute() {
       </div>
 
       {/* ── Delete Confirmation Dialog ──────────── */}
-      <Dialog open={ui.confirmDelete} onOpenChange={ui.setConfirmDelete}>
-        <DialogContent>
-          <div className="p-5 space-y-4">
+      {isMobile ? (
+        <BottomSheet
+          isOpen={ui.confirmDelete}
+          onClose={() => ui.setConfirmDelete(false)}
+          title="Delete Agent"
+        >
+          <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-400/10">
-                <Trash2 className="h-5 w-5 text-rose-400" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-rose-400/10">
+                <Trash2 className="h-6 w-6 text-rose-400" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-100">Delete Agent</p>
@@ -629,21 +850,61 @@ export function AgentDetailRoute() {
               Are you sure you want to delete <span className="font-mono text-rose-300">{agentId}</span>?
               All agent files, sessions, and configuration will be removed.
             </p>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={() => ui.setConfirmDelete(false)}>Cancel</Button>
-              <Button
-                variant="primary"
-                size="sm"
-                className="!bg-rose-500 hover:!bg-rose-400"
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => ui.setConfirmDelete(false)}
+                className="w-full h-[48px] rounded-xl bg-white/[0.06] text-slate-200 text-sm font-medium hover:bg-white/[0.08] transition-colors touch-manipulation active:scale-95"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
                 disabled={mutations.deleteMutation.isPending}
-                onClick={() => mutations.deleteMutation.mutate()}
+                onClick={() => {
+                  triggerHaptic("heavy");
+                  mutations.deleteMutation.mutate();
+                }}
+                className="w-full h-[48px] rounded-xl bg-rose-500 text-white text-sm font-medium hover:bg-rose-400 disabled:opacity-40 transition-colors touch-manipulation active:scale-95"
               >
                 {mutations.deleteMutation.isPending ? "Deleting..." : "Delete Agent"}
-              </Button>
+              </button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </BottomSheet>
+      ) : (
+        <Dialog open={ui.confirmDelete} onOpenChange={ui.setConfirmDelete}>
+          <DialogContent>
+            <div className="p-5 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-400/10">
+                  <Trash2 className="h-5 w-5 text-rose-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-100">Delete Agent</p>
+                  <p className="text-xs text-slate-500">This action cannot be undone.</p>
+                </div>
+              </div>
+              <p className="text-sm text-slate-300">
+                Are you sure you want to delete <span className="font-mono text-rose-300">{agentId}</span>?
+                All agent files, sessions, and configuration will be removed.
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" size="sm" onClick={() => ui.setConfirmDelete(false)}>Cancel</Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="!bg-rose-500 hover:!bg-rose-400"
+                  disabled={mutations.deleteMutation.isPending}
+                  onClick={() => mutations.deleteMutation.mutate()}
+                >
+                  {mutations.deleteMutation.isPending ? "Deleting..." : "Delete Agent"}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }
@@ -687,18 +948,21 @@ function AgentFileEditor({
         <span className="text-xs font-medium text-slate-300">{filename}</span>
       </div>
       <TextArea
-        className="min-h-[360px] font-mono text-xs"
+        className="min-h-[300px] sm:min-h-[360px] font-mono text-xs"
         value={content}
         onChange={(event) => setContent(event.target.value)}
       />
       <div className="flex justify-end">
         <button
           type="button"
-          onClick={() => saveMutation.mutate(content)}
+          onClick={() => {
+            triggerHaptic("medium");
+            saveMutation.mutate(content);
+          }}
           disabled={saveMutation.isPending}
-          className="flex items-center gap-1.5 h-8 px-4 rounded-lg bg-emerald-400 text-slate-950 text-xs font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200"
+          className="flex items-center justify-center gap-1.5 h-11 min-h-[44px] px-6 rounded-lg bg-emerald-400 text-slate-950 text-sm font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200 touch-manipulation active:scale-95"
         >
-          <Save className="h-3 w-3" />
+          <Save className="h-4 w-4" />
           {saveMutation.isPending ? "Saving..." : `Save ${filename}`}
         </button>
       </div>
@@ -714,6 +978,7 @@ function AgentMemoryPanel({ agentId }: { agentId: string }) {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [deleteKey, setDeleteKey] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<"keyword" | "semantic" | "hybrid">("keyword");
+  const { isMobile } = useViewport();
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -740,7 +1005,7 @@ function AgentMemoryPanel({ agentId }: { agentId: string }) {
   return (
     <div className="space-y-3">
       {/* Search bar */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-col sm:flex-row">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
           <input
@@ -748,13 +1013,13 @@ function AgentMemoryPanel({ agentId }: { agentId: string }) {
             placeholder="Search memories…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-9 w-full rounded-lg border border-white/[0.06] bg-white/[0.02] pl-9 pr-8 text-sm text-slate-200 placeholder:text-slate-600 outline-none focus:border-emerald-400/30 transition-colors"
+            className="h-11 min-h-[44px] w-full rounded-lg border border-white/[0.06] bg-white/[0.02] pl-9 pr-8 text-sm text-slate-200 placeholder:text-slate-600 outline-none focus:border-emerald-400/30 transition-colors"
           />
           {search && (
             <button
               type="button"
               onClick={() => setSearch("")}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-lg hover:bg-white/[0.04] touch-manipulation active:scale-95"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -766,7 +1031,7 @@ function AgentMemoryPanel({ agentId }: { agentId: string }) {
               key={mode}
               type="button"
               onClick={() => setSearchMode(mode)}
-              className={`px-2.5 py-2 text-[10px] font-medium capitalize transition-colors ${
+              className={`px-3 py-3 text-[10px] font-medium capitalize transition-colors min-h-[44px] touch-manipulation active:scale-95 ${
                 searchMode === mode
                   ? "bg-emerald-400/10 text-emerald-300"
                   : "text-slate-500 hover:text-slate-300 hover:bg-white/[0.04]"
@@ -812,11 +1077,14 @@ function AgentMemoryPanel({ agentId }: { agentId: string }) {
             </div>
             <button
               type="button"
-              onClick={() => setDeleteKey(entry.key)}
-              className="shrink-0 rounded-md p-1 opacity-0 group-hover:opacity-100 text-rose-400/60 hover:text-rose-300 hover:bg-rose-400/10 transition-opacity"
+              onClick={() => {
+                triggerHaptic("medium");
+                setDeleteKey(entry.key);
+              }}
+              className="shrink-0 rounded-md p-2 min-h-[44px] min-w-[44px] text-rose-400/60 hover:text-rose-300 hover:bg-rose-400/10 transition-colors touch-manipulation active:scale-95"
               title="Delete"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              <Trash2 className="h-4 w-4" />
             </button>
           </div>
           <div className="mt-2 flex items-center gap-2 flex-wrap">
@@ -854,12 +1122,16 @@ function AgentMemoryPanel({ agentId }: { agentId: string }) {
       )}
 
       {/* Delete confirmation */}
-      <Dialog open={deleteKey !== null} onOpenChange={(open) => { if (!open) setDeleteKey(null); }}>
-        <DialogContent>
-          <div className="p-5 space-y-4">
+      {isMobile ? (
+        <BottomSheet
+          isOpen={deleteKey !== null}
+          onClose={() => setDeleteKey(null)}
+          title="Delete Memory"
+        >
+          <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-400/10">
-                <Trash2 className="h-5 w-5 text-rose-400" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-rose-400/10">
+                <Trash2 className="h-6 w-6 text-rose-400" />
               </div>
               <div>
                 <p className="text-sm font-semibold text-slate-100">Delete Memory</p>
@@ -869,21 +1141,60 @@ function AgentMemoryPanel({ agentId }: { agentId: string }) {
             <p className="text-sm text-slate-300">
               Delete memory <span className="font-mono text-rose-300">{deleteKey}</span>?
             </p>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setDeleteKey(null)}>Cancel</Button>
-              <Button
-                variant="primary"
-                size="sm"
-                className="!bg-rose-500 hover:!bg-rose-400"
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => setDeleteKey(null)}
+                className="w-full h-[48px] rounded-xl bg-white/[0.06] text-slate-200 text-sm font-medium hover:bg-white/[0.08] transition-colors touch-manipulation active:scale-95"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
                 disabled={deleteMutation.isPending}
-                onClick={() => deleteKey && deleteMutation.mutate(deleteKey)}
+                onClick={() => {
+                  triggerHaptic("heavy");
+                  deleteKey && deleteMutation.mutate(deleteKey);
+                }}
+                className="w-full h-[48px] rounded-xl bg-rose-500 text-white text-sm font-medium hover:bg-rose-400 disabled:opacity-40 transition-colors touch-manipulation active:scale-95"
               >
                 {deleteMutation.isPending ? "Deleting…" : "Delete"}
-              </Button>
+              </button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </BottomSheet>
+      ) : (
+        <Dialog open={deleteKey !== null} onOpenChange={(open) => { if (!open) setDeleteKey(null); }}>
+          <DialogContent>
+            <div className="p-5 space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-400/10">
+                  <Trash2 className="h-5 w-5 text-rose-400" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-slate-100">Delete Memory</p>
+                  <p className="text-xs text-slate-500">This action cannot be undone.</p>
+                </div>
+              </div>
+              <p className="text-sm text-slate-300">
+                Delete memory <span className="font-mono text-rose-300">{deleteKey}</span>?
+              </p>
+              <div className="flex justify-end gap-2">
+                <Button variant="secondary" size="sm" onClick={() => setDeleteKey(null)}>Cancel</Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="!bg-rose-500 hover:!bg-rose-400"
+                  disabled={deleteMutation.isPending}
+                  onClick={() => deleteKey && deleteMutation.mutate(deleteKey)}
+                >
+                  {deleteMutation.isPending ? "Deleting…" : "Delete"}
+                </Button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 }

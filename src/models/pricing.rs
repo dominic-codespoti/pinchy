@@ -48,32 +48,62 @@ impl ModelPricing {
 static PRICING_TABLE: LazyLock<HashMap<&'static str, ModelPricing>> = LazyLock::new(|| {
     let mut m = HashMap::new();
     // OpenAI GPT-4o family
-    m.insert("gpt-4o", ModelPricing::with_cache(2.50, 10.00, 1.25, 128_000));
+    m.insert(
+        "gpt-4o",
+        ModelPricing::with_cache(2.50, 10.00, 1.25, 128_000),
+    );
     m.insert(
         "gpt-4o-2024-11-20",
         ModelPricing::with_cache(2.50, 10.00, 1.25, 128_000),
     );
-    m.insert("gpt-4o-mini", ModelPricing::with_cache(0.15, 0.60, 0.075, 128_000));
+    m.insert(
+        "gpt-4o-mini",
+        ModelPricing::with_cache(0.15, 0.60, 0.075, 128_000),
+    );
     m.insert(
         "gpt-4o-mini-2024-07-18",
         ModelPricing::with_cache(0.15, 0.60, 0.075, 128_000),
     );
     // GPT-4.1 family
-    m.insert("gpt-4.1", ModelPricing::with_cache(2.00, 8.00, 0.50, 128_000));
-    m.insert("gpt-4.1-mini", ModelPricing::with_cache(0.40, 1.60, 0.10, 128_000));
-    m.insert("gpt-4.1-nano", ModelPricing::with_cache(0.10, 0.40, 0.025, 128_000));
+    m.insert(
+        "gpt-4.1",
+        ModelPricing::with_cache(2.00, 8.00, 0.50, 128_000),
+    );
+    m.insert(
+        "gpt-4.1-mini",
+        ModelPricing::with_cache(0.40, 1.60, 0.10, 128_000),
+    );
+    m.insert(
+        "gpt-4.1-nano",
+        ModelPricing::with_cache(0.10, 0.40, 0.025, 128_000),
+    );
     // o-series (reasoning)
     m.insert("o3", ModelPricing::with_cache(2.00, 8.00, 0.50, 200_000));
-    m.insert("o3-mini", ModelPricing::with_cache(1.10, 4.40, 0.55, 200_000));
-    m.insert("o4-mini", ModelPricing::with_cache(1.10, 4.40, 0.275, 200_000));
+    m.insert(
+        "o3-mini",
+        ModelPricing::with_cache(1.10, 4.40, 0.55, 200_000),
+    );
+    m.insert(
+        "o4-mini",
+        ModelPricing::with_cache(1.10, 4.40, 0.275, 200_000),
+    );
     m.insert("o1", ModelPricing::with_cache(15.00, 60.00, 7.50, 200_000));
-    m.insert("o1-mini", ModelPricing::with_cache(1.10, 4.40, 0.55, 200_000));
-    m.insert("o1-preview", ModelPricing::with_cache(15.00, 60.00, 7.50, 200_000));
+    m.insert(
+        "o1-mini",
+        ModelPricing::with_cache(1.10, 4.40, 0.55, 200_000),
+    );
+    m.insert(
+        "o1-preview",
+        ModelPricing::with_cache(15.00, 60.00, 7.50, 200_000),
+    );
     // GPT-3.5
     m.insert("gpt-3.5-turbo", ModelPricing::new(0.50, 1.50, 16_385));
     // GPT-4 legacy
     m.insert("gpt-4", ModelPricing::new(30.00, 60.00, 8_192));
-    m.insert("gpt-4-turbo", ModelPricing::with_cache(10.00, 30.00, 5.00, 128_000));
+    m.insert(
+        "gpt-4-turbo",
+        ModelPricing::with_cache(10.00, 30.00, 5.00, 128_000),
+    );
     // Copilot (proxied OpenAI, cost is $0 for the user but track notionally)
     m.insert("copilot", ModelPricing::new(0.0, 0.0, 128_000));
     m

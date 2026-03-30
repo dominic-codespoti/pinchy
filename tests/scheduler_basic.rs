@@ -131,7 +131,8 @@ async fn heartbeat_persists_status_json() {
 
     tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
 
-    let status = db.load_heartbeat_status("status-agent")
+    let status = db
+        .load_heartbeat_status("status-agent")
         .expect("should load status")
         .expect("heartbeat_status should have been saved in db");
 

@@ -11,6 +11,7 @@ import {
   X,
   Check,
   Loader2,
+  MoreVertical,
 } from "lucide-react";
 
 
@@ -26,12 +27,16 @@ import {
   StatusPill,
   TextArea,
 } from "@/shared/ui/components/ui";
+import { ActionSheet } from "@/shared/ui/components/BottomSheet";
 import { CRON_RE, formatInTz } from "@/shared/lib/utils";
+import { useViewport } from "@/shared/lib/useViewport";
 import { toast } from "sonner";
 import { useCronEditRoute } from "../model/useCronEditRoute";
+import { cn } from "@/shared/lib/utils";
 
 export function CronEditRoute() {
   const navigate = useNavigate();
+  const { isMobile } = useViewport();
   const {
     job, form, ui, computed, mutations, queries
   } = useCronEditRoute();
@@ -78,31 +83,44 @@ export function CronEditRoute() {
           className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          <span>Jobs</span>
+          <span className="hidden sm:inline">Jobs</span>
         </button>
 
         <Separator className="!h-5 !w-px !bg-white/[0.08]" />
 
-        <div className="flex items-center gap-2">
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-400/10">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-400/10 shrink-0">
             <CalendarClock className="h-3.5 w-3.5 text-emerald-400" />
           </span>
-          <span className="text-sm font-semibold text-slate-100">{job.name}</span>
+          <span className="text-sm font-semibold text-slate-100 truncate">{job.name}</span>
         </div>
 
-        <Badge variant="neutral" className="text-[10px]">{job.agent_id}</Badge>
+        <Badge variant="neutral" className="text-[10px] hidden sm:inline-flex">{job.agent_id}</Badge>
 
-        <StatusPill status={job.last_status ?? "PENDING"} />
+        <span className="hidden sm:inline-flex">
+          <StatusPill status={job.last_status ?? "PENDING"} />
+        </span>
 
         <div className="ml-auto flex items-center gap-2">
           {form.dirty && (
-            <span className="text-[10px] text-amber-400/70 font-medium">Unsaved changes</span>
+            <span className="text-[10px] text-amber-400/70 font-medium hidden sm:inline">Unsaved changes</span>
           )}
+          {/* Mobile: Action menu */}
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => ui.setShowActionSheet(true)}
+              className="p-2 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/[0.04] transition-colors sm:hidden"
+            >
+              <MoreVertical className="h-4 w-4" />
+            </button>
+          )}
+          {/* Desktop: Inline buttons */}
           <button
             type="button"
             onClick={mutations.runNow}
             disabled={ui.runningJobId === job.id}
-            className="flex items-center gap-1 h-7 px-3 rounded-lg border border-white/[0.06] text-xs text-slate-400 hover:text-slate-200 hover:border-white/[0.12] disabled:opacity-40 transition-all duration-200"
+            className="hidden sm:flex items-center gap-1 h-7 px-3 rounded-lg border border-white/[0.06] text-xs text-slate-400 hover:text-slate-200 hover:border-white/[0.12] disabled:opacity-40 transition-all duration-200"
           >
             <Play className="h-3 w-3" />
             {ui.runningJobId === job.id ? "Running…" : "Run Now"}
@@ -110,7 +128,7 @@ export function CronEditRoute() {
           <button
             type="button"
             onClick={() => ui.setShowRuns((p) => !p)}
-            className="flex items-center gap-1 h-7 px-3 rounded-lg border border-white/[0.06] text-xs text-slate-400 hover:text-slate-200 hover:border-white/[0.12] transition-all duration-200"
+            className="hidden sm:flex items-center gap-1 h-7 px-3 rounded-lg border border-white/[0.06] text-xs text-slate-400 hover:text-slate-200 hover:border-white/[0.12] transition-all duration-200"
           >
             <History className="h-3 w-3" />
             History
@@ -120,10 +138,16 @@ export function CronEditRoute() {
 
       {/* ── Content ── */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-4 py-6 space-y-6">
+        <div className={cn(
+          "max-w-3xl mx-auto px-4 py-6 space-y-6",
+          isMobile && "max-w-none px-3 py-4 space-y-4"
+        )}>
 
           {/* ── Schedule ── */}
-          <section className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+          <section className={cn(
+            "rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3",
+            isMobile && "p-3 space-y-4"
+          )}>
             <div className="flex items-center gap-2">
               <Clock className="h-3.5 w-3.5 text-emerald-400/60" />
               <span className="text-xs font-medium text-slate-300">Schedule</span>
@@ -132,22 +156,31 @@ export function CronEditRoute() {
               value={form.schedule}
               onChange={(e) => form.updateField(form.setSchedule)(e.target.value)}
               placeholder="0 * * * *"
-              className="font-mono"
+              className={cn("font-mono", isMobile && "h-11 touch-manipulation")}
             />
-            <div className="rounded-lg border border-white/[0.04] bg-white/[0.01] p-3 text-xs">
+            <div className={cn(
+              "rounded-lg border border-white/[0.04] bg-white/[0.01] p-3 text-xs",
+              isMobile && "p-4"
+            )}>
               <span className="text-[10px] uppercase tracking-widest text-slate-600">Next fires{computed.agentTz ? ` · ${computed.agentTz}` : ""}</span>
               {!CRON_RE.test(form.schedule.trim()) ? (
                 <p className="text-rose-300 mt-1">Expression appears invalid.</p>
               ) : (
-                <ul className="mt-1 space-y-0.5 text-slate-400">
+                <ul className="mt-1 space-y-1 text-slate-400">
                   {computed.schedulePreview.map((d, i) => (
-                    <li key={i}>{formatInTz(d, computed.agentTz)}</li>
+                    <li key={i} className="flex items-center gap-2">
+                      <Clock className="h-3 w-3 text-emerald-400/40" />
+                      {formatInTz(d, computed.agentTz)}
+                    </li>
                   ))}
                   {!computed.schedulePreview.length && <li>No preview available.</li>}
                 </ul>
               )}
             </div>
-            <label className="flex items-center gap-2 text-xs text-slate-400">
+            <label className={cn(
+              "flex items-center gap-2 text-xs text-slate-400",
+              isMobile && "gap-3 text-sm min-h-[44px] touch-manipulation"
+            )}>
               <Checkbox
                 checked={form.oneShot}
                 onCheckedChange={(v) => form.updateField(form.setOneShot)(Boolean(v))}
@@ -157,7 +190,10 @@ export function CronEditRoute() {
           </section>
 
           {/* ── Prompt ── */}
-          <section className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+          <section className={cn(
+            "rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3",
+            isMobile && "p-3 space-y-4"
+          )}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <CalendarClock className="h-3.5 w-3.5 text-emerald-400/60" />
@@ -167,7 +203,10 @@ export function CronEditRoute() {
                 type="button"
                 onClick={() => mutations.enhanceMutation.mutate()}
                 disabled={mutations.enhanceMutation.isPending || !form.message.trim()}
-                className="flex items-center gap-1.5 h-7 px-3 rounded-lg border border-purple-400/20 bg-purple-400/5 text-xs text-purple-300 hover:bg-purple-400/10 hover:border-purple-400/30 disabled:opacity-40 transition-all duration-200"
+                className={cn(
+                  "flex items-center gap-1.5 h-7 px-3 rounded-lg border border-purple-400/20 bg-purple-400/5 text-xs text-purple-300 hover:bg-purple-400/10 hover:border-purple-400/30 disabled:opacity-40 transition-all duration-200",
+                  isMobile && "h-9 px-4"
+                )}
               >
                 {mutations.enhanceMutation.isPending ? (
                   <Loader2 className="h-3 w-3 animate-spin" />
@@ -178,7 +217,7 @@ export function CronEditRoute() {
               </button>
             </div>
             <TextArea
-              className="min-h-[160px]"
+              className={cn("min-h-[160px]", isMobile && "min-h-[200px] touch-manipulation")}
               value={form.message}
               onChange={(e) => form.updateField(form.setMessage)(e.target.value)}
               placeholder="Describe what this cron job should do…"
@@ -186,19 +225,29 @@ export function CronEditRoute() {
           </section>
 
           {/* ── Actions ── */}
-          <div className="flex items-center justify-between">
+          <div className={cn(
+            "flex items-center justify-between",
+            isMobile && "flex-col gap-3"
+          )}>
             <button
               type="button"
               onClick={() => ui.setConfirmDelete(true)}
-              className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-rose-400/20 text-xs text-rose-400/60 hover:text-rose-300 hover:border-rose-400/30 hover:bg-rose-400/5 transition-all duration-200"
+              className={cn(
+                "flex items-center gap-1.5 h-8 px-3 rounded-lg border border-rose-400/20 text-xs text-rose-400/60 hover:text-rose-300 hover:border-rose-400/30 hover:bg-rose-400/5 transition-all duration-200",
+                isMobile && "w-full h-11 justify-center"
+              )}
             >
               <Trash2 className="h-3 w-3" /> Delete Job
             </button>
-            <div className="flex items-center gap-2">
+            <div className={cn(
+              "flex items-center gap-2",
+              isMobile && "w-full"
+            )}>
               <Button
                 variant="ghost"
                 size="sm"
                 onClick={() => navigate({ to: "/cron" })}
+                className={isMobile ? "flex-1 h-11" : ""}
               >
                 Cancel
               </Button>
@@ -206,7 +255,10 @@ export function CronEditRoute() {
                 type="button"
                 onClick={mutations.onSave}
                 disabled={mutations.updateMutation.isPending || !form.dirty}
-                className="flex items-center gap-1.5 h-8 px-4 rounded-lg bg-emerald-400 text-slate-950 text-xs font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200"
+                className={cn(
+                  "flex items-center gap-1.5 h-8 px-4 rounded-lg bg-emerald-400 text-slate-950 text-xs font-medium hover:bg-emerald-300 disabled:opacity-40 transition-all duration-200",
+                  isMobile && "flex-1 h-11 justify-center text-sm"
+                )}
               >
                 <Save className="h-3.5 w-3.5" />
                 {mutations.updateMutation.isPending ? "Saving…" : "Save Changes"}
@@ -216,13 +268,16 @@ export function CronEditRoute() {
 
           {/* ── Run history ── */}
           {ui.showRuns && (
-            <section className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+            <section className={cn(
+              "rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3",
+              isMobile && "p-3"
+            )}>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <History className="h-3.5 w-3.5 text-emerald-400/60" />
                   <span className="text-xs font-medium text-slate-300">Run History</span>
                 </div>
-                <button type="button" onClick={() => ui.setShowRuns(false)} className="text-slate-600 hover:text-slate-300 transition-colors">
+                <button type="button" onClick={() => ui.setShowRuns(false)} className="text-slate-600 hover:text-slate-300 transition-colors p-1">
                   <X className="h-3 w-3" />
                 </button>
               </div>
@@ -232,17 +287,23 @@ export function CronEditRoute() {
                   <span className="text-sm text-slate-500">Loading runs…</span>
                 </div>
               ) : null}
-              <div className="space-y-1.5">
-                {(queries.runsQuery.data?.runs ?? []).slice(0, 20).map((run) => (
-                  <article key={String(run.id)} className="rounded-lg border border-white/[0.04] bg-white/[0.01] p-2.5 text-xs">
-                    <div className="mb-1 flex items-center justify-between">
+              <div className="space-y-2">
+                {(queries.runsQuery.data?.runs ?? []).slice(0, isMobile ? 50 : 20).map((run) => (
+                  <article key={String(run.id)} className={cn(
+                    "rounded-lg border border-white/[0.04] bg-white/[0.01] text-xs",
+                    isMobile && "p-3"
+                  )}>
+                    <div className="mb-2 flex items-center justify-between">
                       <StatusPill status={run.status} />
                       <span className="text-[10px] tabular-nums text-slate-600">
                         {run.executed_at ? new Date(run.executed_at * 1000).toLocaleString() : "-"}
                       </span>
                     </div>
-                    <p className="text-slate-500">Duration: {run.duration_ms ?? "-"} ms</p>
-                    <p className="mt-1 truncate text-slate-300">{run.output_preview ?? run.error ?? "-"}</p>
+                    <p className="text-slate-500 mb-1">Duration: {run.duration_ms ?? "-"} ms</p>
+                    <p className={cn(
+                      "text-slate-300",
+                      isMobile ? "line-clamp-3" : "truncate"
+                    )}>{run.output_preview ?? run.error ?? "-"}</p>
                   </article>
                 ))}
                 {!queries.runsQuery.isLoading && !(queries.runsQuery.data?.runs ?? []).length && (
@@ -256,6 +317,39 @@ export function CronEditRoute() {
           )}
         </div>
       </div>
+
+      {/* ── Mobile: Action Sheet ── */}
+      <ActionSheet
+        isOpen={ui.showActionSheet}
+        onClose={() => ui.setShowActionSheet(false)}
+        actions={[
+          { 
+            label: ui.runningJobId === job.id ? "Running…" : "Run Now", 
+            icon: Play,
+            onClick: () => { 
+              mutations.runNow(); 
+              ui.setShowActionSheet(false);
+            } 
+          },
+          { 
+            label: ui.showRuns ? "Hide History" : "View History", 
+            icon: History,
+            onClick: () => { 
+              ui.setShowRuns((p) => !p); 
+              ui.setShowActionSheet(false);
+            } 
+          },
+          { 
+            label: "Delete Job", 
+            icon: Trash2,
+            destructive: true,
+            onClick: () => { 
+              ui.setConfirmDelete(true); 
+              ui.setShowActionSheet(false);
+            } 
+          },
+        ]}
+      />
 
       {/* ── AI Enhance Modal ── */}
       <Dialog open={ui.enhanceOpen} onOpenChange={ui.setEnhanceOpen}>

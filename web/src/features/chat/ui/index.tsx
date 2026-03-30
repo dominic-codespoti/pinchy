@@ -17,6 +17,9 @@ import {
   queryKeys,
 } from "@/shared/api/client";
 import { Button, Separator, TextArea } from "@/shared/ui/components/ui";
+import { BottomSheet, ActionSheet } from "@/shared/ui/components/BottomSheet";
+import { useViewport } from "@/shared/lib/useViewport";
+import { usePullToRefresh } from "@/shared/lib/useTouch";
 import {
   Send,
   Activity,
@@ -45,6 +48,8 @@ import {
   ImagePlus,
   PanelLeftClose,
   PanelLeft,
+  Trash2,
+  MoreVertical,
 } from "lucide-react";
 import { useUiStore } from "@/app/store/ui";
 import { SessionSidebar } from "@/shared/ui/components/SessionSidebar";
@@ -203,6 +208,17 @@ export function ChatRoute() {
   const userPickedSessionRef = useRef(false);
   const [pendingImages, setPendingImages] = useState<string[]>([]);
 
+  // Viewport detection for mobile optimizations
+  const { isMobile, touchSupported } = useViewport();
+
+  // Mobile-specific states
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
+  const [messageActionsOpen, setMessageActionsOpen] = useState(false);
+  const [selectedMessage, setSelectedMessage] = useState<{ index: number; content: string; role: string } | null>(null);
+  const [swipingMessage, setSwipingMessage] = useState<number | null>(null);
+  const [swipeOffset, setSwipeOffset] = useState(0);
+
   // Streaming reveal state: we accumulate the full text in streamBufferRef,
   // but reveal it character-by-character via a rAF loop for smooth animation.
   const revealedLenRef = useRef(0);
@@ -336,6 +352,18 @@ export function ChatRoute() {
     queryFn: () => getCurrentSession(selectedAgent),
     enabled: Boolean(selectedAgent),
   });
+
+  // Pull-to-refresh for session list (mobile only)
+  const sessionListRef = useRef<HTMLDivElement>(null);
+  const handleRefreshSessions = useCallback(async () => {
+    await sessionsQuery.refetch();
+    await currentSessionQuery.refetch();
+  }, [sessionsQuery, currentSessionQuery]);
+  
+  const { isPulling, pullDistance, isRefreshing } = usePullToRefresh(
+    sessionListRef,
+    handleRefreshSessions
+  );
 
   const sessions = useMemo(
     () =>
@@ -996,29 +1024,112 @@ export function ChatRoute() {
     }
   }, [selectedAgent, selectedSession, queryClient]);
 
+  // Mobile: Message swipe to delete
+  const handleMessageSwipeLeft = useCallback((index: number, content: string, role: string) => {
+    if (!isMobile || role === "system") return;
+    setSelectedMessage({ index, content, role });
+    setMessageActionsOpen(true);
+  }, [isMobile]);
+
+  // Mobile keyboard optimization
+  const handleInputFocus = useCallback(() => {
+    if (isMobile) {
+      // Scroll to bottom after keyboard opens
+      setTimeout(() => scrollToBottom(true), 300);
+    }
+  }, [isMobile, scrollToBottom]);
+
+  // Mobile activity bottom sheet
+  const ActivityBottomSheet = useMemo(() => {
+    if (!isMobile) return null;
+    return (
+      <BottomSheet
+        isOpen={mobileActivityOpen}
+        onClose={() => setMobileActivityOpen(false)}
+        title="Activity"
+        snapPoints={[30, 60, 85]}
+      >
+        <MobileActivityContent
+          receipts={allReceipts}
+          activityItems={activityItems}
+          onClear={() => { setActivityItems([]); setReceipts([]); }}
+          expandedReceipt={expandedReceipt}
+          onToggleReceipt={(idx) => setExpandedReceipt(expandedReceipt === idx ? null : idx)}
+        />
+      </BottomSheet>
+    );
+  }, [isMobile, mobileActivityOpen, allReceipts, activityItems, expandedReceipt]);
+
   return (
     <div className="flex h-full bg-[var(--bg)]">
       {/* ── Session sidebar ─────────────────────── */}
-      <SessionSidebar
-        sessions={sessions}
-        selectedSession={selectedSession}
-        currentBackendSession={currentSessionQuery.data?.session_id ?? null}
-        onSelect={handleSidebarSelect}
-        onNewSession={startNewSession}
-        onDelete={handleDeleteSession}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={() => setSidebarCollapsed((p) => !p)}
-        typing={typing}
-        agentIds={agentIds}
-        selectedAgent={selectedAgent}
-        onAgentChange={(v) => { userPickedSessionRef.current = false; setSelectedAgent(v); }}
-      />
+      {/* Mobile: Sidebar as overlay */}
+      {isMobile && mobileSidebarOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+      <div className={`${isMobile ? 'fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 ' + (mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full') : 'relative'}`}>
+        <div ref={sessionListRef} className="h-full">
+          <SessionSidebar
+            sessions={sessions}
+            selectedSession={selectedSession}
+            currentBackendSession={currentSessionQuery.data?.session_id ?? null}
+            onSelect={(sessionId) => {
+              handleSidebarSelect(sessionId);
+              if (isMobile) setMobileSidebarOpen(false);
+            }}
+            onNewSession={startNewSession}
+            onDelete={handleDeleteSession}
+            collapsed={isMobile ? false : sidebarCollapsed}
+            onToggleCollapse={() => {
+              if (isMobile) {
+                setMobileSidebarOpen(false);
+              } else {
+                setSidebarCollapsed((p) => !p);
+              }
+            }}
+            typing={typing}
+            agentIds={agentIds}
+            selectedAgent={selectedAgent}
+            onAgentChange={(v) => { userPickedSessionRef.current = false; setSelectedAgent(v); }}
+          />
+        </div>
+        {/* Mobile pull-to-refresh indicator */}
+        {isMobile && (
+          <div 
+            className="absolute top-0 left-0 right-0 flex items-center justify-center pointer-events-none z-10"
+            style={{ 
+              transform: `translateY(${Math.min(pullDistance * 0.5, 60)}px)`,
+              opacity: isPulling ? 1 : 0,
+              transition: isPulling ? 'none' : 'opacity 0.3s'
+            }}
+          >
+            <div className="bg-slate-900/90 backdrop-blur-sm rounded-full px-3 py-1.5 shadow-lg border border-white/[0.06]">
+              <span className="text-xs text-slate-400">
+                {isRefreshing ? 'Refreshing...' : 'Pull to refresh'}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ── Chat panel ──────────────────────────── */}
       <div className="flex flex-col flex-1 min-w-0">
       {/* ── Top bar ──────────────────────────────── */}
       <div className="flex items-center gap-2 px-4 h-12 border-b border-white/[0.06] bg-white/[0.02] backdrop-blur-sm shrink-0">
         <div className="flex items-center gap-2 min-w-0">
+          {/* Mobile: Hamburger menu */}
+          {isMobile && (
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              className="h-10 w-10 min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
+              aria-label="Open sessions"
+            >
+              <PanelLeft className="h-5 w-5" />
+            </button>
+          )}
           <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-400/10 shrink-0">
             <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
           </span>
@@ -1044,20 +1155,35 @@ export function ChatRoute() {
               {allMessages.length} msgs{contextBoundary > 0 && ` (${contextWindowSize} in ctx)`} · {recentReceiptTokens.toLocaleString()} tok
             </span>
           )}
-          <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={() => setSidebarCollapsed((p) => !p)} title="Toggle sessions sidebar (⌘J)">
-            {sidebarCollapsed ? <PanelLeft className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
+          {/* Mobile: Show message count */}
+          {isMobile && allMessages.length > 0 && (
+            <span className="md:hidden inline-flex items-center gap-1 mr-2 text-[10px] tabular-nums text-slate-500">
+              {allMessages.length} msgs
+            </span>
+          )}
+          {!isMobile && (
+            <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={() => setSidebarCollapsed((p) => !p)} title="Toggle sessions sidebar (⌘J)">
+              {sidebarCollapsed ? <PanelLeft className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" className="!h-9 !w-9 min-w-[44px] !p-0" onClick={toggleSearch} title="Search messages (⌘F)">
+            <Search className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={toggleSearch} title="Search messages (⌘F)">
-            <Search className="h-3.5 w-3.5" />
+          <Button variant="ghost" size="sm" className="!h-9 !w-9 min-w-[44px] !p-0 hidden sm:flex" onClick={exportSession} title="Export session" disabled={!allMessages.length}>
+            <Download className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={exportSession} title="Export session" disabled={!allMessages.length}>
-            <Download className="h-3.5 w-3.5" />
+          <Button variant="ghost" size="sm" className="!h-9 !w-9 min-w-[44px] !p-0 hidden sm:flex" onClick={compactSession} title="Compact history" disabled={!allMessages.length}>
+            <Minimize2 className="h-4 w-4" />
           </Button>
-          <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={compactSession} title="Compact history" disabled={!allMessages.length}>
-            <Minimize2 className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={() => setShowActivity((p) => !p)} title="Toggle activity">
-            {showActivity ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+          {/* Mobile: Activity button opens bottom sheet */}
+          <Button 
+            variant="ghost" 
+            size="sm" 
+            className="!h-9 !w-9 min-w-[44px] !p-0" 
+            onClick={() => isMobile ? setMobileActivityOpen(true) : setShowActivity((p) => !p)} 
+            title="Toggle activity"
+          >
+            {showActivity || mobileActivityOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
           </Button>
         </div>
       </div>
@@ -1183,7 +1309,20 @@ export function ChatRoute() {
                     if (isOutOfContext && collapsedOutOfContext && !isCompactedHistory) return null;
 
                     return (
-                      <div key={`${message.role}-${message.timestamp}-${index}`} style={{ position: "absolute", top: virtualRow.start, left: 0, width: "100%" }}>
+                      <div 
+                        key={`${message.role}-${message.timestamp}-${index}`} 
+                        style={{ position: "absolute", top: virtualRow.start, left: 0, width: "100%" }}
+                        className={isMobile ? 'overflow-hidden' : ''}
+                      >
+                        {/* Mobile swipe-to-delete background */}
+                        {isMobile && isUser && (
+                          <div 
+                            className="absolute inset-y-0 right-0 w-24 bg-rose-500/20 flex items-center justify-end pr-4 z-0"
+                            style={{ opacity: swipeOffset > 0 ? Math.min(swipeOffset / 100, 1) : 0 }}
+                          >
+                            <Trash2 className="h-5 w-5 text-rose-400" />
+                          </div>
+                        )}
                         {isCompactedHistory && <CompactedHistoryCard content={message.content} />}
                         {isContextDivider && (
                           <div className="flex items-center gap-3 py-3 select-none">
@@ -1196,34 +1335,84 @@ export function ChatRoute() {
                           </div>
                         )}
                         {!isCompactedHistory && (
-                          <div className={`py-5 group ${isOutOfContext ? "opacity-40 hover:opacity-70 transition-opacity" : ""}`}>
-                            <div className="flex gap-3">
-                              <div className="relative">
-                                <div className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                                  isUser ? "bg-emerald-400/10" : isSystem ? "bg-amber-400/10" : "bg-white/[0.06]"
-                                }`}>
-                                  {isUser ? <User className="h-3.5 w-3.5 text-emerald-400" />
-                                    : isSystem ? <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
-                                    : <Bot className="h-3.5 w-3.5 text-slate-400" />}
-                                </div>
-                                {isOutOfContext && (
-                                  <div className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-purple-500/20 flex items-center justify-center">
-                                    <EyeOff className="h-2 w-2 text-purple-400" />
+                          <div 
+                            className={`py-5 group ${isOutOfContext ? "opacity-40 hover:opacity-70 transition-opacity" : ""} ${isMobile ? 'px-3' : ''}`}
+                            {...(isMobile && touchSupported ? {
+                              onTouchStart: (e: React.TouchEvent) => {
+                                const touch = e.touches[0];
+                                const startX = touch.clientX;
+                                setSwipingMessage(index);
+                                
+                                const handleTouchMove = (e: TouchEvent) => {
+                                  if (swipingMessage !== index) return;
+                                  const touch = e.touches[0];
+                                  const deltaX = touch.clientX - startX;
+                                  // Only allow left swipe for user messages
+                                  if (!isUser || deltaX > 0) return;
+                                  setSwipeOffset(Math.abs(deltaX));
+                                };
+                                
+                                const handleTouchEnd = () => {
+                                  if (swipingMessage === index && swipeOffset > 80) {
+                                    handleMessageSwipeLeft(index, message.content, role);
+                                  }
+                                  setSwipingMessage(null);
+                                  setSwipeOffset(0);
+                                  document.removeEventListener('touchmove', handleTouchMove);
+                                  document.removeEventListener('touchend', handleTouchEnd);
+                                };
+                                
+                                document.addEventListener('touchmove', handleTouchMove);
+                                document.addEventListener('touchend', handleTouchEnd);
+                              }
+                            } : {})}
+                          >
+                            <div className={`flex gap-3 ${isMobile && isUser ? 'justify-end' : ''}`}>
+                              {/* Avatar: only show on desktop or for non-user messages */}
+                              {(!isMobile || !isUser) && (
+                                <div className="relative">
+                                  <div className={`h-9 w-9 min-w-[44px] rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                                    isUser ? "bg-emerald-400/10" : isSystem ? "bg-amber-400/10" : "bg-white/[0.06]"
+                                  }`}>
+                                    {isUser ? <User className="h-4 w-4 text-emerald-400" />
+                                      : isSystem ? <AlertCircle className="h-4 w-4 text-amber-400" />
+                                      : <Bot className="h-4 w-4 text-slate-400" />}
                                   </div>
-                                )}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <div className="flex items-center gap-2 mb-1">
-                                  <span className="text-xs font-medium text-slate-200">
-                                    {isUser ? "You" : isSystem ? "System" : "Agent"}
-                                  </span>
+                                  {isOutOfContext && (
+                                    <div className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-purple-500/20 flex items-center justify-center">
+                                      <EyeOff className="h-2 w-2 text-purple-400" />
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                              {/* Message bubble */}
+                              <div className={`${isMobile ? (isUser ? 'max-w-[90%]' : 'max-w-[95%]') : 'flex-1 min-w-0'}`}>
+                                {/* Header row */}
+                                <div className={`flex items-center gap-2 mb-1 ${isMobile && isUser ? 'justify-end' : ''}`}>
+                                  {!isMobile && (
+                                    <span className="text-xs font-medium text-slate-200">
+                                      {isUser ? "You" : isSystem ? "System" : "Agent"}
+                                    </span>
+                                  )}
                                   <span className="text-[10px] tabular-nums text-slate-600">
                                     {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                                   </span>
                                   {isOutOfContext && (
                                     <span className="text-[9px] text-purple-400/60 font-medium">out of context</span>
                                   )}
-                                  {!isUser && (
+                                  {/* Mobile: More actions button */}
+                                  {isMobile && !isUser && (
+                                    <button
+                                      onClick={() => {
+                                        setSelectedMessage({ index, content: message.content, role });
+                                        setMessageActionsOpen(true);
+                                      }}
+                                      className="ml-auto h-8 w-8 min-w-[44px] flex items-center justify-center rounded-lg text-slate-600 hover:text-slate-300 hover:bg-white/[0.06] transition-colors"
+                                    >
+                                      <MoreVertical className="h-4 w-4" />
+                                    </button>
+                                  )}
+                                  {!isUser && !isMobile && (
                                     <button
                                       onClick={() => copyMessage(message.content, index)}
                                       className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-slate-300"
@@ -1241,12 +1430,13 @@ export function ChatRoute() {
                                     ))}
                                   </div>
                                 ) : null}
+                                {/* Content */}
                                 {isUser ? (
-                                  <div className="text-sm text-slate-200 whitespace-pre-wrap break-words overflow-hidden">{message.content !== "[image]" ? message.content : ""}</div>
+                                  <div className={`text-sm text-slate-200 whitespace-pre-wrap break-words overflow-hidden ${isMobile ? 'bg-emerald-400/10 rounded-2xl rounded-tr-sm px-4 py-3' : ''}`}>{message.content !== "[image]" ? message.content : ""}</div>
                                 ) : isSystem ? (
                                   <div className="text-sm text-amber-200/80 whitespace-pre-wrap break-words overflow-hidden">{message.content}</div>
                                 ) : (
-                                  <div className="markdown-body text-sm text-slate-300 leading-relaxed overflow-hidden">
+                                  <div className={`markdown-body text-sm text-slate-300 leading-relaxed overflow-hidden ${isMobile ? 'bg-white/[0.03] rounded-2xl rounded-tl-sm px-4 py-3' : ''}`}>
                                     <MarkdownBlock content={message.content} />
                                   </div>
                                 )}
@@ -1309,7 +1499,8 @@ export function ChatRoute() {
             )}
 
             {/* ── Activity / Receipts (inline) ──────── */}
-            {showActivity && (allReceipts.length > 0 || activityItems.length > 0) && (
+            {/* Desktop: Show inline activity panel. Mobile: Hidden here, shown in BottomSheet */}
+            {!isMobile && showActivity && (allReceipts.length > 0 || activityItems.length > 0) && (
               <div className="mt-2 mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
                 <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.04]">
                   <div className="flex items-center gap-1.5">
@@ -1477,7 +1668,7 @@ export function ChatRoute() {
                     <button
                       type="button"
                       onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
-                      className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity"
+                      className="absolute -top-1.5 -right-1.5 h-6 w-6 min-w-[24px] rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity"
                     >
                       <X className="h-3 w-3" />
                     </button>
@@ -1493,9 +1684,10 @@ export function ChatRoute() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="mb-1.5 h-8 w-8 shrink-0 rounded-lg text-slate-500 hover:text-slate-300 flex items-center justify-center transition-colors"
+                className="mb-1.5 h-11 w-11 min-w-[44px] shrink-0 rounded-xl text-slate-500 hover:text-slate-300 flex items-center justify-center transition-colors hover:bg-white/[0.06]"
+                aria-label="Add images"
               >
-                <ImagePlus className="h-4 w-4" />
+                <ImagePlus className="h-5 w-5" />
               </button>
               <input
                 ref={fileInputRef}
@@ -1511,32 +1703,72 @@ export function ChatRoute() {
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onPaste={handlePaste}
+                onFocus={handleInputFocus}
                 placeholder="Ask your agent something…"
-                rows={1}
-                className="min-h-[44px] max-h-36 py-3 px-3 flex-1"
+                rows={isMobile ? 1 : 1}
+                className={`flex-1 py-3.5 px-4 ${isMobile ? 'min-h-[48px] max-h-32 text-base' : 'min-h-[44px] max-h-36'} rounded-2xl`}
                 style={{ fieldSizing: "content" } as React.CSSProperties}
               />
               <button
                 type="button"
                 onClick={sendMessage}
                 disabled={!draft.trim() && pendingImages.length === 0}
-                className="mb-1.5 h-8 w-8 shrink-0 rounded-lg bg-emerald-400 text-slate-950 flex items-center justify-center hover:bg-emerald-300 disabled:opacity-30 disabled:hover:bg-emerald-400 transition-all duration-200"
+                className="mb-1.5 h-11 w-11 min-w-[44px] shrink-0 rounded-xl bg-emerald-400 text-slate-950 flex items-center justify-center hover:bg-emerald-300 disabled:opacity-30 disabled:hover:bg-emerald-400 transition-all duration-200"
+                aria-label="Send message"
               >
-                <Send className="h-4 w-4" />
+                <Send className="h-5 w-5" />
               </button>
             </div>
           </div>
-          <div className="flex items-center justify-between mt-1.5 px-1">
-            <span className="text-[10px] text-slate-600">
+          {/* Mobile: Show agent info below input */}
+          <div className="flex items-center justify-between mt-2 px-1">
+            <span className={`text-[10px] text-slate-600 ${isMobile ? 'hidden' : ''}`}>
               <kbd className="font-mono">↵</kbd> send · <kbd className="font-mono">⇧↵</kbd> newline
             </span>
+            {isMobile && (
+              <span className="text-[10px] text-slate-500 flex-1">
+                {selectedAgent}
+              </span>
+            )}
             <span className="text-[10px] tabular-nums text-slate-600">
-              {selectedAgent && `${selectedAgent}`}
+              {!isMobile && selectedAgent && `${selectedAgent}`}
               {selectedSession && ` · ${selectedSession.slice(0, 12)}…`}
             </span>
           </div>
         </div>
       </div>
+
+      {/* ── Mobile Components ───────────────────── */}
+      {/* Activity Bottom Sheet for Mobile */}
+      {ActivityBottomSheet}
+      
+      {/* Message Actions ActionSheet */}
+      <ActionSheet
+        isOpen={messageActionsOpen}
+        onClose={() => setMessageActionsOpen(false)}
+        actions={[
+          {
+            label: "Copy",
+            onClick: () => {
+              if (selectedMessage) {
+                navigator.clipboard.writeText(selectedMessage.content);
+                setCopiedIdx(selectedMessage.index);
+                setTimeout(() => setCopiedIdx(null), 2000);
+              }
+            },
+            icon: Copy,
+          },
+          ...(selectedMessage?.role === "user" ? [{
+            label: "Delete",
+            onClick: () => {
+              // Note: Actual deletion would need API support
+              // For now, just show an action
+            },
+            destructive: true as const,
+            icon: Trash2,
+          }] : []),
+        ]}
+      />
       </div>
     </div>
   );
@@ -1724,6 +1956,106 @@ function InlineReceipt({ receipt: r, index: _index, expanded, onToggle }: { rece
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Mobile Activity Bottom Sheet Content
+function MobileActivityContent({ 
+  receipts, 
+  activityItems, 
+  onClear,
+  expandedReceipt,
+  onToggleReceipt,
+}: { 
+  receipts: ReceiptItem[];
+  activityItems: ActivityItem[];
+  onClear: () => void;
+  expandedReceipt: number | null;
+  onToggleReceipt: (idx: number) => void;
+}) {
+  return (
+    <div className="h-full flex flex-col">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
+        <div className="flex items-center gap-2">
+          <Activity className="h-4 w-4 text-emerald-400" />
+          <span className="text-sm font-medium text-slate-200">Activity</span>
+          <span className="text-xs tabular-nums text-slate-500">
+            {receipts.length + activityItems.length} items
+          </span>
+        </div>
+        <button
+          onClick={onClear}
+          className="h-10 w-10 min-w-[44px] flex items-center justify-center rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-400/10 transition-colors"
+        >
+          <RotateCcw className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        {receipts.length === 0 && activityItems.length === 0 && (
+          <div className="text-center py-8">
+            <Activity className="h-8 w-8 text-slate-600 mx-auto mb-2" />
+            <p className="text-sm text-slate-500">No activity yet</p>
+          </div>
+        )}
+        {receipts.slice().reverse().map((receipt, idx) => {
+          const okCount = receipt.tools.filter(t => t.success).length;
+          const failCount = receipt.tools.length - okCount;
+          const isExpanded = expandedReceipt === idx;
+          
+          return (
+            <div key={`mobile-r-${receipt.timestamp}-${idx}`} className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] p-3">
+              <button
+                onClick={() => onToggleReceipt(idx)}
+                className="w-full flex items-center justify-between gap-2"
+              >
+                <div className="flex items-center gap-2">
+                  <Zap className="h-4 w-4 text-emerald-400" />
+                  <span className="text-xs font-medium text-emerald-300">Receipt</span>
+                </div>
+                <ChevronRight className={`h-4 w-4 text-emerald-400 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
+              </button>
+              <div className="mt-2 text-xs text-slate-400 space-y-1">
+                <div className="flex justify-between">
+                  <span>Tokens: <span className="text-emerald-300">{receipt.tokens.total.toLocaleString()}</span></span>
+                  <span className="tabular-nums">{new Date(receipt.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Tools: {failCount > 0 ? `${okCount} ✓ · ${failCount} ✗` : receipt.tools.length}</span>
+                  <span>{receipt.durationMs ? `${(receipt.durationMs / 1000).toFixed(1)}s` : "-"}</span>
+                </div>
+                {receipt.costUsd != null && receipt.costUsd > 0 && (
+                  <div className="text-amber-300">${receipt.costUsd.toFixed(4)}</div>
+                )}
+              </div>
+              {isExpanded && receipt.toolCalls && receipt.toolCalls.length > 0 && (
+                <div className="mt-3 pt-2 border-t border-emerald-400/10 space-y-2">
+                  {receipt.toolCalls.map((tc, tci) => (
+                    <div key={tci} className="text-xs">
+                      <div className="flex items-center justify-between">
+                        <span className="font-medium text-slate-300">{tc.name}</span>
+                        <span className={tc.success ? "text-emerald-400" : "text-rose-400"}>{tc.success ? "✓" : "✗"}</span>
+                      </div>
+                      {tc.duration > 0 && <span className="text-slate-600">{tc.duration}ms</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {activityItems.slice(-20).reverse().map((item, idx) => (
+          <div key={`mobile-a-${item.timestamp}-${idx}`} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className={`text-xs font-medium ${activityColor(item.kind)}`}>{item.kind}</span>
+              <span className="text-[10px] tabular-nums text-slate-600">
+                {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            </div>
+            <p className="text-xs text-slate-400">{item.text}</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

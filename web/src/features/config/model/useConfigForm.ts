@@ -259,6 +259,7 @@ export function useConfigForm() {
       buildPayload,
       onSubmit,
       onSaveYaml,
+      refetchConfig: configQuery.refetch,
     },
   };
 }

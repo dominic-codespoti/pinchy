@@ -123,10 +123,10 @@ pub fn prune_tool_results(messages: &mut [ChatMessage], keep_recent: usize) {
         let age_ratio = 1.0 - (i as f64 / cutoff as f64);
         // age_ratio: 1.0 = oldest, 0.0 = just outside recent window
         let max_chars = match age_ratio {
-            r if r > 0.8 => 100,    // oldest: aggressive trim
-            r if r > 0.5 => 300,    // middle: moderate trim
-            r if r > 0.2 => 1000,   // newer: light trim
-            _ => 3000,              // near-recent: keep more
+            r if r > 0.8 => 100,  // oldest: aggressive trim
+            r if r > 0.5 => 300,  // middle: moderate trim
+            r if r > 0.2 => 1000, // newer: light trim
+            _ => 3000,            // near-recent: keep more
         };
 
         // Prune role:"tool" messages (function-calling path).
@@ -415,7 +415,8 @@ pub async fn manage_context(
     }
 
     let estimated_after = estimate_total(messages);
-    let needs_compaction = count_turns(messages) > budget.max_turns || estimated_after > token_limit;
+    let needs_compaction =
+        count_turns(messages) > budget.max_turns || estimated_after > token_limit;
 
     // Step 2: compaction if turn count or token count still exceeds threshold.
     if needs_compaction {
@@ -427,7 +428,12 @@ pub fn needs_pruning(messages: &[ChatMessage], token_limit: usize) -> bool {
     estimate_total(messages) > token_limit
 }
 
-pub fn prune_if_needed(messages: &mut Vec<ChatMessage>, threshold: usize, token_limit: usize, keep_recent: usize) {
+pub fn prune_if_needed(
+    messages: &mut Vec<ChatMessage>,
+    threshold: usize,
+    token_limit: usize,
+    keep_recent: usize,
+) {
     if messages.len() > threshold || estimate_total(messages) > token_limit {
         prune_tool_results(messages, keep_recent);
     }

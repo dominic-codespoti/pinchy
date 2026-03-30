@@ -1,6 +1,7 @@
 import { Settings } from "lucide-react";
 import { Input } from "@/shared/ui/components/ui";
 import { resolveProp, primaryType } from "../model";
+import { useViewport } from "@/shared/lib/useViewport";
 import type { JsonSchema, SchemaProperty } from "../model";
 
 function shortPlaceholder(fieldKey: string, type: string, desc?: string): string {
@@ -39,6 +40,7 @@ interface SchemaFieldProps {
 }
 
 export function SchemaField({ schema, prop, path, values, onChange }: SchemaFieldProps) {
+  const { isMobile } = useViewport();
   const resolved = resolveProp(schema, prop);
   const type = primaryType(resolved);
   const fieldKey = path[path.length - 1];
@@ -50,13 +52,13 @@ export function SchemaField({ schema, prop, path, values, onChange }: SchemaFiel
 
   if (type === "object" && resolved.properties) {
     return (
-      <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 mb-6">
+      <div className={`rounded-xl border border-white/[0.06] bg-white/[0.02] mb-6 ${isMobile ? "p-4" : "p-5"}`}>
         <div className="flex items-center gap-2 mb-1">
-          <Settings className="h-3.5 w-3.5 text-emerald-400/60" />
-          <span className="text-xs font-medium text-slate-300 capitalize">{label}</span>
+          <Settings className={`text-emerald-400/60 ${isMobile ? "h-4 w-4" : "h-3.5 w-3.5"}`} />
+          <span className={`font-medium text-slate-300 capitalize ${isMobile ? "text-sm" : "text-xs"}`}>{label}</span>
         </div>
-        {desc && <p className="text-[10px] text-slate-500 mb-4">{desc}</p>}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {desc && <p className={`text-slate-500 mb-4 ${isMobile ? "text-xs" : "text-[10px]"}`}>{desc}</p>}
+        <div className={`grid grid-cols-1 gap-4 ${isMobile ? "" : "md:grid-cols-2"}`}>
           {Object.entries(resolved.properties).map(([childKey, childProp]) => (
             <SchemaField
               key={childKey}
@@ -76,8 +78,8 @@ export function SchemaField({ schema, prop, path, values, onChange }: SchemaFiel
     const currentArr = Array.isArray(rawValue) ? rawValue : [];
     const strValue = currentArr.join(", ");
     return (
-      <div className="space-y-1">
-        <label className="text-[9px] uppercase tracking-widest text-slate-600 block">{label}</label>
+      <div className="space-y-2">
+        <label className={`uppercase tracking-widest text-slate-600 block ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>{label}</label>
         <Input
           value={strValue}
           onChange={(e) => {
@@ -85,9 +87,11 @@ export function SchemaField({ schema, prop, path, values, onChange }: SchemaFiel
             onChange(path, arr.length > 0 ? arr : undefined);
           }}
           placeholder={placeholder}
-          className="min-w-0 flex-1 bg-transparent py-2 text-sm text-slate-100 placeholder:text-slate-500/80 outline-none"
+          className={`min-w-0 flex-1 bg-transparent text-slate-100 placeholder:text-slate-500/80 outline-none ${
+            isMobile ? "py-3 text-base" : "py-2 text-sm"
+          }`}
         />
-        {desc && <p className="text-[10px] leading-relaxed text-slate-500 mt-1">{desc}</p>}
+        {desc && <p className={`leading-relaxed text-slate-500 mt-1 ${isMobile ? "text-xs" : "text-[10px]"}`}>{desc}</p>}
       </div>
     );
   }
@@ -95,17 +99,19 @@ export function SchemaField({ schema, prop, path, values, onChange }: SchemaFiel
   if (type === "boolean") {
     const checked = rawValue === true;
     return (
-      <div className="space-y-1">
-        <label className="flex items-center gap-2.5 cursor-pointer">
+      <div className="space-y-2">
+        <label className={`flex items-center gap-3 cursor-pointer ${isMobile ? "py-2" : "gap-2.5"}`}>
           <input
             type="checkbox"
             checked={checked}
             onChange={(e) => onChange(path, e.target.checked)}
-            className="rounded border-white/10 bg-white/5 text-emerald-400 focus:ring-emerald-400/30"
+            className={`rounded border-white/10 bg-white/5 text-emerald-400 focus:ring-emerald-400/30 ${
+              isMobile ? "h-5 w-5" : ""
+            }`}
           />
-          <span className="text-[9px] uppercase tracking-widest text-slate-600">{label}</span>
+          <span className={`uppercase tracking-widest text-slate-600 ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>{label}</span>
         </label>
-        {desc && <p className="text-[10px] leading-relaxed text-slate-500 ml-[26px]">{desc}</p>}
+        {desc && <p className={`leading-relaxed text-slate-500 ${isMobile ? "text-xs ml-[28px]" : "text-[10px] ml-[26px]"}`}>{desc}</p>}
       </div>
     );
   }
@@ -113,8 +119,8 @@ export function SchemaField({ schema, prop, path, values, onChange }: SchemaFiel
   if (type === "integer" || type === "number") {
     const strVal = rawValue !== undefined && rawValue !== null ? String(rawValue) : "";
     return (
-      <div className="space-y-1">
-        <label className="text-[9px] uppercase tracking-widest text-slate-600 block">{label}</label>
+      <div className="space-y-2">
+        <label className={`uppercase tracking-widest text-slate-600 block ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>{label}</label>
         <Input
           type="number"
           value={strVal}
@@ -128,16 +134,17 @@ export function SchemaField({ schema, prop, path, values, onChange }: SchemaFiel
             }
           }}
           placeholder={placeholder}
+          className={isMobile ? "py-3 text-base" : ""}
         />
-        {desc && <p className="text-[10px] leading-relaxed text-slate-500 mt-1">{desc}</p>}
+        {desc && <p className={`leading-relaxed text-slate-500 mt-1 ${isMobile ? "text-xs" : "text-[10px]"}`}>{desc}</p>}
       </div>
     );
   }
 
   const strVal = typeof rawValue === "string" ? rawValue : rawValue !== undefined && rawValue !== null ? String(rawValue) : "";
   return (
-    <div className="space-y-1">
-      <label className="text-[9px] uppercase tracking-widest text-slate-600 block">{label}</label>
+    <div className="space-y-2">
+      <label className={`uppercase tracking-widest text-slate-600 block ${isMobile ? "text-xs font-medium" : "text-[9px]"}`}>{label}</label>
       <Input
         value={strVal}
         onChange={(e) => {
@@ -145,8 +152,9 @@ export function SchemaField({ schema, prop, path, values, onChange }: SchemaFiel
           onChange(path, v || undefined);
         }}
         placeholder={placeholder}
+        className={isMobile ? "py-3 text-base" : ""}
       />
-      {desc && <p className="text-[10px] leading-relaxed text-slate-500 mt-1">{desc}</p>}
+      {desc && <p className={`leading-relaxed text-slate-500 mt-1 ${isMobile ? "text-xs" : "text-[10px]"}`}>{desc}</p>}
     </div>
   );
 }

@@ -71,7 +71,9 @@ impl SessionStore {
 
         let mut to_summarize: Vec<String> = Vec::new();
         for ex in &history {
-            if ex.role == "system" { continue; }
+            if ex.role == "system" {
+                continue;
+            }
             let content = crate::utils::truncate_str(&ex.content, 400);
             to_summarize.push(format!("[{}]: {}", ex.role, content));
         }
@@ -84,7 +86,9 @@ impl SessionStore {
         );
 
         let messages = vec![
-            crate::models::ChatMessage::system("You are a concise conversation summarizer. Focus on facts and decisions."),
+            crate::models::ChatMessage::system(
+                "You are a concise conversation summarizer. Focus on facts and decisions.",
+            ),
             crate::models::ChatMessage::user(prompt),
         ];
 
@@ -94,7 +98,7 @@ impl SessionStore {
         memory.save(
             &key,
             &summary,
-            &["session-summary".to_string(), agent_id.to_string()]
+            &["session-summary".to_string(), agent_id.to_string()],
         )?;
 
         tracing::info!(session = %session_id, "auto-summarized closed session");

@@ -214,8 +214,13 @@ pub fn register_builtin_commands(registry: &Registry) {
                             if let Some(pm) = crate::models::get_global_providers() {
                                 if let Ok(memory) = crate::memory::MemoryStore::open(&ws) {
                                     let _ = crate::session::SessionStore::summarize_and_close(
-                                        &db_clone, &prev, &agent_id, &memory, pm.as_ref()
-                                    ).await;
+                                        &db_clone,
+                                        &prev,
+                                        &agent_id,
+                                        &memory,
+                                        pm.as_ref(),
+                                    )
+                                    .await;
                                 }
                             }
                         });
@@ -261,8 +266,13 @@ pub fn register_builtin_commands(registry: &Registry) {
                         if let Some(pm) = crate::models::get_global_providers() {
                             if let Ok(memory) = crate::memory::MemoryStore::open(&ws) {
                                 let _ = crate::session::SessionStore::summarize_and_close(
-                                    &db_clone, &prev, &agent_id, &memory, pm.as_ref()
-                                ).await;
+                                    &db_clone,
+                                    &prev,
+                                    &agent_id,
+                                    &memory,
+                                    pm.as_ref(),
+                                )
+                                .await;
                             }
                         }
                     });

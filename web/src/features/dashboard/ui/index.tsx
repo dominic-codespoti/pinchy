@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
@@ -16,8 +16,13 @@ import {
   ChevronRight,
   Bug,
   DollarSign,
+  RefreshCw,
+  ChevronLeft,
 } from "lucide-react";
 import { wsUrl, sendOneShot } from "@/shared/lib/useWebSocket";
+import { useViewport, useIsMobile } from "@/shared/lib/useViewport";
+import { useSwipe, usePullToRefresh } from "@/shared/lib/useTouch";
+import { BottomSheet } from "@/shared/ui/components/BottomSheet";
 
 import {
   getHealth,
@@ -44,8 +49,23 @@ type TimelineEvent = {
   payload: Record<string, unknown>;
 };
 
+const FILTER_OPTIONS = [
+  ["all", "All"],
+  ["heartbeat", "Heartbeat"],
+  ["cron", "Cron"],
+  ["discord", "Discord"],
+  ["session", "Session"],
+  ["tool", "Tool"],
+  ["error", "Error"],
+  ["debug", "Debug"],
+] as const;
+
 export function DashboardRoute() {
   const queryClient = useQueryClient();
+  const { isMobile, touchSupported } = useViewport();
+  const contentRef = useRef<HTMLDivElement>(null);
+  const filtersRef = useRef<HTMLDivElement>(null);
+  
   const statusQuery = useQuery({ queryKey: queryKeys.status, queryFn: getStatus });
   const agentsQuery = useQuery({ queryKey: queryKeys.agents, queryFn: listAgents });
   const cronQuery = useQuery({ queryKey: queryKeys.cronJobs, queryFn: listCronJobs });
@@ -67,6 +87,7 @@ export function DashboardRoute() {
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [debugExpandedMsgs, setDebugExpandedMsgs] = useState<Set<number>>(new Set());
   const [debugFullPayload, setDebugFullPayload] = useState<Record<string, unknown> | null>(null);
+  const [isEventDetailOpen, setIsEventDetailOpen] = useState(false);
 
   const usageQuery = useQuery({
     queryKey: queryKeys.usage(),
@@ -76,6 +97,48 @@ export function DashboardRoute() {
 
   const totalCost = usageQuery.data?.total_cost_usd ?? 0;
   const usageBuckets = usageQuery.data?.usage ?? [];
+
+  // Pull to refresh functionality
+  const refreshAllQueries = useCallback(async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.status }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.agents }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.cronJobs }),
+      queryClient.invalidateQueries({ queryKey: ["heartbeat"] }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.health }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.usage() }),
+    ]);
+    toast.success("Dashboard refreshed");
+  }, [queryClient]);
+
+  const { pullDistance, isRefreshing } = usePullToRefresh(
+    contentRef,
+    refreshAllQueries
+  );
+
+  // Swipe gestures for filter navigation
+  const filterIndex = useMemo(() => {
+    return FILTER_OPTIONS.findIndex(([value]) => value === eventFilter);
+  }, [eventFilter]);
+
+  const handleSwipeLeft = useCallback(() => {
+    if (filterIndex < FILTER_OPTIONS.length - 1) {
+      setEventFilter(FILTER_OPTIONS[filterIndex + 1][0]);
+    }
+  }, [filterIndex]);
+
+  const handleSwipeRight = useCallback(() => {
+    if (filterIndex > 0) {
+      setEventFilter(FILTER_OPTIONS[filterIndex - 1][0]);
+    }
+  }, [filterIndex]);
+
+  useSwipe(filtersRef as React.RefObject<HTMLElement>, {
+    onSwipeLeft: handleSwipeLeft,
+    onSwipeRight: handleSwipeRight,
+    threshold: 50,
+    preventDefault: true,
+  });
 
   useEffect(() => {
     const ws = new WebSocket(wsUrl());
@@ -122,8 +185,6 @@ export function DashboardRoute() {
   }, [queryClient]);
 
   // Seed stored debug events from the REST API on mount.
-  // The WS only broadcasts live events — if the dashboard opens after
-  // model calls have already happened, we'd miss them without this.
   useEffect(() => {
     listDebugModelRequests()
       .then((requests) => {
@@ -263,6 +324,15 @@ export function DashboardRoute() {
     }
   };
 
+  const handleEventClick = (eventId: string) => {
+    setSelectedEventId(eventId);
+    setDebugExpandedMsgs(new Set());
+    setDebugFullPayload(null);
+    if (isMobile) {
+      setIsEventDetailOpen(true);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full bg-[var(--bg)]">
       {/* ── Top bar ──────────────────────────────── */}
@@ -274,12 +344,23 @@ export function DashboardRoute() {
           <span className="text-sm font-semibold text-slate-100">Overview</span>
         </div>
 
-        <Separator className="!h-5 !w-px !bg-white/[0.08]" />
+        <Separator className="!h-5 !w-px !bg-white/[0.08] hidden sm:block" />
 
-        <span className="text-xs text-slate-500">Realtime operations pulse</span>
+        <span className="text-xs text-slate-500 hidden sm:block">Realtime operations pulse</span>
 
         <div className="ml-auto flex items-center gap-2">
-          <span className="text-[10px] tabular-nums text-slate-500">
+          {isMobile && touchSupported && (
+            <button
+              type="button"
+              onClick={() => void refreshAllQueries()}
+              disabled={isRefreshing}
+              className="p-2 rounded-lg text-slate-500 hover:text-slate-300 hover:bg-white/[0.04] transition-colors disabled:opacity-50"
+              aria-label="Refresh dashboard"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            </button>
+          )}
+          <span className="text-[10px] tabular-nums text-slate-500 hidden sm:inline">
             {events.length} events
           </span>
           <span className={`inline-block h-2 w-2 rounded-full ${statusQuery.data?.status === "ok" ? "bg-emerald-400 animate-status-pulse" : "bg-amber-400"}`} />
@@ -287,11 +368,32 @@ export function DashboardRoute() {
       </div>
 
       {/* ── Content ──────────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-5xl mx-auto px-4 py-5 space-y-5">
+      <div 
+        ref={contentRef}
+        className="flex-1 overflow-y-auto relative"
+      >
+        {/* Pull to refresh indicator */}
+        {isMobile && touchSupported && (
+          <div 
+            className="absolute top-0 left-0 right-0 flex items-center justify-center transition-transform duration-200 pointer-events-none z-10"
+            style={{ 
+              transform: `translateY(${Math.max(0, pullDistance - 60)}px)`,
+              opacity: pullDistance > 20 ? Math.min(1, (pullDistance - 20) / 40) : 0
+            }}
+          >
+            <div className="flex items-center gap-2 px-4 py-2 bg-slate-900/90 backdrop-blur-sm rounded-full border border-white/[0.06] shadow-lg">
+              <RefreshCw className={`h-4 w-4 text-emerald-400 ${isRefreshing || pullDistance > 80 ? "animate-spin" : ""}`} />
+              <span className="text-xs text-slate-300">
+                {isRefreshing ? "Refreshing..." : pullDistance > 80 ? "Release to refresh" : "Pull to refresh"}
+              </span>
+            </div>
+          </div>
+        )}
+
+        <div className="max-w-5xl mx-auto px-3 sm:px-4 py-4 sm:py-5 space-y-4 sm:space-y-5">
 
           {/* ── Stat cards ──────────────────────────── */}
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-3">
             <StatCard label="Gateway" value={statusQuery.data?.status ?? "..."} loading={statusQuery.isLoading} icon={Activity} accent />
             <StatCard label="Agents" value={String(stats.agentCount)} loading={agentsQuery.isLoading} icon={Bot} />
             <StatCard label="Cron Jobs" value={String(stats.cronCount)} loading={cronQuery.isLoading} icon={Clock} />
@@ -301,8 +403,8 @@ export function DashboardRoute() {
           </div>
 
           {/* ── Health / Uptime Card ─────────────────── */}
-          <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-            <article className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 sm:gap-3">
+            <article className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 sm:p-4 space-y-2 sm:space-y-3">
               <div className="flex items-center gap-2">
                 <Server className="h-3.5 w-3.5 text-emerald-400/60" />
                 <span className="text-xs font-medium text-slate-300">System Health</span>
@@ -318,7 +420,7 @@ export function DashboardRoute() {
                     <span className={`inline-block h-2.5 w-2.5 rounded-full ${healthQuery.data.status === "ok" ? "bg-emerald-400 animate-status-pulse" : "bg-rose-400"}`} />
                     <span className="text-lg font-semibold text-emerald-300">{healthQuery.data.status.toUpperCase()}</span>
                   </div>
-                  <div className="grid grid-cols-3 gap-3 text-xs">
+                  <div className="grid grid-cols-3 gap-2 sm:gap-3 text-xs">
                     <div>
                       <p className="text-[10px] uppercase tracking-widest text-slate-500">Uptime</p>
                       <p className="text-sm font-medium text-slate-200 mt-0.5">{formatUptime(healthQuery.data.uptime_secs)}</p>
@@ -338,7 +440,7 @@ export function DashboardRoute() {
               )}
             </article>
 
-            <article className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4 space-y-3">
+            <article className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 sm:p-4 space-y-2 sm:space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <DollarSign className="h-3.5 w-3.5 text-amber-400/60" />
@@ -347,7 +449,7 @@ export function DashboardRoute() {
                 <span className="text-[10px] tabular-nums text-slate-500">${totalCost < 0.01 ? totalCost.toFixed(4) : totalCost.toFixed(2)} total</span>
               </div>
               {usageBuckets.length > 0 ? (
-                <CostByModelChart buckets={usageBuckets} />
+                <CostByModelChart buckets={usageBuckets} isMobile={isMobile} />
               ) : (
                 <div className="flex items-center justify-center h-16 text-xs text-slate-600">No cost data yet</div>
               )}
@@ -357,11 +459,11 @@ export function DashboardRoute() {
           {/* ── Heartbeat Grid ──────────────────────── */}
           {(heartbeatQuery.data?.agents ?? []).length > 0 && (
             <div>
-              <div className="flex items-center gap-2 mb-3">
+              <div className="flex items-center gap-2 mb-2 sm:mb-3">
                 <Heart className="h-3.5 w-3.5 text-emerald-400/60" />
                 <span className="text-xs font-medium text-slate-300">Heartbeat Grid</span>
               </div>
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
                 {(heartbeatQuery.data?.agents ?? []).map((agent) => {
                   const health = (agent.health ?? "UNKNOWN").toUpperCase();
                   const trend = buildAgentTrend(events, agent.agent_id);
@@ -371,11 +473,11 @@ export function DashboardRoute() {
                       className="group rounded-xl border border-white/[0.06] bg-white/[0.02] p-3 space-y-2 transition-all duration-200 hover:border-white/[0.12] hover:bg-white/[0.04]"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className={`inline-block h-2 w-2 rounded-full ${
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${
                             health === "OK" ? "bg-emerald-400 animate-status-pulse" : health.startsWith("ERROR") ? "bg-rose-400" : "bg-amber-400"
                           }`} />
-                          <p className="text-sm font-semibold text-slate-100">{agent.agent_id}</p>
+                          <p className="text-sm font-semibold text-slate-100 truncate">{agent.agent_id}</p>
                         </div>
                         <HealthChip health={health} />
                       </div>
@@ -402,8 +504,8 @@ export function DashboardRoute() {
           )}
 
           {/* ── Event filters ──────────────────────── */}
-          <div>
-            <div className="flex items-center justify-between gap-2 mb-3">
+          <div ref={filtersRef}>
+            <div className="flex items-center justify-between gap-2 mb-2 sm:mb-3">
               <div className="flex items-center gap-2">
                 <Activity className="h-3.5 w-3.5 text-emerald-400/60" />
                 <span className="text-xs font-medium text-slate-300">Recent Events</span>
@@ -417,22 +519,37 @@ export function DashboardRoute() {
               </button>
             </div>
 
-            <div className="flex flex-wrap items-center gap-1 mb-3">
-              {[
-                ["all", "All"],
-                ["heartbeat", "Heartbeat"],
-                ["cron", "Cron"],
-                ["discord", "Discord"],
-                ["session", "Session"],
-                ["tool", "Tool"],
-                ["error", "Error"],
-                ["debug", "Debug"],
-              ].map(([value, label]) => (
+            {/* Mobile filter navigation hint */}
+            {isMobile && touchSupported && (
+              <div className="flex items-center justify-between text-[10px] text-slate-600 mb-2 px-1">
+                <button 
+                  onClick={handleSwipeRight}
+                  disabled={filterIndex === 0}
+                  className="flex items-center gap-0.5 disabled:opacity-30"
+                >
+                  <ChevronLeft className="h-3 w-3" />
+                  Swipe
+                </button>
+                <span>Swipe to change filters</span>
+                <button 
+                  onClick={handleSwipeLeft}
+                  disabled={filterIndex === FILTER_OPTIONS.length - 1}
+                  className="flex items-center gap-0.5 disabled:opacity-30"
+                >
+                  Swipe
+                  <ChevronRight className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+
+            {/* Filter pills - horizontal scroll on mobile */}
+            <div className="flex items-center gap-1 mb-2 sm:mb-3 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent -mx-3 px-3 sm:mx-0 sm:px-0">
+              {FILTER_OPTIONS.map(([value, label]) => (
                 <button
                   key={value}
                   type="button"
                   onClick={() => setEventFilter(value)}
-                  className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition-all duration-200 ${
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-medium transition-all duration-200 whitespace-nowrap shrink-0 ${
                     eventFilter === value
                       ? "bg-emerald-400/15 text-emerald-300 border border-emerald-400/25"
                       : "border border-white/[0.06] text-slate-500 hover:text-slate-300 hover:border-white/[0.12]"
@@ -444,21 +561,40 @@ export function DashboardRoute() {
             </div>
 
             {/* ── Event list ───────────────────────── */}
-            <div className="max-h-80 overflow-auto rounded-xl border border-white/[0.06] bg-white/[0.02] p-1" role="log" aria-live="polite" aria-label="Event timeline">
+            <div 
+              className={`overflow-auto rounded-xl border border-white/[0.06] bg-white/[0.02] ${isMobile ? 'max-h-[50vh]' : 'max-h-80'}`}
+              role="log" 
+              aria-live="polite" 
+              aria-label="Event timeline"
+            >
               {filteredEvents.slice().reverse().map((event, index) => (
                 <article
                   key={`${event.id}-${index}`}
-                  className={`grid cursor-pointer grid-cols-[80px_120px_120px_1fr] gap-2 rounded-lg px-2 py-1.5 text-xs transition-all duration-150 ${
+                  className={`cursor-pointer grid gap-1 sm:gap-2 rounded-lg px-2 sm:px-3 py-2 text-xs transition-all duration-150 ${
+                    isMobile 
+                      ? 'grid-cols-[60px_1fr]' 
+                      : 'grid-cols-[80px_120px_120px_1fr]'
+                  } ${
                     selectedEventId === event.id
                       ? "bg-emerald-400/[0.08] border border-emerald-400/20"
                       : "border border-transparent hover:bg-white/[0.03]"
                   }`}
-                  onClick={() => { setSelectedEventId(event.id); setDebugExpandedMsgs(new Set()); setDebugFullPayload(null); }}
+                  onClick={() => handleEventClick(event.id)}
                 >
-                  <span className="text-slate-600 tabular-nums">{new Date(event.ts).toLocaleTimeString()}</span>
-                  <span><TypeChip type={event.type} /></span>
-                  <span className="truncate text-slate-500">{event.agent || "-"}</span>
-                  <span className="truncate text-slate-300">{event.content || "-"}</span>
+                  <span className="text-slate-600 tabular-nums text-[10px] sm:text-xs">
+                    {new Date(event.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </span>
+                  {!isMobile && <span><TypeChip type={event.type} /></span>}
+                  {!isMobile && <span className="truncate text-slate-500">{event.agent || "-"}</span>}
+                  <div className="min-w-0">
+                    {isMobile && (
+                      <div className="flex items-center gap-1 mb-0.5">
+                        <TypeChip type={event.type} />
+                        <span className="text-[10px] text-slate-500 truncate">{event.agent || "-"}</span>
+                      </div>
+                    )}
+                    <span className="block truncate text-slate-300 text-[11px] sm:text-xs">{event.content || "-"}</span>
+                  </div>
                 </article>
               ))}
               {!events.length && (
@@ -470,8 +606,8 @@ export function DashboardRoute() {
               )}
             </div>
 
-            {/* ── Event detail ──────────────────────── */}
-            {selectedEvent && (
+            {/* ── Event detail (Desktop: inline, Mobile: bottom sheet) ───────── */}
+            {!isMobile && selectedEvent && (
               <div className="mt-3 rounded-xl border border-emerald-400/15 bg-emerald-400/[0.03] p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[10px] uppercase tracking-widest font-medium text-emerald-300/70">
@@ -536,6 +672,64 @@ export function DashboardRoute() {
           )}
         </div>
       </div>
+
+      {/* Mobile Event Detail Bottom Sheet */}
+      <BottomSheet
+        isOpen={isMobile && isEventDetailOpen}
+        onClose={() => {
+          setIsEventDetailOpen(false);
+          setSelectedEventId(null);
+        }}
+        title={selectedEvent ? `Event Detail · ${selectedEvent.type}` : "Event Detail"}
+        snapPoints={[50, 85]}
+      >
+        {selectedEvent && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[10px] text-slate-500">
+                {new Date(selectedEvent.ts).toLocaleString()}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  const copyData = (selectedEvent.type === "model_request" && debugFullPayload)
+                    ? debugFullPayload
+                    : selectedEvent.payload;
+                  void navigator.clipboard
+                    .writeText(JSON.stringify(copyData, null, 2))
+                    .then(() => toast.success("Copied"))
+                    .catch(() => toast.error("Failed to copy"));
+                }}
+                className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                <Copy className="h-3 w-3" /> Copy
+              </button>
+            </div>
+            {selectedEvent.type === "model_request" ? (
+              <ModelRequestDetail
+                payload={selectedEvent.payload}
+                onFullPayload={setDebugFullPayload}
+                expandedMsgs={debugExpandedMsgs}
+                onToggleMsg={(i) =>
+                  setDebugExpandedMsgs((prev) => {
+                    const next = new Set(prev);
+                    if (next.has(i)) {
+                      next.delete(i);
+                    } else {
+                      next.add(i);
+                    }
+                    return next;
+                  })
+                }
+              />
+            ) : (
+              <pre className="max-h-[60vh] overflow-auto rounded-lg border border-white/[0.04] bg-black/40 p-3 text-[11px] text-emerald-100/90">
+                {JSON.stringify(selectedEvent.payload, null, 2)}
+              </pre>
+            )}
+          </div>
+        )}
+      </BottomSheet>
     </div>
   );
 }
@@ -545,18 +739,20 @@ function forceHeartbeatTick(agentId: string) {
 }
 
 function StatCard({ label, value, loading, icon: Icon, accent }: { label: string; value: string; loading: boolean; icon: React.ComponentType<{ className?: string }>; accent?: boolean }) {
+  const isMobile = useIsMobile();
+  
   return (
-    <article className={`rounded-xl border p-3 transition-all duration-200 hover:bg-white/[0.04] ${
+    <article className={`rounded-xl border p-2 sm:p-3 transition-all duration-200 hover:bg-white/[0.04] ${
       accent ? "border-emerald-400/20 bg-emerald-400/[0.03]" : "border-white/[0.06] bg-white/[0.02]"
     }`}>
       <div className="flex items-center justify-between">
-        <p className="text-[10px] uppercase tracking-widest text-slate-500">{label}</p>
-        <Icon className={`h-3.5 w-3.5 ${accent ? "text-emerald-400/60" : "text-slate-600"}`} />
+        <p className={`uppercase tracking-widest text-slate-500 ${isMobile ? 'text-[9px]' : 'text-[10px]'}`}>{label}</p>
+        <Icon className={`${isMobile ? 'h-3 w-3' : 'h-3.5 w-3.5'} ${accent ? "text-emerald-400/60" : "text-slate-600"}`} />
       </div>
       {loading ? (
-        <Skeleton className="mt-2 h-7 w-16" />
+        <Skeleton className={`mt-1.5 ${isMobile ? 'h-5 w-14' : 'h-7 w-16'}`} />
       ) : (
-        <p className={`mt-1.5 text-xl font-semibold tracking-tight ${accent ? "text-emerald-300" : "text-slate-100"}`}>{value}</p>
+        <p className={`mt-1 font-semibold tracking-tight ${isMobile ? 'text-base' : 'text-xl'} ${accent ? "text-emerald-300" : "text-slate-100"}`}>{value}</p>
       )}
     </article>
   );
@@ -578,7 +774,7 @@ function TypeChip({ type }: { type: string }) {
         : normalized === "model_request"
           ? "warning"
           : "neutral";
-  return <Badge variant={variant}>{type}</Badge>;
+  return <Badge variant={variant} className="text-[9px] sm:text-[10px] px-1.5 py-0.5">{type}</Badge>;
 }
 
 function buildAgentTrend(events: TimelineEvent[], agentId: string): string {
@@ -667,15 +863,14 @@ function ModelRequestDetail({
   expandedMsgs: Set<number>;
   onToggleMsg: (i: number) => void;
 }) {
+  const isMobile = useIsMobile();
   const requestId = typeof payload.request_id === "string" ? payload.request_id : null;
   const [fullPayload, setFullPayload] = useState<Record<string, unknown> | null>(null);
   const [loading, setLoading] = useState(false);
   const [fetchError, setFetchError] = useState<string | null>(null);
 
-  // Auto-fetch the full payload when the component mounts (i.e. user selected a model_request event).
   useEffect(() => {
     if (!requestId) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setFetchError(null);
     getDebugModelRequest(requestId)
@@ -702,9 +897,9 @@ function ModelRequestDetail({
   return (
     <div className="space-y-3">
       {/* Summary bar */}
-      <div className="flex flex-wrap items-center gap-3 text-[10px]">
+      <div className={`flex flex-wrap items-center gap-2 sm:gap-3 ${isMobile ? 'text-[9px]' : 'text-[10px]'}`}>
         <span className="flex items-center gap-1 text-slate-400">
-          <Bug className="h-3 w-3 text-amber-400/60" />
+          <Bug className={`${isMobile ? 'h-3 w-3' : 'h-3 w-3'} text-amber-400/60`} />
           <span className="font-medium text-amber-300">Model Request Debug</span>
         </span>
         {(provider || model) && (
@@ -715,7 +910,7 @@ function ModelRequestDetail({
           </span>
         )}
         <span className="text-slate-500">
-          {msgCount} messages · {fnCount} tools
+          {msgCount} msgs · {fnCount} tools
           {estTokens !== null && <> · ~{estTokens.toLocaleString()} tokens</>}
         </span>
         {loading && <span className="text-[9px] text-slate-600 animate-pulse">Loading full payload…</span>}
@@ -724,7 +919,7 @@ function ModelRequestDetail({
 
       {/* Messages accordion */}
       {messages.length > 0 ? (
-        <div className="space-y-1 max-h-[28rem] overflow-auto">
+        <div className={`space-y-1 ${isMobile ? 'max-h-[40vh]' : 'max-h-[28rem]'} overflow-auto`}>
           {messages.map((msg: Record<string, unknown>, i: number) => {
             const role = typeof msg.role === "string" ? msg.role : "unknown";
             const content = typeof msg.content === "string" ? msg.content : msg.content === null ? "" : JSON.stringify(msg.content);
@@ -732,7 +927,7 @@ function ModelRequestDetail({
             const toolCallId = typeof msg.tool_call_id === "string" ? msg.tool_call_id : null;
             const isExpanded = expandedMsgs.has(i);
             const colors = ROLE_COLORS[role] ?? "text-slate-300 bg-white/[0.03] border-white/[0.06]";
-            const preview = content.length > 120 ? content.slice(0, 120) + "…" : content;
+            const preview = content.length > (isMobile ? 60 : 120) ? content.slice(0, isMobile ? 60 : 120) + "…" : content;
 
             return (
               <div key={i} className={`rounded-lg border ${colors.split(" ").slice(1).join(" ")} overflow-hidden`}>
@@ -746,7 +941,7 @@ function ModelRequestDetail({
                   ) : (
                     <ChevronRight className="h-3 w-3 shrink-0 text-slate-500" />
                   )}
-                  <span className={`text-[10px] font-semibold uppercase tracking-wider shrink-0 ${colors.split(" ")[0]}`}>
+                  <span className={`${isMobile ? 'text-[9px]' : 'text-[10px]'} font-semibold uppercase tracking-wider shrink-0 ${colors.split(" ")[0]}`}>
                     {role}
                   </span>
                   {toolCallId && (
@@ -763,14 +958,14 @@ function ModelRequestDetail({
                     [{i}] {content.length.toLocaleString()}ch
                   </span>
                   {!isExpanded && (
-                    <span className="text-[10px] text-slate-600 truncate ml-1">
+                    <span className={`text-[10px] text-slate-600 truncate ml-1 ${isMobile ? 'hidden sm:inline' : ''}`}>
                       {preview}
                     </span>
                   )}
                 </button>
                 {isExpanded && (
                   <div className="px-2.5 pb-2 space-y-1.5">
-                    <pre className="max-h-64 overflow-auto rounded-md border border-white/[0.04] bg-black/40 p-2 text-[10px] leading-relaxed text-slate-200 whitespace-pre-wrap break-words">
+                    <pre className={`overflow-auto rounded-md border border-white/[0.04] bg-black/40 p-2 leading-relaxed text-slate-200 whitespace-pre-wrap break-words ${isMobile ? 'max-h-48 text-[9px]' : 'max-h-64 text-[10px]'}`}>
                       {content || <span className="italic text-slate-600">(empty)</span>}
                     </pre>
                     {hasToolCalls && (
@@ -784,12 +979,12 @@ function ModelRequestDetail({
                             : JSON.stringify(fn?.arguments ?? tc.arguments ?? {});
                           const tcId = typeof tc.id === "string" ? tc.id : "";
                           return (
-                            <div key={j} className="rounded-md border border-amber-400/10 bg-amber-400/[0.03] p-1.5 text-[10px]">
+                            <div key={j} className={`rounded-md border border-amber-400/10 bg-amber-400/[0.03] p-1.5 ${isMobile ? 'text-[9px]' : 'text-[10px]'}`}>
                               <div className="flex items-center gap-2">
                                 <span className="font-mono font-semibold text-amber-300">{String(name)}</span>
                                 {tcId && <span className="font-mono text-[9px] text-slate-600">id:{tcId.slice(0, 12)}</span>}
                               </div>
-                              <pre className="mt-1 max-h-32 overflow-auto rounded border border-white/[0.04] bg-black/30 p-1 text-[9px] text-slate-400 whitespace-pre-wrap break-words">
+                              <pre className={`mt-1 max-h-32 overflow-auto rounded border border-white/[0.04] bg-black/30 p-1 text-slate-400 whitespace-pre-wrap break-words ${isMobile ? 'text-[8px]' : 'text-[9px]'}`}>
                                 {args}
                               </pre>
                             </div>
@@ -822,25 +1017,25 @@ function ModelRequestDetail({
             ) : (
               <ChevronRight className="h-3 w-3 text-slate-500" />
             )}
-            <span className="text-[10px] font-medium text-slate-400">
+            <span className={`font-medium text-slate-400 ${isMobile ? 'text-[9px]' : 'text-[10px]'}`}>
               Available Tools ({fnCount})
             </span>
             {!showFunctions && (
-              <span className="text-[10px] text-slate-600 truncate">
+              <span className={`text-slate-600 truncate ${isMobile ? 'text-[9px] hidden sm:inline' : 'text-[10px]'}`}>
                 {(fnNames as string[]).join(", ")}
               </span>
             )}
           </button>
           {showFunctions && (
-            <div className="px-2.5 pb-2 space-y-1 max-h-64 overflow-auto">
+            <div className={`px-2.5 pb-2 space-y-1 overflow-auto ${isMobile ? 'max-h-48' : 'max-h-64'}`}>
               {functions.map((fn: Record<string, unknown>, i: number) => (
-                <div key={i} className="rounded-md border border-white/[0.04] bg-black/30 p-1.5 text-[10px]">
+                <div key={i} className={`rounded-md border border-white/[0.04] bg-black/30 p-1.5 ${isMobile ? 'text-[9px]' : 'text-[10px]'}`}>
                   <span className="font-mono font-semibold text-sky-300">{String(fn.name ?? "?")}</span>
                   {typeof fn.description === "string" && (
                     <p className="text-slate-500 mt-0.5">{fn.description}</p>
                   )}
                   {fn.parameters != null && (
-                    <pre className="mt-1 max-h-24 overflow-auto rounded border border-white/[0.04] bg-black/20 p-1 text-[9px] text-slate-500 whitespace-pre-wrap">
+                    <pre className={`mt-1 max-h-24 overflow-auto rounded border border-white/[0.04] bg-black/20 p-1 text-slate-500 whitespace-pre-wrap ${isMobile ? 'text-[8px]' : 'text-[9px]'}`}>
                       {JSON.stringify(fn.parameters, null, 2)}
                     </pre>
                   )}
@@ -859,7 +1054,7 @@ const MODEL_COLORS = [
   "bg-rose-400/40", "bg-teal-400/40", "bg-orange-400/40", "bg-indigo-400/40",
 ];
 
-function CostByModelChart({ buckets }: { buckets: UsageBucket[] }) {
+function CostByModelChart({ buckets, isMobile }: { buckets: UsageBucket[]; isMobile: boolean }) {
   const byModel = new Map<string, { cost: number; tokens: number }>();
   for (const b of buckets) {
     const prev = byModel.get(b.model) ?? { cost: 0, tokens: 0 };
@@ -872,21 +1067,21 @@ function CostByModelChart({ buckets }: { buckets: UsageBucket[] }) {
 
   return (
     <div className="space-y-1.5">
-      {sorted.slice(0, 6).map(([model, data], i) => {
+      {sorted.slice(0, isMobile ? 4 : 6).map(([model, data], i) => {
         const pct = Math.max(4, (data.cost / maxCost) * 100);
         return (
-          <div key={model} className="flex items-center gap-2 text-[10px]">
-            <span className="text-slate-400 font-mono truncate w-28 shrink-0">{model}</span>
+          <div key={model} className={`flex items-center gap-2 ${isMobile ? 'text-[9px]' : 'text-[10px]'}`}>
+            <span className="text-slate-400 font-mono truncate shrink-0" style={{ width: isMobile ? '80px' : '112px' }}>{model}</span>
             <div className="flex-1 h-4 rounded-sm bg-white/[0.03] overflow-hidden relative group">
               <div
                 className={`h-full rounded-sm ${MODEL_COLORS[i % MODEL_COLORS.length]} transition-all`}
                 style={{ width: `${pct}%` }}
               />
-              <span className="absolute inset-0 flex items-center px-1.5 text-[9px] text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity">
+              <span className={`absolute inset-0 flex items-center px-1.5 text-slate-300 opacity-0 group-hover:opacity-100 transition-opacity ${isMobile ? 'text-[8px]' : 'text-[9px]'}`}>
                 ${data.cost < 0.01 ? data.cost.toFixed(4) : data.cost.toFixed(2)} · {data.tokens.toLocaleString()} tok
               </span>
             </div>
-            <span className="text-amber-300/70 tabular-nums w-14 text-right shrink-0">
+            <span className="text-amber-300/70 tabular-nums text-right shrink-0" style={{ width: isMobile ? '48px' : '56px' }}>
               ${data.cost < 0.01 ? data.cost.toFixed(4) : data.cost.toFixed(2)}
             </span>
           </div>
