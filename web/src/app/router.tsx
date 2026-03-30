@@ -25,6 +25,7 @@ import {
 import { Button, Dialog, DialogContent, Input, Skeleton } from "@/shared/ui/components/ui";
 import { useUiStore } from "@/app/store/ui";
 import { useGatewayStatusSocket } from "@/shared/lib/useGatewayStatusSocket";
+import { MobileNav, MobileBottomNav } from "@/shared/ui/components/MobileNav";
 
 const navItems = [
   { to: "/chat", label: "Chat", icon: MessageSquare, hint: "Live conversations and tool activity" },
@@ -132,6 +133,9 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
 
     return (
       <div className="relative h-screen overflow-hidden bg-[var(--bg)] text-slate-100">
+        {/* ── Mobile Navigation ───────────────────── */}
+        <MobileNav items={navItems.map(({ to, label, icon }) => ({ to, label, icon }))} />
+        
         {/* ── Header ──────────────────────────────── */}
         <header className="sticky top-0 z-30 border-b border-[var(--glass-border)] bg-[var(--surface-1)]/90 backdrop-blur-xl">
           <div className="flex w-full items-center justify-between gap-2 px-4 py-2.5">
@@ -295,6 +299,9 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* ── Mobile Bottom Navigation ───────────── */}
+        <MobileBottomNav items={navItems.slice(0, 5).map(({ to, label, icon }) => ({ to, label, icon }))} />
       </div>
     );
   },
