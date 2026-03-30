@@ -222,7 +222,7 @@ export function AgentsListRoute() {
                   <Checkbox
                     checked={newAgentHeartbeat !== null}
                     onCheckedChange={(next) => {
-                      if (Boolean(next)) {
+                      if (next) {
                         setNewAgentHeartbeat(300);
                       } else {
                         setNewAgentHeartbeat(null);
@@ -688,7 +688,7 @@ export function AgentDetailRoute() {
                       <Checkbox
                         checked={heartbeatSecs !== null}
                         onCheckedChange={(next) => {
-                          if (Boolean(next)) {
+                          if (next) {
                             setHeartbeatSecs(300);
                           } else {
                             setHeartbeatSecs(null);
@@ -759,7 +759,7 @@ export function AgentDetailRoute() {
                       checked={allSkillsMode}
                       onCheckedChange={(next) => {
                         setAllSkillsMode(Boolean(next));
-                        if (Boolean(next)) setEnabledSkills([]);
+                        if (next) setEnabledSkills([]);
                       }}
                     />
                     <span className="text-xs text-slate-400">All skills enabled</span>
