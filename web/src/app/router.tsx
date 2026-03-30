@@ -22,9 +22,9 @@ import {
   Search,
 } from "lucide-react";
 
-import { Button, Dialog, DialogContent, Input, Skeleton } from "@/components/ui";
-import { useUiStore } from "@/state/ui";
-import { useGatewayStatusSocket } from "@/lib/ws";
+import { Button, Dialog, DialogContent, Input, Skeleton } from "@/shared/ui/components/ui";
+import { useUiStore } from "@/app/store/ui";
+import { useGatewayStatusSocket } from "./useGatewayStatusSocket";
 
 const navItems = [
   { to: "/chat", label: "Chat", icon: MessageSquare, hint: "Live conversations and tool activity" },
@@ -74,17 +74,17 @@ function RouteLoading() {
   );
 }
 
-const ChatRoute = lazyNamed(() => import("@/routes/chat"), "ChatRoute");
-const DashboardRoute = lazyNamed(() => import("@/routes/dashboard"), "DashboardRoute");
-const CronRoute = lazyNamed(() => import("@/routes/cron"), "CronRoute");
-const CronEditRoute = lazyNamed(() => import("@/routes/cron-edit"), "CronEditRoute");
-const SessionsListRoute = lazyNamed(() => import("@/routes/sessions"), "SessionsListRoute");
-const SessionDetailRoute = lazyNamed(() => import("@/routes/sessions"), "SessionDetailRoute");
-const AgentsListRoute = lazyNamed(() => import("@/routes/agents"), "AgentsListRoute");
-const AgentDetailRoute = lazyNamed(() => import("@/routes/agents"), "AgentDetailRoute");
-const SkillsRoute = lazyNamed(() => import("@/routes/skills"), "SkillsRoute");
-const ConfigRoute = lazyNamed(() => import("@/routes/config"), "ConfigRoute");
-const LogsRoute = lazyNamed(() => import("@/routes/logs"), "LogsRoute");
+const ChatRoute = lazyNamed(() => import("@/features/chat/ui"), "ChatRoute");
+const DashboardRoute = lazyNamed(() => import("@/features/dashboard/ui"), "DashboardRoute");
+const CronRoute = lazyNamed(() => import("@/features/cron/ui"), "CronRoute");
+const CronEditRoute = lazyNamed(() => import("@/features/cron/ui/edit"), "CronEditRoute");
+const SessionsListRoute = lazyNamed(() => import("@/features/sessions/ui"), "SessionsListRoute");
+const SessionDetailRoute = lazyNamed(() => import("@/features/sessions/ui"), "SessionDetailRoute");
+const AgentsListRoute = lazyNamed(() => import("@/features/agents/ui"), "AgentsListRoute");
+const AgentDetailRoute = lazyNamed(() => import("@/features/agents/ui"), "AgentDetailRoute");
+const SkillsRoute = lazyNamed(() => import("@/features/skills/ui"), "SkillsRoute");
+const ConfigRoute = lazyNamed(() => import("@/features/config/ui"), "ConfigRoute");
+const LogsRoute = lazyNamed(() => import("@/features/logs/ui"), "LogsRoute");
 
 const rootRoute = createRootRouteWithContext<RouterContext>()({
   notFoundComponent: NotFoundView,

@@ -6,7 +6,7 @@ import { RouterProvider } from "@tanstack/react-router";
 import { Toaster } from "sonner";
 
 import { router } from "@/app/router";
-import "@/styles/global.css";
+import "@/shared/ui/styles/global.css";
 import "highlight.js/styles/github-dark.min.css";
 
 const queryClient = new QueryClient({
