@@ -1,4 +1,5 @@
 import React, { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Marked } from "marked";
 import hljs from "highlight.js/lib/common";
@@ -893,6 +894,26 @@ export function ChatRoute() {
     return map;
   }, [allReceipts, filteredMessages]);
 
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const rowVirtualizer = useVirtualizer({
+    count: filteredMessages.length,
+    getScrollElement: () => scrollContainerRef.current,
+    estimateSize: (index) => {
+      const m = filteredMessages[index];
+      if (!m) return 100;
+      if (Array.isArray(m.images) && m.images.length > 0) return 180;
+      const r = (m.role ?? "").toLowerCase();
+      if (r === "user") return 80;
+      if (r === "system") return 64;
+      const len = m.content?.length ?? 0;
+      if (len > 1000) return 260;
+      if (len > 300) return 180;
+      if (len > 120) return 140;
+      return 100;
+    },
+    overscan: 6,
+  });
+
   const toggleSearch = () => {
     setSearchOpen((prev) => {
       if (!prev) setTimeout(() => searchInputRef.current?.focus(), 50);
@@ -1142,100 +1163,107 @@ export function ChatRoute() {
               </div>
             )}
 
-            {filteredMessages.map((message, index) => {
-              const role = message.role.toLowerCase();
-              const isUser = role === "user";
-              const isSystem = role === "system";
-              const isTool = role === "tool";
-              const isOutOfContext = contextBoundary > 0 && index < contextBoundary;
-              const isCompactedHistory = isSystem && message.content.includes("<compacted_history>");
-              const isContextDivider = contextBoundary > 0 && index === contextBoundary;
+            {filteredMessages.length > 0 && (
+              <div>
+                <div style={{ height: rowVirtualizer.getTotalSize ? rowVirtualizer.getTotalSize() : 0, position: "relative" }}>
+                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                    const index = virtualRow.index;
+                    const message = filteredMessages[index];
+                    if (!message) return null;
+                    const role = message.role.toLowerCase();
+                    const isUser = role === "user";
+                    const isSystem = role === "system";
+                    const isTool = role === "tool";
+                    const isOutOfContext = contextBoundary > 0 && index < contextBoundary;
+                    const isCompactedHistory = isSystem && message.content.includes("<compacted_history>");
+                    const isContextDivider = contextBoundary > 0 && index === contextBoundary;
 
-              if (isTool && message.content.trim().startsWith("{")) return null;
-              if (!message.content.trim()) return null;
-              if (isOutOfContext && collapsedOutOfContext && !isCompactedHistory) return null;
+                    if (isTool && message.content.trim().startsWith("{")) return null;
+                    if (!message.content.trim()) return null;
+                    if (isOutOfContext && collapsedOutOfContext && !isCompactedHistory) return null;
 
-              return (
-                <React.Fragment key={`${message.role}-${message.timestamp}-${index}`}>
-                  {isCompactedHistory && (
-                    <CompactedHistoryCard content={message.content} />
-                  )}
-                  {isContextDivider && (
-                    <div className="flex items-center gap-3 py-3 select-none">
-                      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
-                      <div className="flex items-center gap-1.5 text-[10px] text-purple-300/70 font-medium uppercase tracking-wider">
-                        <Layers className="h-3 w-3" />
-                        Context window
-                      </div>
-                      <div className="flex-1 h-px bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
-                    </div>
-                  )}
-                  {!isCompactedHistory && (
-                    <div className={`py-5 group ${isOutOfContext ? "opacity-40 hover:opacity-70 transition-opacity" : ""}`}>
-                      <div className="flex gap-3">
-                        <div className="relative">
-                          <div className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                            isUser ? "bg-emerald-400/10" : isSystem ? "bg-amber-400/10" : "bg-white/[0.06]"
-                          }`}>
-                            {isUser ? <User className="h-3.5 w-3.5 text-emerald-400" />
-                              : isSystem ? <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
-                              : <Bot className="h-3.5 w-3.5 text-slate-400" />}
+                    return (
+                      <div key={`${message.role}-${message.timestamp}-${index}`} style={{ position: "absolute", top: virtualRow.start, left: 0, width: "100%" }}>
+                        {isCompactedHistory && <CompactedHistoryCard content={message.content} />}
+                        {isContextDivider && (
+                          <div className="flex items-center gap-3 py-3 select-none">
+                            <div className="flex-1 h-px bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
+                            <div className="flex items-center gap-1.5 text-[10px] text-purple-300/70 font-medium uppercase tracking-wider">
+                              <Layers className="h-3 w-3" />
+                              Context window
+                            </div>
+                            <div className="flex-1 h-px bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
                           </div>
-                          {isOutOfContext && (
-                            <div className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-purple-500/20 flex items-center justify-center">
-                              <EyeOff className="h-2 w-2 text-purple-400" />
+                        )}
+                        {!isCompactedHistory && (
+                          <div className={`py-5 group ${isOutOfContext ? "opacity-40 hover:opacity-70 transition-opacity" : ""}`}>
+                            <div className="flex gap-3">
+                              <div className="relative">
+                                <div className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                                  isUser ? "bg-emerald-400/10" : isSystem ? "bg-amber-400/10" : "bg-white/[0.06]"
+                                }`}>
+                                  {isUser ? <User className="h-3.5 w-3.5 text-emerald-400" />
+                                    : isSystem ? <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
+                                    : <Bot className="h-3.5 w-3.5 text-slate-400" />}
+                                </div>
+                                {isOutOfContext && (
+                                  <div className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-purple-500/20 flex items-center justify-center">
+                                    <EyeOff className="h-2 w-2 text-purple-400" />
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 mb-1">
+                                  <span className="text-xs font-medium text-slate-200">
+                                    {isUser ? "You" : isSystem ? "System" : "Agent"}
+                                  </span>
+                                  <span className="text-[10px] tabular-nums text-slate-600">
+                                    {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                  </span>
+                                  {isOutOfContext && (
+                                    <span className="text-[9px] text-purple-400/60 font-medium">out of context</span>
+                                  )}
+                                  {!isUser && (
+                                    <button
+                                      onClick={() => copyMessage(message.content, index)}
+                                      className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-slate-300"
+                                    >
+                                      {copiedIdx === index
+                                        ? <Check className="h-3 w-3 text-emerald-400" />
+                                        : <Copy className="h-3 w-3" />}
+                                    </button>
+                                  )}
+                                </div>
+                                {isUser && message.images?.length ? (
+                                  <div className="flex gap-2 flex-wrap mb-1.5">
+                                    {message.images.map((src, i) => (
+                                      <img key={i} src={src} alt="" className="max-h-48 max-w-[256px] rounded-lg border border-white/[0.08] object-contain" />
+                                    ))}
+                                  </div>
+                                ) : null}
+                                {isUser ? (
+                                  <div className="text-sm text-slate-200 whitespace-pre-wrap break-words overflow-hidden">{message.content !== "[image]" ? message.content : ""}</div>
+                                ) : isSystem ? (
+                                  <div className="text-sm text-amber-200/80 whitespace-pre-wrap break-words overflow-hidden">{message.content}</div>
+                                ) : (
+                                  <div className="markdown-body text-sm text-slate-300 leading-relaxed overflow-hidden">
+                                    <MarkdownBlock content={message.content} />
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          )}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-xs font-medium text-slate-200">
-                              {isUser ? "You" : isSystem ? "System" : "Agent"}
-                            </span>
-                            <span className="text-[10px] tabular-nums text-slate-600">
-                              {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                            </span>
-                            {isOutOfContext && (
-                              <span className="text-[9px] text-purple-400/60 font-medium">out of context</span>
-                            )}
-                            {!isUser && (
-                              <button
-                                onClick={() => copyMessage(message.content, index)}
-                                className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-slate-300"
-                              >
-                                {copiedIdx === index
-                                  ? <Check className="h-3 w-3 text-emerald-400" />
-                                  : <Copy className="h-3 w-3" />}
-                              </button>
-                            )}
                           </div>
-                          {isUser && message.images?.length ? (
-                            <div className="flex gap-2 flex-wrap mb-1.5">
-                              {message.images.map((src, i) => (
-                                <img key={i} src={src} alt="" className="max-h-48 max-w-[256px] rounded-lg border border-white/[0.08] object-contain" />
-                              ))}
-                            </div>
-                          ) : null}
-                          {isUser ? (
-                            <div className="text-sm text-slate-200 whitespace-pre-wrap break-words overflow-hidden">{message.content !== "[image]" ? message.content : ""}</div>
-                          ) : isSystem ? (
-                            <div className="text-sm text-amber-200/80 whitespace-pre-wrap break-words overflow-hidden">{message.content}</div>
-                          ) : (
-                            <div className="markdown-body text-sm text-slate-300 leading-relaxed overflow-hidden">
-                              <MarkdownBlock content={message.content} />
-                            </div>
-                          )}
-                        </div>
+                        )}
+                        {!isUser && !isSystem && !isCompactedHistory && receiptByMsgIndex.has(index) && (() => {
+                          return <InlineReceipt receipt={receiptByMsgIndex.get(index)!} index={index} expanded={expandedInlineReceipt === index} onToggle={() => setExpandedInlineReceipt(expandedInlineReceipt === index ? null : index)} />;
+                        })()}
                       </div>
-                    </div>
-                  )}
-                  {/* Inline receipt for this assistant message */}
-                  {!isUser && !isSystem && !isCompactedHistory && receiptByMsgIndex.has(index) && (() => {
-                    return <InlineReceipt receipt={receiptByMsgIndex.get(index)!} index={index} expanded={expandedInlineReceipt === index} onToggle={() => setExpandedInlineReceipt(expandedInlineReceipt === index ? null : index)} />;
-                  })()}
-                </React.Fragment>
-              );
-            })}
+                    );
+                  })}
+                </div>
+                <div ref={messagesEndRef} className="h-4" />
+              </div>
+            )}
 
             {/* Streaming */}
             {displayedStream && (
@@ -1413,7 +1441,7 @@ export function ChatRoute() {
               </div>
             )}
 
-            <div ref={messagesEndRef} className="h-4" />
+            
           </div>
         )}
       </div>
