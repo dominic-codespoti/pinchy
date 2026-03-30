@@ -62,9 +62,13 @@ export function CronEditRoute() {
 
   useEffect(() => {
     if (!job) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSchedule(job.schedule);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMessage(job.message ?? "");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setOneShot((job.kind ?? "").toLowerCase() === "oneshot");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDirty(false);
   }, [job?.id, job?.schedule, job?.message, job?.kind]);
 

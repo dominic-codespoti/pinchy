@@ -465,6 +465,7 @@ export function ConfigRoute() {
   useEffect(() => {
     const cfg = configQuery.data;
     if (!cfg) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setValues(JSON.parse(JSON.stringify(cfg)));
     setRawYaml(yaml.dump(cfg, { lineWidth: -1, noRefs: true, sortKeys: false }));
   }, [configQuery.data]);

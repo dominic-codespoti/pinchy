@@ -22,7 +22,7 @@ import {
   Search,
 } from "lucide-react";
 
-import { Badge, Button, Dialog, DialogContent, Input, Skeleton } from "@/components/ui";
+import { Button, Dialog, DialogContent, Input, Skeleton } from "@/components/ui";
 import { useUiStore } from "@/state/ui";
 import { useGatewayStatusSocket } from "@/lib/ws";
 
@@ -287,7 +287,7 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
                 );
               })}
               {!commandItems.length ? (
-                <p className="px-3 py-2 text-sm text-mute">No matches for "{commandQuery}".</p>
+                <p className="px-3 py-2 text-sm text-mute">No matches for &quot;{commandQuery}&quot;.</p>
               ) : null}
             </div>
             <div className="border-t border-[var(--glass-border)] px-3 py-2 text-[11px] text-slate-500">
@@ -300,11 +300,11 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
   },
 });
 
-function RootErrorView(props: { error: Error }) {
+function RootErrorView(props: { error?: { message?: string } }) {
   return (
     <div className="glass-card border-rose-300/30 bg-rose-300/10 p-4 text-sm text-rose-100">
       <p className="text-base font-semibold">Route crashed</p>
-      <p className="mt-1 text-rose-100/90">{props.error.message || "Unexpected route error."}</p>
+      <p className="mt-1 text-rose-100/90">{props.error?.message ?? "Unexpected route error."}</p>
     </div>
   );
 }

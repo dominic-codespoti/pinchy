@@ -22,6 +22,18 @@ export function formatRelativeTime(ts: number): string {
   return new Date(ms).toLocaleTimeString();
 }
 
+export function asMsTimestamp(ts?: number): number {
+  if (typeof ts === "number") return ts > 1e12 ? ts : ts * 1000;
+  return Date.now();
+}
+
+export function minutesAgo(ts: number | undefined): string {
+  if (!ts) return "0m ago";
+  const ms = ts > 1e12 ? ts : ts * 1000;
+  const diffMin = Math.round((Date.now() - ms) / 60000);
+  return `${diffMin}m ago`;
+}
+
 export function toText(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === null || value === undefined) return "";

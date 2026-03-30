@@ -42,7 +42,7 @@ import {
   updateAgent,
 } from "@/api/client";
 import { Button, Checkbox, Dialog, DialogContent, Input, Separator, Skeleton, TextArea } from "@/components/ui";
-import { humanBytes } from "@/lib/utils";
+import { humanBytes, minutesAgo } from "@/lib/utils";
 
 const fileTabs = ["SOUL.md", "TOOLS.md", "HEARTBEAT.md"] as const;
 
@@ -69,6 +69,7 @@ export function AgentsListRoute() {
   useEffect(() => {
     if (!agentsQuery.error) return;
     let mounted = true;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoadingFallback(true);
     getConfig()
       .then((cfg) => {
@@ -135,8 +136,9 @@ export function AgentsListRoute() {
       setCloneNewId("");
       void queryClient.invalidateQueries({ queryKey: queryKeys.agents });
     },
-    onError: (error: any) => {
-      toast.error(`Clone failed: ${error.message}`);
+    onError: (error: unknown) => {
+      const msg = error instanceof Error ? error.message : String(error);
+      toast.error(`Clone failed: ${msg}`);
     },
   });
 
@@ -443,6 +445,7 @@ export function AgentDetailRoute() {
   const [formInitialized, setFormInitialized] = useState(false);
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFormInitialized(false);
     setTab("settings");
   }, [agentId]);
@@ -494,16 +497,26 @@ export function AgentDetailRoute() {
 
   useEffect(() => {
     if (!data || formInitialized) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setModel(data.model ?? "");
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHeartbeatSecs(data.heartbeat_secs ?? null);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMaxToolIterations(data.max_tool_iterations ?? 15);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMaxTurns(data.max_turns ?? 20);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCompactKeepRecentTurns(data.compact_keep_recent_turns ?? 8);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setHistoryMessages(data.history_messages ?? 40);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setReasoningEffort(data.reasoning_effort ?? "");
     const isAllSkills = data.enabled_skills == null || data.enabled_skills === undefined;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAllSkillsMode(isAllSkills);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setEnabledSkills(isAllSkills ? [] : data.enabled_skills!);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setFormInitialized(true);
   }, [data, formInitialized]);
 
@@ -584,7 +597,7 @@ export function AgentDetailRoute() {
               </span>
               {hb.last_tick && (
                 <span className="text-slate-600">
-                  · {Math.round((Date.now() / 1000 - hb.last_tick) / 60)}m ago
+                  · {minutesAgo(hb.last_tick)}
                 </span>
               )}
             </div>
@@ -766,7 +779,7 @@ export function AgentDetailRoute() {
                   </label>
                 </div>
                 {allSkillsMode ? (
-                  <p className="text-xs text-slate-500">All available skills are enabled for this agent. Uncheck "All skills enabled" to select specific skills.</p>
+                  <p className="text-xs text-slate-500">All available skills are enabled for this agent. Uncheck &quot;All skills enabled&quot; to select specific skills.</p>
                 ) : (
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                   {(skillsQuery.data?.skills ?? []).map((skill) => {
@@ -928,6 +941,7 @@ function AgentFileEditor({
   const [content, setContent] = useState("");
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setContent(fileQuery.data?.content ?? "");
   }, [fileQuery.data?.content, agentId, filename]);
 

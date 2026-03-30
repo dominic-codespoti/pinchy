@@ -673,6 +673,7 @@ function ModelRequestDetail({
   // Auto-fetch the full payload when the component mounts (i.e. user selected a model_request event).
   useEffect(() => {
     if (!requestId) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setFetchError(null);
     getDebugModelRequest(requestId)

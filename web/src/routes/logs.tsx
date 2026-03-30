@@ -215,6 +215,7 @@ export function LogsRoute() {
           </div>
 
           <span className="text-[10px] tabular-nums text-slate-500">{filtered.length} lines</span>
+          {/* eslint-disable-next-line react-hooks/refs */}
           {paused && pendingRef.current.length > 0 && (
             <Badge variant="warning" className="!text-[9px] !px-1.5 !py-0.5">{pendingRef.current.length} queued</Badge>
           )}

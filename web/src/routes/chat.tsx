@@ -49,6 +49,7 @@ import {
 } from "lucide-react";
 import { useUiStore } from "@/state/ui";
 import { SessionSidebar } from "@/components/SessionSidebar";
+import { toText, formatTimestamp, truncateMiddle, formatRelativeTime, asMsTimestamp } from "@/lib/utils";
 
 const markedParser = new Marked({
   async: false,
@@ -381,7 +382,7 @@ export function ChatRoute() {
         error: tc.error,
       })) : [];
       return {
-        timestamp: typeof r.started_at === "number" ? (r.started_at > 1e12 ? r.started_at : r.started_at * 1000) : Date.now(),
+        timestamp: asMsTimestamp((r as Record<string, unknown>).started_at as number | undefined),
         tokens: {
           prompt: r.tokens?.prompt_tokens ?? r.prompt_tokens ?? 0,
           completion: r.tokens?.completion_tokens ?? r.completion_tokens ?? 0,

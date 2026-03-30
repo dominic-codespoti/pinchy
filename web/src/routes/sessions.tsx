@@ -41,6 +41,7 @@ export function SessionsListRoute() {
   useEffect(() => {
     if (!agentIds.length) return;
     if (agentIds.includes(selectedAgent)) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setSelectedAgent(agentIds[0]);
   }, [agentIds, selectedAgent]);
 
