@@ -5,7 +5,6 @@ import { toast } from "sonner";
 import {
   Bot,
   Plus,
-  ChevronLeft,
   Trash2,
   Save,
   Heart,

@@ -1,7 +1,9 @@
+/* eslint-disable react-hooks/refs */
+
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, Download, Pause, Play, Radio } from "lucide-react";
 
-import { Badge, Button, Input, Select, SelectItem, Separator } from "@/components/ui";
+import { Badge, Input, Select, SelectItem, Separator } from "@/components/ui";
 import { wsUrl } from "@/lib/ws";
 
 type LogEntry = {

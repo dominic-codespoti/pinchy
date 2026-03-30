@@ -33,7 +33,7 @@ import {
   queryKeys,
 } from "@/api/client";
 import type { UsageBucket } from "@/api/client";
-import { Badge, Button, Separator, Skeleton } from "@/components/ui";
+import { Badge, Separator, Skeleton } from "@/components/ui";
 
 type TimelineEvent = {
   id: string;
@@ -62,7 +62,6 @@ export function DashboardRoute() {
 
   const [events, setEvents] = useState<TimelineEvent[]>([]);
   const [tokenCount, setTokenCount] = useState<number>(0);
-  const [tokenHistory, setTokenHistory] = useState<number[]>([]);
   const [eventFilter, setEventFilter] = useState("all");
   const [forcingHeartbeatFor, setForcingHeartbeatFor] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -201,7 +200,6 @@ export function DashboardRoute() {
       );
       if (!cancelled) {
         setTokenCount(total);
-        setTokenHistory(perAgent);
       }
     })();
 
@@ -512,7 +510,11 @@ export function DashboardRoute() {
                     onToggleMsg={(i) =>
                       setDebugExpandedMsgs((prev) => {
                         const next = new Set(prev);
-                        next.has(i) ? next.delete(i) : next.add(i);
+                        if (next.has(i)) {
+                          next.delete(i);
+                        } else {
+                          next.add(i);
+                        }
                         return next;
                       })
                     }
@@ -684,7 +686,7 @@ function ModelRequestDetail({
       })
       .catch((e) => setFetchError(e instanceof Error ? e.message : String(e)))
       .finally(() => setLoading(false));
-  }, [requestId]);
+  }, [requestId, onFullPayload]);
 
   const source = fullPayload ?? payload;
   const messages = Array.isArray(source.messages) ? source.messages : [];

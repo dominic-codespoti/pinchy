@@ -6,7 +6,6 @@ import hljs from "highlight.js/lib/common";
 import {
   type SessionMessage,
   type SlashCommand,
-  type RawReceipt,
   deleteSession,
   getCurrentSession,
   getReceipts,
@@ -16,10 +15,9 @@ import {
   listSlashCommands,
   queryKeys,
 } from "@/api/client";
-import { Badge, Button, Separator, TextArea } from "@/components/ui";
+import { Button, Separator, TextArea } from "@/components/ui";
 import {
   Send,
-  Plus,
   Activity,
   Bot,
   User,
@@ -49,7 +47,7 @@ import {
 } from "lucide-react";
 import { useUiStore } from "@/state/ui";
 import { SessionSidebar } from "@/components/SessionSidebar";
-import { toText, formatTimestamp, truncateMiddle, formatRelativeTime, asMsTimestamp } from "@/lib/utils";
+import { toText, asMsTimestamp } from "@/lib/utils";
 
 const markedParser = new Marked({
   async: false,
@@ -293,6 +291,7 @@ export function ChatRoute() {
     return slashQuery.data.filter((cmd) => cmd.name.toLowerCase().startsWith(prefix));
   }, [slashOpen, slashQuery.data, draft]);
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (draft.startsWith("/") && !draft.includes("\n")) {
       const afterSlash = draft.slice(1);
@@ -309,18 +308,21 @@ export function ChatRoute() {
       setSlashOpen(false);
     }
   }, [draft, slashQuery.data]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => { selectedAgentRef.current = selectedAgent; }, [selectedAgent]);
   useEffect(() => { selectedSessionRef.current = selectedSession; }, [selectedSession]);
   useEffect(() => { window.sessionStorage.setItem("pinchy-show-activity", showActivity ? "1" : "0"); }, [showActivity]);
   useEffect(() => { window.localStorage.setItem("pinchy-sidebar-collapsed", sidebarCollapsed ? "1" : "0"); }, [sidebarCollapsed]);
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!agentIds.length) return;
     if (agentIds.includes(selectedAgent)) return;
     setSelectedAgent(agentIds[0]);
     userPickedSessionRef.current = false;
   }, [agentIds, selectedAgent]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const sessionsQuery = useQuery({
     queryKey: queryKeys.sessions(selectedAgent),
@@ -342,6 +344,7 @@ export function ChatRoute() {
     [sessionsQuery.data],
   );
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     if (!sessions.length) { setSelectedSession(""); return; }
     // If the user manually picked a session and it still exists, don't override
@@ -357,6 +360,7 @@ export function ChatRoute() {
       setSelectedSession(sessions[0].session_id);
     }
   }, [currentSessionQuery.data?.session_id, selectedSession, sessions]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   const sessionQuery = useQuery({
     queryKey: queryKeys.sessionMessages(selectedAgent, selectedSession),
@@ -470,6 +474,7 @@ export function ChatRoute() {
     return () => clearTimeout(t);
   }, [selectedAgent, selectedSession, sessionQuery.data, scrollToBottom]);
 
+  /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
     setLiveMessages([]);
     setActivityItems([]);
@@ -487,6 +492,7 @@ export function ChatRoute() {
     setOtherSession(null);
     setExpandedInlineReceipt(null);
   }, [selectedAgent, selectedSession]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   // ── WebSocket ──────────────────────────────────────
   useEffect(() => {
@@ -731,7 +737,7 @@ export function ChatRoute() {
       setTyping(false);
       if (otherSessionTimerRef.current) window.clearTimeout(otherSessionTimerRef.current);
     };
-  }, [queryClient]);
+  }, [queryClient, setWsConnectedGlobal]);
 
   const addImages = useCallback((files: FileList | File[]) => {
     const MAX_SIZE = 10 * 1024 * 1024;
@@ -1520,12 +1526,7 @@ function normalizeMessage(message: SessionMessage): LiveMessage {
   };
 }
 
-function sessionLabel(sessionId: string, modified?: number, title?: string): string {
-  if (title) return title;
-  const shortId = sessionId.length > 20 ? `${sessionId.slice(0, 16)}…` : sessionId;
-  if (!modified) return shortId;
-  return `${shortId} · ${new Date(modified * 1000).toLocaleDateString()}`;
-}
+
 
 function messageKey(role: string | undefined, content: unknown, timestamp: number | undefined): string {
   return timestamp ? `${messageBaseKey(role, content)}|${timestamp}` : messageBaseKey(role, content);
@@ -1546,16 +1547,7 @@ function activityColor(kind: ActivityKind) {
   return "text-slate-500";
 }
 
-function toText(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value === null || value === undefined) return "";
-  if (typeof value === "object") {
-    try { return JSON.stringify(value, null, 2); } catch { return String(value); }
-  }
-  return String(value);
-}
-
-function InlineReceipt({ receipt: r, index, expanded, onToggle }: { receipt: ReceiptItem; index: number; expanded: boolean; onToggle: () => void }) {
+function InlineReceipt({ receipt: r, index: _index, expanded, onToggle }: { receipt: ReceiptItem; index: number; expanded: boolean; onToggle: () => void }) {
   const okCount = r.tools.filter(t => t.success).length;
   const failCount = r.tools.length - okCount;
   const grouped = new Map<string, { total: number; ok: number }>();

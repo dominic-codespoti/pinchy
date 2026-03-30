@@ -26,7 +26,6 @@ import {
   updateCronJob,
   triggerCronJob,
 } from "@/api/client";
-import type { CronJob, CronRun } from "@/api/client";
 import {
   Badge,
   Button,
@@ -70,7 +69,7 @@ export function CronEditRoute() {
     setOneShot((job.kind ?? "").toLowerCase() === "oneshot");
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDirty(false);
-  }, [job?.id, job?.schedule, job?.message, job?.kind]);
+  }, [job]);
 
   const updateField = <T,>(setter: (v: T) => void) => (v: T) => {
     setter(v);
@@ -146,7 +145,7 @@ export function CronEditRoute() {
     if (!job) return null;
     const agent = (agentsQuery.data?.agents ?? []).find((a) => a.id === job.agent_id);
     return agent?.timezone ?? null;
-  }, [agentsQuery.data, job?.agent_id]);
+  }, [job, agentsQuery.data]);
 
   const schedulePreview = computeNextFires(schedule, 5, agentTz);
 
