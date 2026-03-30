@@ -242,7 +242,7 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
           </aside>
 
           {/* ── Main content ──────────────────────── */}
-          <main className="route-stage flex-1 min-h-0 overflow-y-auto">
+          <main className="route-stage flex-1 min-h-0 overflow-hidden">
             <Outlet />
           </main>
         </div>
