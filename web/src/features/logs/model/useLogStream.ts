@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { wsUrl } from "@/shared/lib/ws";
+import { wsUrl } from "@/shared/lib/useWebSocket";
 
 export type LogEntry = {
   ts?: string;

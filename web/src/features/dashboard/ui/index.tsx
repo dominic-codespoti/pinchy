@@ -17,7 +17,7 @@ import {
   Bug,
   DollarSign,
 } from "lucide-react";
-import { wsUrl, sendOneShot } from "@/shared/lib/ws";
+import { wsUrl, sendOneShot } from "@/shared/lib/useWebSocket";
 
 import {
   getHealth,

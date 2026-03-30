@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, Download, Pause, Play, Radio } from "lucide-react";
 
 import { Badge, Input, Select, SelectItem, Separator } from "@/shared/ui/components/ui";
-import { wsUrl } from "@/shared/lib/ws";
+import { wsUrl } from "@/shared/lib/useWebSocket";
 
 type LogEntry = {
   ts?: string;

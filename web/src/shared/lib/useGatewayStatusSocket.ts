@@ -1,7 +1,11 @@
 import { useEffect, useRef } from "react";
 import { useUiStore } from "@/app/store/ui";
-import { wsUrl } from "@/shared/lib/wsHelpers";
+import { wsUrl } from "./useWebSocket";
 
+/**
+ * Gateway status WebSocket hook
+ * Monitors connection to the main gateway and updates global state
+ */
 export function useGatewayStatusSocket(): void {
   const setWsConnected = useUiStore((s) => s.setWsConnected);
   const retriesRef = useRef(0);

@@ -24,7 +24,7 @@ import {
 
 import { Button, Dialog, DialogContent, Input, Skeleton } from "@/shared/ui/components/ui";
 import { useUiStore } from "@/app/store/ui";
-import { useGatewayStatusSocket } from "./useGatewayStatusSocket";
+import { useGatewayStatusSocket } from "@/shared/lib/useGatewayStatusSocket";
 
 const navItems = [
   { to: "/chat", label: "Chat", icon: MessageSquare, hint: "Live conversations and tool activity" },

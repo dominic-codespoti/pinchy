@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { wsUrl, sendOneShot } from "@/shared/lib/ws";
+import { wsUrl, sendOneShot } from "@/shared/lib/useWebSocket";
 import {
   getStatus,
   listAgents,
