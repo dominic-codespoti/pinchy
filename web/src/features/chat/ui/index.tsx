@@ -1228,7 +1228,7 @@ export function ChatRoute() {
       {/* ── Messages ── fixed-height scrollable ──── */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden flex flex-col"
         role="log"
         aria-live="polite"
         aria-label="Chat messages"
@@ -1290,7 +1290,9 @@ export function ChatRoute() {
             )}
 
             {filteredMessages.length > 0 && (
-              <div>
+              <div className="flex flex-col min-h-full">
+                {/* Spacer that grows to push messages to bottom when content is short */}
+                <div className="flex-1 min-h-[1px]" />
                 <div style={{ height: rowVirtualizer.getTotalSize ? rowVirtualizer.getTotalSize() : 0, position: "relative" }}>
                   {rowVirtualizer.getVirtualItems().map((virtualRow) => {
                     const index = virtualRow.index;
