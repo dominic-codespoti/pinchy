@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use anyhow::Context as _;
 use async_trait::async_trait;
+use chrono::Utc;
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tracing::{debug, trace, warn};
@@ -120,7 +121,24 @@ impl CopilotProvider {
                     warn!("CopilotProvider: failed to load cached Copilot token: {e}");
                     None
                 }
-            };
+            }
+            .or_else(|| {
+                // Fallback: try the raw token file written by web UI auth flow
+                dirs::home_dir()
+                    .map(|h| h.join(".pinchy/copilot-token"))
+                    .filter(|p| p.exists())
+                    .and_then(|p| std::fs::read_to_string(&p).ok())
+                    .map(|raw| raw.trim().to_string())
+                    .filter(|t| !t.is_empty())
+                    .map(|token| {
+                        debug!("CopilotProvider: using raw token from ~/.pinchy/copilot-token");
+                        copilot_token::CopilotToken {
+                            token,
+                            expires_at: Some(Utc::now() + chrono::Duration::minutes(25)),
+                            proxy_ep: None,
+                        }
+                    })
+            });
 
         // --- 2. Resolve a GitHub access token ----------------------------
         let token =
@@ -190,6 +208,8 @@ impl CopilotProvider {
                         warn!("CopilotProvider: token refresh failed: {e:#}");
                     }
                 }
+            } else {
+                warn!("CopilotProvider: no GitHub token available for exchange");
             }
         }
 
@@ -203,6 +223,11 @@ impl CopilotProvider {
                     .to_string();
                 return Some((ep, ct.token.clone()));
             }
+            warn!(
+                "CopilotProvider: cached token is expired and refresh failed or was not possible"
+            );
+        } else {
+            warn!("CopilotProvider: no Copilot session token available");
         }
 
         None
@@ -898,6 +923,7 @@ impl CopilotProvider {
                     vendor,
                     supported_endpoints: endpoints,
                     is_default,
+                    ..Default::default()
                 })
             })
             .collect();
@@ -1929,8 +1955,13 @@ fn stream_responses_sse_deltas(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::await_holding_lock)] // ENV_LOCK intentionally serialises tests that set env vars
 mod tests {
     use super::*;
+
+    /// Serialise tests that mutate `COPILOT_PROXY_ENDPOINTS` (env vars
+    /// are process-global, so parallel tests would race).
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Without `COPILOT_TOKEN` env var. The provider may still find a
     /// stored GitHub token from keyring/file, so we only assert that
@@ -2009,6 +2040,7 @@ mod tests {
 
     #[test]
     fn proxy_paths_defaults() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let old = std::env::var("COPILOT_PROXY_ENDPOINTS").ok();
         std::env::remove_var("COPILOT_PROXY_ENDPOINTS");
         let paths = proxy_paths();
@@ -2022,6 +2054,7 @@ mod tests {
 
     #[test]
     fn proxy_paths_from_env() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let old = std::env::var("COPILOT_PROXY_ENDPOINTS").ok();
         std::env::set_var("COPILOT_PROXY_ENDPOINTS", "/custom/chat,/custom/complete");
         let paths = proxy_paths();
@@ -2040,6 +2073,7 @@ mod tests {
     #[tokio::test]
     async fn proxy_http_200_success() {
         // Guard against env leaks from parallel tests.
+        let _lock = ENV_LOCK.lock().unwrap();
         let old = std::env::var("COPILOT_PROXY_ENDPOINTS").ok();
         std::env::remove_var("COPILOT_PROXY_ENDPOINTS");
 
@@ -2097,6 +2131,7 @@ mod tests {
     #[tokio::test]
     async fn proxy_http_500_retries_then_fails() {
         // Use a single endpoint to keep the test fast (retries sleep).
+        let _lock = ENV_LOCK.lock().unwrap();
         let old = std::env::var("COPILOT_PROXY_ENDPOINTS").ok();
         std::env::set_var("COPILOT_PROXY_ENDPOINTS", "/chat/completions");
 
@@ -2133,6 +2168,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_chat_with_functions_proxy_returns_fenced_tool_call() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let old = std::env::var("COPILOT_PROXY_ENDPOINTS").ok();
         std::env::remove_var("COPILOT_PROXY_ENDPOINTS");
 
@@ -2196,6 +2232,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_chat_with_functions_includes_tools_in_body() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let old = std::env::var("COPILOT_PROXY_ENDPOINTS").ok();
         std::env::remove_var("COPILOT_PROXY_ENDPOINTS");
 
@@ -2247,6 +2284,7 @@ mod tests {
 
     #[tokio::test]
     async fn send_chat_with_functions_skips_empty_name() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let old = std::env::var("COPILOT_PROXY_ENDPOINTS").ok();
         std::env::remove_var("COPILOT_PROXY_ENDPOINTS");
 
@@ -2298,6 +2336,7 @@ mod tests {
     /// which uses `try_proxy_http_with_tools`.
     #[tokio::test]
     async fn trait_send_chat_with_functions_delegates_to_inherent() {
+        let _lock = ENV_LOCK.lock().unwrap();
         let old = std::env::var("COPILOT_PROXY_ENDPOINTS").ok();
         std::env::remove_var("COPILOT_PROXY_ENDPOINTS");
 

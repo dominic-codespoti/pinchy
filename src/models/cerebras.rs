@@ -1,4 +1,16 @@
-//! OpenAI chat-completions provider with optional SSE streaming.
+//! Cerebras AI provider for OpenAI-compatible chat completions.
+//!
+//! Uses the Cerebras Inference API at https://api.cerebras.ai/v1
+//! Supports Llama models with fast inference on Cerebras hardware.
+//!
+//! Config example:
+//! ```yaml
+//! models:
+//!   - id: cerebras-llama-70b
+//!     provider: cerebras
+//!     model: llama-3.3-70b
+//!     api_key: $CEREBRAS_API_KEY
+//! ```
 
 use std::any::Any;
 use std::pin::Pin;
@@ -10,39 +22,41 @@ use serde_json::json;
 
 use super::{ChatMessage, ModelProvider, ProviderResponse, TokenUsage};
 
-/// Default endpoint for OpenAI chat completions.
-pub const DEFAULT_ENDPOINT: &str = "https://api.openai.com/v1/chat/completions";
+/// Default endpoint for Cerebras chat completions.
+pub const DEFAULT_ENDPOINT: &str = "https://api.cerebras.ai/v1/chat/completions";
 
-const DEFAULT_EMBEDDING_MODEL: &str = "text-embedding-3-small";
+/// Custom integration header for Cerebras.
+const INTEGRATION_HEADER: &str = "X-Cerebras-3rd-Party-Integration";
+const INTEGRATION_VALUE: &str = "opencode";
 
-/// Provider that talks to the OpenAI-compatible chat completions API.
-pub struct OpenAIProvider {
+/// Provider that talks to the Cerebras Inference API.
+pub struct CerebrasProvider {
     api_key: String,
     endpoint: String,
     client: Client,
-    /// Model name sent in the request body (e.g. "gpt-4o-mini").
+    /// Model name sent in the request body (e.g. "llama-3.3-70b").
     model: String,
 }
 
-impl Default for OpenAIProvider {
+impl Default for CerebrasProvider {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl OpenAIProvider {
+impl CerebrasProvider {
     /// Create a new provider.
     ///
-    /// Reads `OPENAI_API_KEY` from the environment.  Panics if the
+    /// Reads `CEREBRAS_API_KEY` from the environment. Panics if the
     /// variable is missing — fail fast at startup rather than at first
     /// request.
     pub fn new() -> Self {
-        let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
+        let api_key = std::env::var("CEREBRAS_API_KEY").expect("CEREBRAS_API_KEY must be set");
         Self {
             api_key,
             endpoint: DEFAULT_ENDPOINT.to_string(),
             client: super::get_shared_http_client(),
-            model: "gpt-4o-mini".to_string(),
+            model: "llama-3.3-70b".to_string(),
         }
     }
 
@@ -57,22 +71,20 @@ impl OpenAIProvider {
         }
     }
 
-    // -- streaming -----------------------------------------------------------
-
     /// Send chat messages and return a stream of content chunks.
     ///
-    /// When the `OPENAI_STREAM` environment variable is `"true"`, the
+    /// When the `CEREBRAS_STREAM` environment variable is `"true"`, the
     /// request uses the streaming API (`"stream": true` in the body) and
     /// yields incremental content deltas parsed from the SSE event
-    /// stream.  Otherwise, falls back to a single-shot request that
+    /// stream. Otherwise, falls back to a single-shot request that
     /// yields the complete reply as one item.
     pub fn send_chat_stream<'a>(
         &'a self,
         messages: &'a [ChatMessage],
     ) -> Pin<Box<dyn Stream<Item = Result<String, anyhow::Error>> + Send + 'a>> {
-        let use_streaming = std::env::var("OPENAI_STREAM")
+        let use_streaming = std::env::var("CEREBRAS_STREAM")
             .map(|v| v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false);
+            .unwrap_or(true);
 
         self.send_chat_stream_mode(messages, use_streaming)
     }
@@ -109,6 +121,7 @@ impl OpenAIProvider {
                 .client
                 .post(&self.endpoint)
                 .bearer_auth(&self.api_key)
+                .header(INTEGRATION_HEADER, INTEGRATION_VALUE)
                 .json(&body)
                 .send()
                 .await?;
@@ -117,7 +130,7 @@ impl OpenAIProvider {
             if !status.is_success() {
                 let text = resp.text().await.unwrap_or_default();
                 Err(anyhow::anyhow!(
-                    "OpenAI streaming API returned {status}: {text}"
+                    "Cerebras API returned {status}: {text}"
                 ))?;
                 return;
             }
@@ -168,6 +181,7 @@ impl OpenAIProvider {
             .client
             .post(&self.endpoint)
             .bearer_auth(&self.api_key)
+            .header(INTEGRATION_HEADER, INTEGRATION_VALUE)
             .json(&body)
             .send()
             .await?;
@@ -175,7 +189,7 @@ impl OpenAIProvider {
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("OpenAI API returned {status}: {text}");
+            anyhow::bail!("Cerebras API returned {status}: {text}");
         }
 
         let json: serde_json::Value = resp.json().await?;
@@ -193,14 +207,8 @@ impl OpenAIProvider {
 }
 
 #[async_trait]
-impl ModelProvider for OpenAIProvider {
-    fn context_window(&self) -> usize {
-        crate::models::pricing::lookup_pricing(&self.model)
-            .map(|p| p.context_window)
-            .unwrap_or(128_000)
-    }
-
-    /// Send chat messages to the OpenAI completions endpoint and return
+impl ModelProvider for CerebrasProvider {
+    /// Send chat messages to the Cerebras completions endpoint and return
     /// the first choice's content.
     ///
     /// Messages are forwarded with their original roles.
@@ -216,6 +224,7 @@ impl ModelProvider for OpenAIProvider {
             .client
             .post(&self.endpoint)
             .bearer_auth(&self.api_key)
+            .header(INTEGRATION_HEADER, INTEGRATION_VALUE)
             .json(&body)
             .send()
             .await?;
@@ -223,7 +232,7 @@ impl ModelProvider for OpenAIProvider {
         let status = resp.status();
         if !status.is_success() {
             let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("OpenAI API returned {status}: {text}");
+            anyhow::bail!("Cerebras API returned {status}: {text}");
         }
 
         let json: serde_json::Value = resp.json().await?;
@@ -236,8 +245,7 @@ impl ModelProvider for OpenAIProvider {
         messages: &[ChatMessage],
         functions: &[serde_json::Value],
     ) -> Result<(ProviderResponse, Option<TokenUsage>), anyhow::Error> {
-        // Delegate to the inherent method.
-        OpenAIProvider::send_chat_with_functions(self, messages, functions).await
+        CerebrasProvider::send_chat_with_functions(self, messages, functions).await
     }
 
     fn send_chat_stream<'a>(
@@ -247,135 +255,80 @@ impl ModelProvider for OpenAIProvider {
         self.send_chat_stream_mode(messages, true)
     }
 
-    async fn embed(&self, texts: &[&str]) -> Result<Option<Vec<Vec<f32>>>, anyhow::Error> {
-        let url = if let Some(base) = self.endpoint.strip_suffix("/chat/completions") {
-            format!("{base}/embeddings")
-        } else {
-            "https://api.openai.com/v1/embeddings".to_string()
-        };
-        let body = json!({
-            "model": DEFAULT_EMBEDDING_MODEL,
-            "input": texts,
-        });
+    async fn list_models(&self) -> Result<Option<Vec<super::ModelInfo>>, anyhow::Error> {
+        let base = self
+            .endpoint
+            .trim_end_matches('/')
+            .trim_end_matches("/chat/completions")
+            .trim_end_matches('/');
+        let url = format!("{base}/models");
+
         let resp = self
             .client
-            .post(url)
+            .get(&url)
             .bearer_auth(&self.api_key)
-            .json(&body)
+            .header(INTEGRATION_HEADER, INTEGRATION_VALUE)
             .send()
             .await?;
-        let status = resp.status();
-        if !status.is_success() {
-            let msg = resp.text().await.unwrap_or_default();
-            anyhow::bail!("OpenAI Embeddings API returned {status}: {msg}");
+
+        if !resp.status().is_success() {
+            return Ok(None);
         }
-        let json: serde_json::Value = resp.json().await?;
-        let data = json["data"].as_array();
-        match data {
-            Some(arr) => {
-                let vecs: Vec<Vec<f32>> = arr
-                    .iter()
-                    .filter_map(|item| {
-                        item["embedding"].as_array().map(|e| {
-                            e.iter()
-                                .filter_map(|v| v.as_f64().map(|f| f as f32))
-                                .collect()
-                        })
-                    })
-                    .collect();
-                Ok(Some(vecs))
-            }
-            None => Ok(None),
-        }
+
+        let payload: serde_json::Value = resp.json().await?;
+        let data = payload
+            .get("data")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let models: Vec<super::ModelInfo> = data
+            .iter()
+            .filter_map(|m| {
+                let id = m.get("id")?.as_str()?.to_string();
+                let (input_price, output_price, description, max_tokens) = get_model_metadata(&id);
+                Some(super::ModelInfo {
+                    name: id.clone(),
+                    id,
+                    vendor: Some("Cerebras".to_string()),
+                    supported_endpoints: vec!["chat".to_string()],
+                    is_default: false,
+                    input_price,
+                    output_price,
+                    description,
+                    max_tokens,
+                })
+            })
+            .collect();
+
+        Ok(Some(models))
     }
 
     fn as_any(&self) -> &dyn Any {
         self
     }
+}
 
-    async fn list_models(&self) -> Result<Option<Vec<super::ModelInfo>>, anyhow::Error> {
-        Ok(Some(vec![
-            super::ModelInfo {
-                id: "gpt-4.1".to_string(),
-                name: "GPT-4.1".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "gpt-4.1-mini".to_string(),
-                name: "GPT-4.1 Mini".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "gpt-4.1-nano".to_string(),
-                name: "GPT-4.1 Nano".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "gpt-4o".to_string(),
-                name: "GPT-4o".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: true,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "gpt-4o-mini".to_string(),
-                name: "GPT-4o Mini".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "o4-mini".to_string(),
-                name: "o4 Mini".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "o3".to_string(),
-                name: "o3".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "o3-mini".to_string(),
-                name: "o3 Mini".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "o1".to_string(),
-                name: "o1".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "o1-mini".to_string(),
-                name: "o1 Mini".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-        ]))
+/// Get pricing and metadata for known Cerebras models.
+/// Returns (input_price, output_price, description, max_tokens) per 1K tokens.
+fn get_model_metadata(model_id: &str) -> (Option<f64>, Option<f64>, Option<String>, Option<u32>) {
+    match model_id {
+        "llama-3.3-70b" => (
+            Some(0.0006),
+            Some(0.0009),
+            Some("Llama 3.3 70B - 70B parameter Llama model on Cerebras hardware".to_string()),
+            Some(128_000),
+        ),
+        "llama-3.1-8b" => (
+            Some(0.0001),
+            Some(0.0002),
+            Some("Llama 3.1 8B - 8B parameter Llama model on Cerebras hardware".to_string()),
+            Some(128_000),
+        ),
+        _ => {
+            let desc = format!("Cerebras model: {}", model_id);
+            (None, None, Some(desc), None)
+        }
     }
 }
 
@@ -387,12 +340,12 @@ mod tests {
     /// (no env var needed).
     #[test]
     fn construct_with_config() {
-        let p = OpenAIProvider::with_config(
+        let p = CerebrasProvider::with_config(
             "sk-test".into(),
-            "http://localhost:1234/v1/chat/completions".into(),
-            "gpt-4o-mini".into(),
+            "https://api.cerebras.ai/v1/chat/completions".into(),
+            "llama-3.3-70b".into(),
         );
-        assert_eq!(p.model, "gpt-4o-mini");
+        assert_eq!(p.model, "llama-3.3-70b");
     }
 
     /// Build the JSON request body the same way `send_chat` does and
@@ -400,7 +353,7 @@ mod tests {
     #[test]
     fn request_body_format() {
         let messages = vec!["Hello".to_string(), "World".to_string()];
-        let model = "gpt-4o-mini";
+        let model = "llama-3.3-70b";
 
         let mut api_messages = vec![json!({
             "role": "system",
@@ -424,16 +377,17 @@ mod tests {
         assert_eq!(arr[1]["role"], "user");
         assert_eq!(arr[1]["content"], "Hello");
         assert_eq!(arr[2]["content"], "World");
-        assert_eq!(body["model"], "gpt-4o-mini");
+        assert_eq!(body["model"], "llama-3.3-70b");
     }
 
-    /// Parse a realistic OpenAI JSON response to verify extraction
+    /// Parse a realistic Cerebras JSON response to verify extraction
     /// logic — no network call needed.
     #[test]
     fn parse_response_extracts_content() {
         let fake_response = json!({
             "id": "chatcmpl-abc123",
             "object": "chat.completion",
+            "model": "llama-3.3-70b",
             "choices": [{
                 "index": 0,
                 "message": {
@@ -464,42 +418,29 @@ mod tests {
         assert_eq!(content, "");
     }
 
+    /// Test model metadata for known models.
     #[test]
-    fn embed_request_body_format() {
-        // Verify the JSON body structure that embed() would send.
-        let texts: Vec<&str> = vec!["hello world", "test"];
-        let body = json!({
-            "model": "text-embedding-3-small",
-            "input": texts,
-        });
-        assert_eq!(body["model"], "text-embedding-3-small");
-        let input = body["input"].as_array().unwrap();
-        assert_eq!(input.len(), 2);
-        assert_eq!(input[0], "hello world");
+    fn known_model_metadata() {
+        let (input, output, desc, max_tokens) = get_model_metadata("llama-3.3-70b");
+        assert_eq!(input, Some(0.0006));
+        assert_eq!(output, Some(0.0009));
+        assert!(desc.unwrap().contains("70B"));
+        assert_eq!(max_tokens, Some(128_000));
+
+        let (input, output, desc, max_tokens) = get_model_metadata("llama-3.1-8b");
+        assert_eq!(input, Some(0.0001));
+        assert_eq!(output, Some(0.0002));
+        assert!(desc.unwrap().contains("8B"));
+        assert_eq!(max_tokens, Some(128_000));
     }
 
+    /// Test unknown model returns generic description.
     #[test]
-    fn embed_response_parsing() {
-        // Verify the extraction logic for embedding response.
-        let fake = json!({
-            "data": [
-                { "embedding": [0.1, 0.2, 0.3] },
-                { "embedding": [0.4, 0.5, 0.6] }
-            ]
-        });
-        let data = fake["data"].as_array().unwrap();
-        let vecs: Vec<Vec<f32>> = data
-            .iter()
-            .filter_map(|item| {
-                item["embedding"].as_array().map(|e| {
-                    e.iter()
-                        .filter_map(|v| v.as_f64().map(|f| f as f32))
-                        .collect()
-                })
-            })
-            .collect();
-        assert_eq!(vecs.len(), 2);
-        assert!((vecs[0][0] - 0.1).abs() < 1e-6);
-        assert!((vecs[1][2] - 0.6).abs() < 1e-6);
+    fn unknown_model_metadata() {
+        let (input, output, desc, max_tokens) = get_model_metadata("unknown-model");
+        assert_eq!(input, None);
+        assert_eq!(output, None);
+        assert!(desc.unwrap().contains("unknown-model"));
+        assert_eq!(max_tokens, None);
     }
 }

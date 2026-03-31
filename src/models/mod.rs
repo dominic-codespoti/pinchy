@@ -4,11 +4,20 @@
 //! [`ProviderManager`] for retry/fallback semantics, and concrete
 //! implementations ([`OpenAIProvider`], [`CopilotProvider`]).
 
+pub mod anthropic;
 pub mod azure_openai;
+pub mod bedrock;
+pub mod cerebras;
+pub mod cohere;
 pub mod copilot;
+pub mod google;
+pub mod groq;
+pub mod mistral;
 pub mod openai;
 pub mod openai_compat;
 pub mod pricing;
+pub mod together;
+pub mod xai;
 
 use std::any::Any;
 use std::pin::Pin;
@@ -27,7 +36,7 @@ use tracing::{debug, warn};
 ///
 /// Returned by [`ModelProvider::list_models`] for providers that support
 /// model discovery (e.g. Copilot, OpenAI).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ModelInfo {
     /// The model identifier used in API requests (e.g. "gpt-4o").
     pub id: String,
@@ -42,6 +51,18 @@ pub struct ModelInfo {
     /// Whether this model is the default for the provider.
     #[serde(default)]
     pub is_default: bool,
+    /// Input price per 1K tokens (in USD).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_price: Option<f64>,
+    /// Output price per 1K tokens (in USD).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_price: Option<f64>,
+    /// Description of this model.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Maximum context window in tokens.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_tokens: Option<u32>,
 }
 
 // ---------------------------------------------------------------------------
@@ -222,10 +243,18 @@ pub trait ModelProvider: Send + Sync {
 }
 
 // Re-export the concrete providers for convenience.
+pub use anthropic::AnthropicProvider;
 pub use azure_openai::AzureOpenAIProvider;
+pub use cerebras::CerebrasProvider;
+pub use cohere::CohereProvider;
 pub use copilot::CopilotProvider;
+pub use google::GoogleProvider;
+pub use groq::GroqProvider;
+pub use mistral::MistralProvider;
 pub use openai::OpenAIProvider;
 pub use openai_compat::OpenAICompatProvider;
+pub use together::TogetherProvider;
+pub use xai::XaiProvider;
 
 /// Extract token usage statistics from an OpenAI / Azure response JSON.
 pub fn parse_token_usage(json: &serde_json::Value) -> Option<TokenUsage> {
@@ -866,6 +895,28 @@ pub fn build_provider_with_config_fields(
             api_version.map(String::from),
             embedding_deployment.map(String::from),
         ))
+    } else if provider_id.contains("anthropic") {
+        Box::new(AnthropicProvider::with_model_and_headers(
+            model_id,
+            headers.cloned(),
+        ))
+    } else if provider_id.contains("bedrock") {
+        match bedrock::AwsCredentials::from_env() {
+            Ok(creds) => {
+                let region = std::env::var("AWS_REGION")
+                    .or_else(|_| std::env::var("AWS_DEFAULT_REGION"))
+                    .unwrap_or_else(|_| "us-east-1".to_string());
+                Box::new(bedrock::BedrockProvider::new(
+                    region,
+                    model_id.to_string(),
+                    creds,
+                ))
+            }
+            Err(_) => {
+                warn!("bedrock provider requires AWS credentials — using fallback");
+                Box::new(FallbackProvider)
+            }
+        }
     } else if matches!(
         provider_id,
         "openai-compat"
@@ -898,14 +949,15 @@ pub fn build_provider_with_config_fields(
             headers.cloned(),
         ))
     } else if provider_id.contains("openai") {
-        if let Ok(api_key) = std::env::var("OPENAI_API_KEY") {
+        let key = resolve_config_key(api_key, "openai");
+        if !key.is_empty() {
             Box::new(OpenAIProvider::with_config(
-                api_key,
+                key,
                 openai::DEFAULT_ENDPOINT.to_string(),
                 model_id.to_string(),
             ))
         } else {
-            warn!("provider \"openai\" requested but OPENAI_API_KEY not set — using fallback");
+            warn!("provider \"openai\" requested but no API key found — using fallback");
             Box::new(FallbackProvider)
         }
     } else {
@@ -930,7 +982,9 @@ pub fn build_provider_manager(provider_id: &str, model_id: &str) -> ProviderMana
 
     let supports_functions = provider_id.contains("openai")
         || provider_id.contains("copilot")
-        || provider_id.contains("compat");
+        || provider_id.contains("compat")
+        || provider_id.contains("anthropic")
+        || provider_id.contains("bedrock");
     ProviderManager::new_with_functions(providers, 3, supports_functions)
 }
 
@@ -962,6 +1016,8 @@ pub fn build_provider_manager_from_config(
             || mc.provider.contains("copilot")
             || mc.provider.contains("azure")
             || mc.provider.contains("compat")
+            || mc.provider.contains("anthropic")
+            || mc.provider.contains("bedrock")
         {
             any_supports_functions = true;
         }
@@ -988,6 +1044,8 @@ pub fn build_provider_manager_from_config(
                 || mc.provider.contains("copilot")
                 || mc.provider.contains("azure")
                 || mc.provider.contains("compat")
+                || mc.provider.contains("anthropic")
+                || mc.provider.contains("bedrock")
             {
                 any_supports_functions = true;
             }
@@ -1015,10 +1073,10 @@ pub fn build_provider_for_model(model_id: &str) -> Box<dyn ModelProvider> {
 /// which picks the best available backend based on environment variables.
 struct FallbackProvider;
 
-/// Resolve an API key: config value → env var → empty string.
+/// Resolve an API key: config value → env var → auth store → empty string.
 ///
 /// If the config value starts with `$`, it's treated as an env-var reference.
-fn resolve_config_key(config_key: Option<&str>, provider_id: &str) -> String {
+pub(crate) fn resolve_config_key(config_key: Option<&str>, provider_id: &str) -> String {
     if let Some(k) = config_key {
         if let Some(var) = k.strip_prefix('$') {
             return std::env::var(var).unwrap_or_default();
@@ -1029,7 +1087,30 @@ fn resolve_config_key(config_key: Option<&str>, provider_id: &str) -> String {
     }
     // Fallback: try PROVIDER_API_KEY env var.
     let env_name = format!("{}_API_KEY", provider_id.to_uppercase().replace('-', "_"));
-    std::env::var(env_name).unwrap_or_default()
+    if let Ok(val) = std::env::var(&env_name) {
+        return val;
+    }
+
+    // Fallback: check auth store for API key or access token.
+    if let Some(entry) = crate::auth::store::get_auth(provider_id) {
+        if let Some(ref key) = entry.api_key {
+            if !key.is_empty() {
+                debug!(provider = provider_id, "resolved API key from auth store");
+                return key.clone();
+            }
+        }
+        if let Some(ref token) = entry.access_token {
+            if !token.is_empty() {
+                debug!(
+                    provider = provider_id,
+                    "resolved access token from auth store"
+                );
+                return token.clone();
+            }
+        }
+    }
+
+    String::new()
 }
 
 #[async_trait]
