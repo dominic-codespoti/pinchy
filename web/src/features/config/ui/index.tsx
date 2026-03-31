@@ -117,10 +117,10 @@ function ModelCombobox({
     <div ref={wrapperRef} className="relative">
       <div
         className={[
-          "flex h-10 w-full items-center overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.03] px-3.5",
+          "flex h-10 w-full items-center overflow-hidden rounded-xl border border-white/[0.08] !bg-[#0f1520] px-3.5",
           "shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md",
-          "hover:border-white/[0.14] hover:bg-white/[0.05]",
-          "focus-within:border-emerald-400/40 focus-within:bg-white/[0.05] focus-within:shadow-[0_0_0_3px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.04)]",
+          "hover:border-white/[0.14] hover:!bg-[#141b2a]",
+          "focus-within:border-emerald-400/40 focus-within:!bg-[#141b2a] focus-within:shadow-[0_0_0_3px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.04)]",
           "transition-all duration-200 ease-out",
         ].join(" ")}
       >
@@ -337,20 +337,20 @@ export function ConfigRoute() {
         <div className="ml-auto flex items-center gap-2">
           {mode === "form" && (
             <div className={`relative ${isMobile ? "hidden" : ""}`}>
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-600" />
-              <input
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
+              <Input
                 value={sectionFilter}
                 onChange={(e) => setSectionFilter(e.target.value)}
                 placeholder="Filter sections…"
-                className="h-7 w-40 rounded-lg border border-white/[0.06] bg-white/[0.03] pl-7 pr-6 text-[11px] text-slate-300 placeholder:text-slate-600 outline-none focus:border-emerald-400/30 transition-colors"
+                className="h-8 w-44 pl-9 pr-7 text-xs"
               />
               {sectionFilter && (
                 <button
                   type="button"
                   onClick={() => setSectionFilter("")}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-600 hover:text-slate-400"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300"
                 >
-                  <X className="h-3 w-3" />
+                  <X className="h-3.5 w-3.5" />
                 </button>
               )}
             </div>
@@ -528,7 +528,7 @@ export function ConfigRoute() {
                       <select
                         value={defaultChannel.kind}
                         onChange={(e) => updateChannel("default_channel.kind", e.target.value)}
-                        className={`w-full rounded-lg border border-white/[0.06] bg-white/[0.03] text-slate-200 outline-none focus:border-emerald-400/30 ${isMobile ? "px-4 py-3 text-base" : "px-2.5 py-1.5 text-xs"}`}
+                        className={`w-full rounded-xl border border-white/[0.08] !bg-[#0f1520] text-slate-200 outline-none focus:border-emerald-400/40 focus:!bg-[#141b2a] focus:shadow-[0_0_0_3px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.04)] hover:border-white/[0.14] hover:!bg-[#141b2a] transition-all duration-200 appearance-none ${isMobile ? "px-4 py-3 text-base" : "px-3.5 py-2 text-sm"}`}
                       >
                         <option value="channel">channel</option>
                         <option value="user">user (DM)</option>

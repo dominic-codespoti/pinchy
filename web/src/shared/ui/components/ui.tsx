@@ -115,20 +115,24 @@ export function Separator({ className, ...props }: React.HTMLAttributes<HTMLDivE
 export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(
   function Input(props, ref) {
     return (
-      <input
-        ref={ref}
+      <div
         className={cn(
-          "flex h-10 w-full rounded-xl border border-white/[0.08] bg-white/[0.03] px-3.5 py-2 text-sm text-slate-100",
+          "flex h-10 w-full items-center overflow-hidden rounded-xl border border-white/[0.08] !bg-[#0f1520] px-3.5",
           "shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md",
-          "placeholder:text-slate-500/80",
-          "hover:border-white/[0.14] hover:bg-white/[0.05]",
-          "focus:border-emerald-400/40 focus:bg-white/[0.05] focus:shadow-[0_0_0_3px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.04)] focus:outline-none",
+          "hover:border-white/[0.14] hover:!bg-[#141b2a]",
+          "focus-within:border-emerald-400/40 focus-within:!bg-[#141b2a] focus-within:shadow-[0_0_0_3px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.04)]",
           "transition-all duration-200 ease-out",
-          "disabled:cursor-not-allowed disabled:opacity-40",
-          props.className,
         )}
-        {...props}
-      />
+      >
+        <input
+          ref={ref}
+          className={cn(
+            "min-w-0 flex-1 bg-transparent py-2 text-sm text-slate-100 placeholder:text-slate-500/80 outline-none",
+            props.className,
+          )}
+          {...props}
+        />
+      </div>
     );
   },
 );
@@ -143,24 +147,20 @@ export const TextArea = React.forwardRef<
   return (
     <div
       className={cn(
-        "group relative flex flex-col rounded-2xl border border-white/[0.08] bg-white/[0.03]",
+        "flex w-full items-stretch overflow-hidden rounded-xl border border-white/[0.08] !bg-[#0f1520] px-3.5",
         "shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md",
+        "hover:border-white/[0.14] hover:!bg-[#141b2a]",
+        "focus-within:border-emerald-400/40 focus-within:!bg-[#141b2a] focus-within:shadow-[0_0_0_3px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.04)]",
         "transition-all duration-200 ease-out",
-        "hover:border-white/[0.14] hover:bg-white/[0.05]",
-        "focus-within:border-emerald-400/40 focus-within:bg-white/[0.05] focus-within:shadow-[0_0_0_3px_rgba(52,211,153,0.1),inset_0_1px_0_rgba(255,255,255,0.04)]",
-        "has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-40",
-        className,
       )}
     >
       <textarea
         ref={ref}
-        {...rest}
         className={cn(
-          "w-full flex-1 resize-none rounded-2xl bg-transparent px-4 py-3 text-sm leading-relaxed text-slate-100",
-          "placeholder:text-slate-500/60",
-          "focus:outline-none",
-          "disabled:cursor-not-allowed",
+          "min-w-0 flex-1 resize-none bg-transparent py-2 text-sm leading-relaxed text-slate-100 placeholder:text-slate-500/80 outline-none",
+          className,
         )}
+        {...rest}
       />
     </div>
   );

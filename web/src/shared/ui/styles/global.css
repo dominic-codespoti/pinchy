@@ -421,9 +421,19 @@ a {
   transition: transform 0.1s ease;
 }
 
-/* Prevent zoom on input focus (iOS) */
+/* Prevent zoom on input focus (iOS) and reset browser defaults */
 input, textarea, select {
   font-size: 16px;
+  background-color: transparent;
+  border: none;
+  border-radius: 0;
+  color: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+input:focus, textarea:focus, select:focus {
+  outline: none;
 }
 
 @media (max-width: 768px) {

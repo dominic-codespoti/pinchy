@@ -1,5 +1,4 @@
 import React, { type Dispatch, type SetStateAction, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useVirtualizer } from "@tanstack/react-virtual";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Marked } from "marked";
 import hljs from "highlight.js/lib/common";
@@ -17,9 +16,6 @@ import {
   queryKeys,
 } from "@/shared/api/client";
 import { Button, Separator, TextArea } from "@/shared/ui/components/ui";
-import { BottomSheet, ActionSheet } from "@/shared/ui/components/BottomSheet";
-import { useViewport } from "@/shared/lib/useViewport";
-import { usePullToRefresh } from "@/shared/lib/useTouch";
 import {
   Send,
   Activity,
@@ -48,8 +44,6 @@ import {
   ImagePlus,
   PanelLeftClose,
   PanelLeft,
-  Trash2,
-  MoreVertical,
 } from "lucide-react";
 import { useUiStore } from "@/app/store/ui";
 import { SessionSidebar } from "@/shared/ui/components/SessionSidebar";
@@ -90,16 +84,6 @@ type ActivityItem = {
   kind: ActivityKind;
 };
 
-type ModelCallDetail = {
-  model: string;
-  promptTokens: number;
-  completionTokens: number;
-  cachedTokens: number;
-  reasoningTokens: number;
-  costUsd: number | null;
-  latencyMs: number;
-};
-
 type ReceiptItem = {
   timestamp: number;
   tokens: {
@@ -125,7 +109,15 @@ type ReceiptItem = {
   replySummary?: string;
   modelId?: string;
   costUsd?: number;
-  callDetails?: ModelCallDetail[];
+  callDetails?: Array<{
+    model: string;
+    promptTokens: number;
+    completionTokens: number;
+    cachedTokens: number;
+    reasoningTokens: number;
+    costUsd: number | null;
+    latencyMs: number;
+  }>;
 };
 
 type GatewayEvent = {
@@ -149,8 +141,22 @@ type GatewayEvent = {
   model_calls?: number;
   model_id?: string;
   estimated_cost_usd?: number;
-  call_details?: Array<{ model?: string; prompt_tokens?: number; completion_tokens?: number; cached_tokens?: number; reasoning_tokens?: number; cost_usd?: number; latency_ms?: number }>;
-  tool_calls?: Array<{ tool?: string; success?: boolean; duration_ms?: number; args_summary?: string; error?: string }>;
+  call_details?: Array<{
+    model?: string;
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    cached_tokens?: number;
+    reasoning_tokens?: number;
+    cost_usd?: number;
+    latency_ms?: number;
+  }>;
+  tool_calls?: Array<{
+    tool?: string;
+    success?: boolean;
+    duration_ms?: number;
+    args_summary?: string;
+    error?: string;
+  }>;
   summary?: string;
   messages_compacted?: number;
   messages_kept?: number;
@@ -183,7 +189,9 @@ export function ChatRoute() {
   const [expandedReceipt, setExpandedReceipt] = useState<number | null>(null);
   const [collapsedOutOfContext, setCollapsedOutOfContext] = useState(true);
   const [expandedInlineReceipt, setExpandedInlineReceipt] = useState<number | null>(null);
-  const [compactSummaries, setCompactSummaries] = useState<Array<{ summary: string; messagesCompacted: number; messagesKept: number; timestamp: number }>>([]);
+  const [compactSummaries, setCompactSummaries] = useState<
+    Array<{ summary: string; messagesCompacted: number; messagesKept: number; timestamp: number }>
+  >([]);
   const [wsConnected, setWsConnectedLocal] = useState(true);
   const setWsConnectedGlobal = useUiStore((s) => s.setWsConnected);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -208,28 +216,14 @@ export function ChatRoute() {
   const userPickedSessionRef = useRef(false);
   const [pendingImages, setPendingImages] = useState<string[]>([]);
 
-  // Viewport detection for mobile optimizations
-  const { isMobile, touchSupported } = useViewport();
-
-  // Mobile-specific states
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
-  const [mobileActivityOpen, setMobileActivityOpen] = useState(false);
-  const [messageActionsOpen, setMessageActionsOpen] = useState(false);
-  const [selectedMessage, setSelectedMessage] = useState<{ index: number; content: string; role: string } | null>(null);
-  const [swipingMessage, setSwipingMessage] = useState<number | null>(null);
-  const [swipeOffset, setSwipeOffset] = useState(0);
-
-  // Streaming reveal state: we accumulate the full text in streamBufferRef,
-  // but reveal it character-by-character via a rAF loop for smooth animation.
+  // Streaming reveal state
   const revealedLenRef = useRef(0);
   const [displayedStream, setDisplayedStream] = useState("");
   const revealRafRef = useRef<number | null>(null);
   const isStreamingRef = useRef(false);
-
-  // Pending finalization callback: once reveal loop catches up, this runs.
   const pendingFinalizeRef = useRef<(() => void) | null>(null);
 
-  // ── Auto-scroll helpers ──────────────────────────
+  // Auto-scroll helpers
   const isNearBottom = () => {
     const el = scrollContainerRef.current;
     if (!el) return true;
@@ -247,9 +241,9 @@ export function ChatRoute() {
     });
   }, []);
 
-  // ── Character reveal loop ──────────────────────────
+  // Character reveal loop
   useEffect(() => {
-    const CHARS_PER_FRAME = 3; // reveal speed: ~180 chars/sec at 60fps
+    const CHARS_PER_FRAME = 3;
 
     const tick = () => {
       const full = streamBufferRef.current;
@@ -259,7 +253,6 @@ export function ChatRoute() {
         scrollToBottom(true);
         revealRafRef.current = requestAnimationFrame(tick);
       } else if (!isStreamingRef.current && full.length > 0) {
-        // Stream ended AND reveal is complete — finalize
         revealRafRef.current = null;
         if (pendingFinalizeRef.current) {
           pendingFinalizeRef.current();
@@ -272,7 +265,10 @@ export function ChatRoute() {
       }
     };
 
-    if (isStreamingRef.current || (streamBufferRef.current.length > 0 && revealedLenRef.current < streamBufferRef.current.length)) {
+    if (
+      isStreamingRef.current ||
+      (streamBufferRef.current.length > 0 && revealedLenRef.current < streamBufferRef.current.length)
+    ) {
       if (!revealRafRef.current) {
         revealRafRef.current = requestAnimationFrame(tick);
       }
@@ -288,10 +284,7 @@ export function ChatRoute() {
 
   const agentsQuery = useQuery({ queryKey: queryKeys.agents, queryFn: listAgents });
 
-  const agentIds = useMemo(
-    () => (agentsQuery.data?.agents ?? []).map((agent) => agent.id),
-    [agentsQuery.data],
-  );
+  const agentIds = useMemo(() => (agentsQuery.data?.agents ?? []).map((agent) => agent.id), [agentsQuery.data]);
 
   const slashQuery = useQuery({
     queryKey: queryKeys.slashCommands,
@@ -327,10 +320,18 @@ export function ChatRoute() {
   }, [draft, slashQuery.data]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  useEffect(() => { selectedAgentRef.current = selectedAgent; }, [selectedAgent]);
-  useEffect(() => { selectedSessionRef.current = selectedSession; }, [selectedSession]);
-  useEffect(() => { window.sessionStorage.setItem("pinchy-show-activity", showActivity ? "1" : "0"); }, [showActivity]);
-  useEffect(() => { window.localStorage.setItem("pinchy-sidebar-collapsed", sidebarCollapsed ? "1" : "0"); }, [sidebarCollapsed]);
+  useEffect(() => {
+    selectedAgentRef.current = selectedAgent;
+  }, [selectedAgent]);
+  useEffect(() => {
+    selectedSessionRef.current = selectedSession;
+  }, [selectedSession]);
+  useEffect(() => {
+    window.sessionStorage.setItem("pinchy-show-activity", showActivity ? "1" : "0");
+  }, [showActivity]);
+  useEffect(() => {
+    window.localStorage.setItem("pinchy-sidebar-collapsed", sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
@@ -353,31 +354,25 @@ export function ChatRoute() {
     enabled: Boolean(selectedAgent),
   });
 
-  // Pull-to-refresh for session list (mobile only)
-  const sessionListRef = useRef<HTMLDivElement>(null);
-  const handleRefreshSessions = useCallback(async () => {
-    await sessionsQuery.refetch();
-    await currentSessionQuery.refetch();
-  }, [sessionsQuery, currentSessionQuery]);
-  
-  const { isPulling, pullDistance, isRefreshing } = usePullToRefresh(
-    sessionListRef,
-    handleRefreshSessions
-  );
-
   const sessions = useMemo(
     () =>
       (sessionsQuery.data?.sessions ?? [])
         .filter((session) => !session.file.endsWith(".receipts.jsonl"))
         .sort((a, b) => (b.modified ?? 0) - (a.modified ?? 0)),
-    [sessionsQuery.data],
+    [sessionsQuery.data]
   );
 
   /* eslint-disable react-hooks/set-state-in-effect */
   useEffect(() => {
-    if (!sessions.length) { setSelectedSession(""); return; }
-    // If the user manually picked a session and it still exists, don't override
-    if (userPickedSessionRef.current && selectedSession && sessions.some((s) => s.session_id === selectedSession)) {
+    if (!sessions.length) {
+      setSelectedSession("");
+      return;
+    }
+    if (
+      userPickedSessionRef.current &&
+      selectedSession &&
+      sessions.some((s) => s.session_id === selectedSession)
+    ) {
       return;
     }
     const currentSession = currentSessionQuery.data?.session_id;
@@ -407,13 +402,15 @@ export function ChatRoute() {
     const raw = receiptsQuery.data?.receipts ?? [];
     if (!Array.isArray(raw)) return [];
     return raw.map((r) => {
-      const toolCalls = Array.isArray(r.tool_calls) ? r.tool_calls.map((tc) => ({
-        name: tc.tool ?? "unknown",
-        args: tc.args_summary ?? "",
-        success: tc.success ?? true,
-        duration: tc.duration_ms ?? 0,
-        error: tc.error,
-      })) : [];
+      const toolCalls = Array.isArray(r.tool_calls)
+        ? r.tool_calls.map((tc) => ({
+            name: tc.tool ?? "unknown",
+            args: tc.args_summary ?? "",
+            success: tc.success ?? true,
+            duration: tc.duration_ms ?? 0,
+            error: tc.error,
+          }))
+        : [];
       return {
         timestamp: asMsTimestamp((r as Record<string, unknown>).started_at as number | undefined),
         tokens: {
@@ -432,16 +429,21 @@ export function ChatRoute() {
         userPrompt: r.user_prompt ?? undefined,
         replySummary: r.reply_summary ?? undefined,
         modelId: (r as Record<string, unknown>).model_id as string | undefined,
-        costUsd: typeof (r as Record<string, unknown>).estimated_cost_usd === "number" ? (r as Record<string, unknown>).estimated_cost_usd as number : undefined,
-        callDetails: Array.isArray((r as Record<string, unknown>).call_details) ? ((r as Record<string, unknown>).call_details as Array<Record<string, unknown>>).map((d) => ({
-          model: (d.model as string) ?? "",
-          promptTokens: (d.prompt_tokens as number) ?? 0,
-          completionTokens: (d.completion_tokens as number) ?? 0,
-          cachedTokens: (d.cached_tokens as number) ?? 0,
-          reasoningTokens: (d.reasoning_tokens as number) ?? 0,
-          costUsd: typeof d.cost_usd === "number" ? d.cost_usd : null,
-          latencyMs: (d.latency_ms as number) ?? 0,
-        })) : undefined,
+        costUsd:
+          typeof (r as Record<string, unknown>).estimated_cost_usd === "number"
+            ? ((r as Record<string, unknown>).estimated_cost_usd as number)
+            : undefined,
+        callDetails: Array.isArray((r as Record<string, unknown>).call_details)
+          ? ((r as Record<string, unknown>).call_details as Array<Record<string, unknown>>).map((d) => ({
+              model: (d.model as string) ?? "",
+              promptTokens: (d.prompt_tokens as number) ?? 0,
+              completionTokens: (d.completion_tokens as number) ?? 0,
+              cachedTokens: (d.cached_tokens as number) ?? 0,
+              reasoningTokens: (d.reasoning_tokens as number) ?? 0,
+              costUsd: typeof d.cost_usd === "number" ? d.cost_usd : null,
+              latencyMs: (d.latency_ms as number) ?? 0,
+            }))
+          : undefined,
       };
     });
   }, [receiptsQuery.data]);
@@ -455,26 +457,20 @@ export function ChatRoute() {
 
   const recentReceiptTokens = useMemo(
     () => allReceipts.slice(-6).reduce((sum, r) => sum + r.tokens.total, 0),
-    [allReceipts],
+    [allReceipts]
   );
 
   const allMessages = useMemo<LiveMessage[]>(() => {
     const persisted = (sessionQuery.data?.messages ?? [])
       .filter((m) => {
-        // Filter out empty or noise messages.
         if (!m.role || m.content === undefined || m.content === null || m.content === "") return false;
-
-        // Filter out helper/internal "session override" messages if they aren't meant for display.
-        // Some providers might leak these into the session history.
         const contentStr = toText(m.content);
         if (!contentStr.trim()) return false;
         if (contentStr.includes("using session override for this turn")) return false;
-
         return true;
       })
       .map(normalizeMessage);
 
-    // Filter empty liveMessages too
     const liveCleaned = liveMessages.filter((m) => m.content.trim());
 
     if (!persisted.length) return liveCleaned;
@@ -486,7 +482,6 @@ export function ChatRoute() {
     for (const m of liveCleaned) {
       if (persistedKeys.has(messageKey(m.role, m.content, m.timestamp))) continue;
       if (persistedBaseKeys.has(messageBaseKey(m.role, m.content))) continue;
-      // Also deduplicate within liveMessages themselves
       const bk = messageBaseKey(m.role, m.content);
       if (liveBaseKeys.has(bk)) continue;
       liveBaseKeys.add(bk);
@@ -495,9 +490,13 @@ export function ChatRoute() {
     return [...persisted, ...dedupedLive];
   }, [sessionQuery.data, liveMessages]);
 
-  // ── Auto-scroll triggers ──────────────────────────
-  useEffect(() => { scrollToBottom(true); }, [allMessages.length, scrollToBottom]);
-  useEffect(() => { if (typing) scrollToBottom(true); }, [typing, scrollToBottom]);
+  // Auto-scroll triggers
+  useEffect(() => {
+    scrollToBottom(true);
+  }, [allMessages.length, scrollToBottom]);
+  useEffect(() => {
+    if (typing) scrollToBottom(true);
+  }, [typing, scrollToBottom]);
   useEffect(() => {
     const t = setTimeout(() => scrollToBottom(true), 80);
     return () => clearTimeout(t);
@@ -523,7 +522,7 @@ export function ChatRoute() {
   }, [selectedAgent, selectedSession]);
   /* eslint-enable react-hooks/set-state-in-effect */
 
-  // ── WebSocket ──────────────────────────────────────
+  // WebSocket
   useEffect(() => {
     let mounted = true;
     let ws: WebSocket | null = null;
@@ -542,7 +541,11 @@ export function ChatRoute() {
 
       ws.onmessage = (event) => {
         let payload: GatewayEvent;
-        try { payload = JSON.parse(event.data as string) as GatewayEvent; } catch { return; }
+        try {
+          payload = JSON.parse(event.data as string) as GatewayEvent;
+        } catch {
+          return;
+        }
 
         const type = payload.type;
         if (!type) return;
@@ -582,8 +585,16 @@ export function ChatRoute() {
           appendActivity(setActivityItems, "Session rotated", "info");
           return;
         }
-        if (type === "typing_start") { setTyping(true); setTypingLabel("Thinking…"); return; }
-        if (type === "typing_stop") { setTyping(false); setTypingLabel("Thinking…"); return; }
+        if (type === "typing_start") {
+          setTyping(true);
+          setTypingLabel("Thinking…");
+          return;
+        }
+        if (type === "typing_stop") {
+          setTyping(false);
+          setTypingLabel("Thinking…");
+          return;
+        }
         if (type === "tool_start") {
           setTyping(true);
           const toolName = payload.tool ?? "tool";
@@ -606,22 +617,23 @@ export function ChatRoute() {
         if (type === "tool_error") {
           setTyping(true);
           setTypingLabel("Tool error…");
-          appendActivity(setActivityItems, `Tool error: ${payload.tool ?? "tool"} (${toText(payload.error || payload.message)})`, "error");
+          appendActivity(
+            setActivityItems,
+            `Tool error: ${payload.tool ?? "tool"} (${toText(payload.error || payload.message)})`,
+            "error"
+          );
           return;
         }
         if (type === "stream_delta") {
           if (payload.delta) {
             streamBufferRef.current += payload.delta;
             isStreamingRef.current = true;
-            setStreamBuffer(streamBufferRef.current); // trigger reveal loop re-check
+            setStreamBuffer(streamBufferRef.current);
           }
           if (payload.done) {
             isStreamingRef.current = false;
             const content = streamBufferRef.current.trim();
 
-            // Register seen keys immediately so a subsequent session_message
-            // for the same content is deduplicated even before the reveal
-            // animation finishes.
             if (content) {
               const role = "assistant";
               seenKeysRef.current.add(messageBaseKey(role, content));
@@ -653,7 +665,7 @@ export function ChatRoute() {
         if (type === "session_message") {
           const role = payload.role ?? "assistant";
           const content = toText(payload.content ?? payload.message ?? payload.response).trim();
-          if (!content) return; // skip empty messages
+          if (!content) return;
           const key = messageKey(role, content, payload.timestamp);
           const baseKey = messageBaseKey(role, content);
           if (seenKeysRef.current.has(key) || seenKeysRef.current.has(baseKey)) return;
@@ -715,23 +727,36 @@ export function ChatRoute() {
         }
         if (type === "slash_response") {
           setTyping(false);
-          setLiveMessages((prev) => [...prev, { role: "system", content: toText(payload.response ?? payload.content), timestamp: Date.now() }]);
+          setLiveMessages((prev) => [
+            ...prev,
+            { role: "system", content: toText(payload.response ?? payload.content), timestamp: Date.now() },
+          ]);
           appendActivity(setActivityItems, "Slash command completed", "info");
           return;
         }
         if (type === "slash_error") {
           setTyping(false);
-          setLiveMessages((prev) => [...prev, { role: "system", content: `Error: ${toText(payload.error ?? payload.content)}`, timestamp: Date.now() }]);
+          setLiveMessages((prev) => [
+            ...prev,
+            {
+              role: "system",
+              content: `Error: ${toText(payload.error ?? payload.content)}`,
+              timestamp: Date.now(),
+            },
+          ]);
           appendActivity(setActivityItems, "Slash command failed", "error");
           return;
         }
         if (type === "compact_summary") {
-          setCompactSummaries((prev) => [...prev, {
-            summary: toText(payload.summary),
-            messagesCompacted: payload.messages_compacted ?? 0,
-            messagesKept: payload.messages_kept ?? 0,
-            timestamp: Date.now(),
-          }]);
+          setCompactSummaries((prev) => [
+            ...prev,
+            {
+              summary: toText(payload.summary),
+              messagesCompacted: payload.messages_compacted ?? 0,
+              messagesKept: payload.messages_kept ?? 0,
+              timestamp: Date.now(),
+            },
+          ]);
           appendActivity(setActivityItems, `Compacted ${payload.messages_compacted ?? 0} messages`, "info");
           return;
         }
@@ -783,39 +808,54 @@ export function ChatRoute() {
     });
   }, []);
 
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    const imageFiles: File[] = [];
-    for (let i = 0; i < items.length; i++) {
-      if (items[i].type.startsWith("image/")) {
-        const f = items[i].getAsFile();
-        if (f) imageFiles.push(f);
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      const imageFiles: File[] = [];
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.startsWith("image/")) {
+          const f = items[i].getAsFile();
+          if (f) imageFiles.push(f);
+        }
       }
-    }
-    if (imageFiles.length) {
-      e.preventDefault();
-      addImages(imageFiles);
-    }
-  }, [addImages]);
+      if (imageFiles.length) {
+        e.preventDefault();
+        addImages(imageFiles);
+      }
+    },
+    [addImages]
+  );
 
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    if (e.dataTransfer?.files?.length) addImages(e.dataTransfer.files);
-  }, [addImages]);
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      e.preventDefault();
+      if (e.dataTransfer?.files?.length) addImages(e.dataTransfer.files);
+    },
+    [addImages]
+  );
 
   const sendMessage = () => {
     const content = draft.trim();
     const hasImages = pendingImages.length > 0;
-    if ((!content && !hasImages) || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    const payload: Record<string, unknown> = { type: "client_command", command: content || "[image]", target_agent: selectedAgent, session_id: selectedSession || undefined };
+    if ((!content && !hasImages) || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN)
+      return;
+    const payload: Record<string, unknown> = {
+      type: "client_command",
+      command: content || "[image]",
+      target_agent: selectedAgent,
+      session_id: selectedSession || undefined,
+    };
     if (hasImages) payload.images = pendingImages;
     wsRef.current.send(JSON.stringify(payload));
     const key = messageKey("user", content, undefined);
     const baseKey = messageBaseKey("user", content);
     seenKeysRef.current.add(key);
     seenKeysRef.current.add(baseKey);
-    setLiveMessages((prev) => [...prev, { role: "user", content: content || "[image]", timestamp: Date.now(), images: hasImages ? [...pendingImages] : undefined }]);
+    setLiveMessages((prev) => [
+      ...prev,
+      { role: "user", content: content || "[image]", timestamp: Date.now(), images: hasImages ? [...pendingImages] : undefined },
+    ]);
     setTyping(true);
     setTypingLabel("Thinking…");
     setDraft("");
@@ -827,13 +867,19 @@ export function ChatRoute() {
     wsRef.current.send(JSON.stringify({ type: "client_command", command: "/new", target_agent: selectedAgent }));
     setLiveMessages((prev) => [...prev, { role: "system", content: "New session started", timestamp: Date.now() }]);
     userPickedSessionRef.current = false;
-    setTimeout(() => { void sessionsQuery.refetch(); void currentSessionQuery.refetch(); }, 600);
+    setTimeout(() => {
+      void sessionsQuery.refetch();
+      void currentSessionQuery.refetch();
+    }, 600);
   };
 
   const jumpToOtherSession = () => {
     if (!otherSession) return;
     userPickedSessionRef.current = true;
-    void sessionsQuery.refetch().then(() => { setSelectedSession(otherSession.id); setOtherSession(null); });
+    void sessionsQuery.refetch().then(() => {
+      setSelectedSession(otherSession.id);
+      setOtherSession(null);
+    });
   };
 
   const copyMessage = (text: string, idx: number) => {
@@ -850,9 +896,7 @@ export function ChatRoute() {
   }, []);
 
   const exportSession = () => {
-    const lines = allMessages.map((m) =>
-      `[${new Date(m.timestamp).toLocaleString()}] ${m.role.toUpperCase()}\n${m.content}\n`
-    );
+    const lines = allMessages.map((m) => `[${new Date(m.timestamp).toLocaleString()}] ${m.role.toUpperCase()}\n${m.content}\n`);
     const blob = new Blob([lines.join("\n---\n\n")], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -881,10 +925,6 @@ export function ChatRoute() {
 
   const outOfContextCount = contextBoundary;
 
-  // Map receipt → the assistant message index it belongs to.
-  // A receipt's started_at should fall between the previous user message and the
-  // assistant reply, so we match each receipt to the next assistant message whose
-  // timestamp is >= receipt.started_at.
   const receiptByMsgIndex = useMemo(() => {
     const map = new Map<number, ReceiptItem>();
     if (!allReceipts.length || !filteredMessages.length) return map;
@@ -906,14 +946,12 @@ export function ChatRoute() {
       let bestDist = Infinity;
       for (const a of assistants) {
         if (usedAssistants.has(a.idx)) continue;
-        // Prefer assistant messages that come after (or near) the receipt end
         const dist = Math.abs(a.ts - receiptEnd);
         if (dist < bestDist) {
           bestDist = dist;
           best = a;
         }
       }
-      // Match within 5 minutes to handle long turns and timing skew
       if (best && bestDist < 300_000) {
         map.set(best.idx, receipt);
         usedAssistants.add(best.idx);
@@ -921,26 +959,6 @@ export function ChatRoute() {
     }
     return map;
   }, [allReceipts, filteredMessages]);
-
-  // eslint-disable-next-line react-hooks/incompatible-library
-  const rowVirtualizer = useVirtualizer({
-    count: filteredMessages.length,
-    getScrollElement: () => scrollContainerRef.current,
-    estimateSize: (index) => {
-      const m = filteredMessages[index];
-      if (!m) return 100;
-      if (Array.isArray(m.images) && m.images.length > 0) return 180;
-      const r = (m.role ?? "").toLowerCase();
-      if (r === "user") return 80;
-      if (r === "system") return 64;
-      const len = m.content?.length ?? 0;
-      if (len > 1000) return 260;
-      if (len > 300) return 180;
-      if (len > 120) return 140;
-      return 100;
-    },
-    overscan: 6,
-  });
 
   const toggleSearch = () => {
     setSearchOpen((prev) => {
@@ -986,13 +1004,22 @@ export function ChatRoute() {
         return;
       }
     }
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendMessage(); return; }
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      sendMessage();
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
   };
 
   const compactSession = () => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
-    wsRef.current.send(JSON.stringify({ type: "client_command", command: "/compact", target_agent: selectedAgent }));
+    wsRef.current.send(
+      JSON.stringify({ type: "client_command", command: "/compact", target_agent: selectedAgent })
+    );
     setLiveMessages((prev) => [...prev, { role: "system", content: "⏳ Compacting session history…", timestamp: Date.now() }]);
     setTyping(true);
     setTypingLabel("Compacting…");
@@ -1005,770 +1032,440 @@ export function ChatRoute() {
     { icon: <Sparkles className="h-4 w-4" />, label: "Run a heartbeat check" },
   ];
 
-  // ── Render ─────────────────────────────────────────
   const handleSidebarSelect = useCallback((sessionId: string) => {
     userPickedSessionRef.current = true;
     setSelectedSession(sessionId);
   }, []);
 
-  const handleDeleteSession = useCallback(async (sessionId: string) => {
-    try {
-      await deleteSession(selectedAgent, sessionId);
-      queryClient.invalidateQueries({ queryKey: queryKeys.sessions(selectedAgent) });
-      // If we just deleted the selected session, clear it so auto-select picks the next one
-      if (sessionId === selectedSession) {
-        setSelectedSession("");
+  const handleDeleteSession = useCallback(
+    async (sessionId: string) => {
+      try {
+        await deleteSession(selectedAgent, sessionId);
+        queryClient.invalidateQueries({ queryKey: queryKeys.sessions(selectedAgent) });
+        if (sessionId === selectedSession) {
+          setSelectedSession("");
+        }
+      } catch {
+        // Silently ignore
       }
-    } catch {
-      // Silently ignore — the session list will refresh and show the truth
-    }
-  }, [selectedAgent, selectedSession, queryClient]);
-
-  // Mobile: Message swipe to delete
-  const handleMessageSwipeLeft = useCallback((index: number, content: string, role: string) => {
-    if (!isMobile || role === "system") return;
-    setSelectedMessage({ index, content, role });
-    setMessageActionsOpen(true);
-  }, [isMobile]);
-
-  // Mobile keyboard optimization
-  const handleInputFocus = useCallback(() => {
-    if (isMobile) {
-      // Scroll to bottom after keyboard opens
-      setTimeout(() => scrollToBottom(true), 300);
-    }
-  }, [isMobile, scrollToBottom]);
-
-  // Mobile activity bottom sheet
-  const ActivityBottomSheet = useMemo(() => {
-    if (!isMobile) return null;
-    return (
-      <BottomSheet
-        isOpen={mobileActivityOpen}
-        onClose={() => setMobileActivityOpen(false)}
-        title="Activity"
-        snapPoints={[30, 60, 85]}
-      >
-        <MobileActivityContent
-          receipts={allReceipts}
-          activityItems={activityItems}
-          onClear={() => { setActivityItems([]); setReceipts([]); }}
-          expandedReceipt={expandedReceipt}
-          onToggleReceipt={(idx) => setExpandedReceipt(expandedReceipt === idx ? null : idx)}
-        />
-      </BottomSheet>
-    );
-  }, [isMobile, mobileActivityOpen, allReceipts, activityItems, expandedReceipt]);
+    },
+    [selectedAgent, selectedSession, queryClient]
+  );
 
   return (
-    <div className="flex h-full bg-[var(--bg)]">
-      {/* ── Session sidebar ─────────────────────── */}
-      {/* Mobile: Sidebar as overlay */}
-      {isMobile && mobileSidebarOpen && (
-        <div 
-          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
-          onClick={() => setMobileSidebarOpen(false)}
+    <div className="flex h-screen bg-[var(--bg)] overflow-hidden">
+      {/* Session sidebar */}
+      <div className="w-64 border-r border-white/[0.06] flex flex-col shrink-0 overflow-hidden">
+        <SessionSidebar
+          sessions={sessions}
+          selectedSession={selectedSession}
+          currentBackendSession={currentSessionQuery.data?.session_id ?? null}
+          onSelect={handleSidebarSelect}
+          onNewSession={startNewSession}
+          onDelete={handleDeleteSession}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={() => setSidebarCollapsed((p) => !p)}
+          typing={typing}
+          agentIds={agentIds}
+          selectedAgent={selectedAgent}
+          onAgentChange={(v) => {
+            userPickedSessionRef.current = false;
+            setSelectedAgent(v);
+          }}
         />
-      )}
-      <div className={`${isMobile ? 'fixed inset-y-0 left-0 z-50 transform transition-transform duration-300 ' + (mobileSidebarOpen ? 'translate-x-0' : '-translate-x-full') : 'relative'}`}>
-        <div ref={sessionListRef} className="h-full">
-          <SessionSidebar
-            sessions={sessions}
-            selectedSession={selectedSession}
-            currentBackendSession={currentSessionQuery.data?.session_id ?? null}
-            onSelect={(sessionId) => {
-              handleSidebarSelect(sessionId);
-              if (isMobile) setMobileSidebarOpen(false);
-            }}
-            onNewSession={startNewSession}
-            onDelete={handleDeleteSession}
-            collapsed={isMobile ? false : sidebarCollapsed}
-            onToggleCollapse={() => {
-              if (isMobile) {
-                setMobileSidebarOpen(false);
-              } else {
-                setSidebarCollapsed((p) => !p);
-              }
-            }}
-            typing={typing}
-            agentIds={agentIds}
-            selectedAgent={selectedAgent}
-            onAgentChange={(v) => { userPickedSessionRef.current = false; setSelectedAgent(v); }}
-          />
-        </div>
-        {/* Mobile pull-to-refresh indicator */}
-        {isMobile && (
-          <div 
-            className="absolute top-0 left-0 right-0 flex items-center justify-center pointer-events-none z-10"
-            style={{ 
-              transform: `translateY(${Math.min(pullDistance * 0.5, 60)}px)`,
-              opacity: isPulling ? 1 : 0,
-              transition: isPulling ? 'none' : 'opacity 0.3s'
-            }}
-          >
-            <div className="bg-slate-900/90 backdrop-blur-sm rounded-full px-3 py-1.5 shadow-lg border border-white/[0.06]">
-              <span className="text-xs text-slate-400">
-                {isRefreshing ? 'Refreshing...' : 'Pull to refresh'}
-              </span>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* ── Chat panel ──────────────────────────── */}
-      <div className="flex flex-col flex-1 min-w-0">
-      {/* ── Top bar ──────────────────────────────── */}
-      <div className="flex items-center gap-2 px-4 h-12 border-b border-white/[0.06] bg-white/[0.02] backdrop-blur-sm shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
-          {/* Mobile: Hamburger menu */}
-          {isMobile && (
-            <button
-              onClick={() => setMobileSidebarOpen(true)}
-              className="h-10 w-10 min-w-[44px] flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
-              aria-label="Open sessions"
+      {/* Chat area */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Top bar */}
+        <div className="flex items-center gap-2 px-4 h-12 border-b border-white/[0.06] bg-white/[0.02] shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="!h-7 !w-7 !p-0"
+              onClick={() => setSidebarCollapsed((p) => !p)}
+              title="Toggle sidebar"
             >
-              <PanelLeft className="h-5 w-5" />
-            </button>
-          )}
-          <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-400/10 shrink-0">
-            <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
-          </span>
-          <span className="text-sm font-semibold text-slate-100 shrink-0">Command</span>
-          {selectedSession && (
-            <>
-              <Separator className="!h-5 !w-px !bg-white/[0.08]" />
-              <span className="text-xs text-slate-400 truncate">
-                {sessions.find((s) => s.session_id === selectedSession)?.title || selectedSession.slice(0, 24)}
-              </span>
-            </>
-          )}
-        </div>
-
-        <div className="ml-auto flex items-center gap-1">
-          {!wsConnected && (
-            <span className="inline-flex items-center gap-1 mr-2 rounded-md border border-rose-400/25 bg-rose-400/10 px-2 py-0.5 text-[10px] text-rose-300 animate-pulse">
-              <WifiOff className="h-3 w-3" /> Reconnecting…
-            </span>
-          )}
-          {allMessages.length > 0 && (
-            <span className="hidden md:inline-flex items-center gap-1 mr-2 text-[10px] tabular-nums text-slate-500">
-              {allMessages.length} msgs{contextBoundary > 0 && ` (${contextWindowSize} in ctx)`} · {recentReceiptTokens.toLocaleString()} tok
-            </span>
-          )}
-          {/* Mobile: Show message count */}
-          {isMobile && allMessages.length > 0 && (
-            <span className="md:hidden inline-flex items-center gap-1 mr-2 text-[10px] tabular-nums text-slate-500">
-              {allMessages.length} msgs
-            </span>
-          )}
-          {!isMobile && (
-            <Button variant="ghost" size="sm" className="!h-7 !w-7 !p-0" onClick={() => setSidebarCollapsed((p) => !p)} title="Toggle sessions sidebar (⌘J)">
               {sidebarCollapsed ? <PanelLeft className="h-3.5 w-3.5" /> : <PanelLeftClose className="h-3.5 w-3.5" />}
             </Button>
-          )}
-          <Button variant="ghost" size="sm" className="!h-9 !w-9 min-w-[44px] !p-0" onClick={toggleSearch} title="Search messages (⌘F)">
-            <Search className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="sm" className="!h-9 !w-9 min-w-[44px] !p-0 hidden sm:flex" onClick={exportSession} title="Export session" disabled={!allMessages.length}>
-            <Download className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="sm" className="!h-9 !w-9 min-w-[44px] !p-0 hidden sm:flex" onClick={compactSession} title="Compact history" disabled={!allMessages.length}>
-            <Minimize2 className="h-4 w-4" />
-          </Button>
-          {/* Mobile: Activity button opens bottom sheet */}
-          <Button 
-            variant="ghost" 
-            size="sm" 
-            className="!h-9 !w-9 min-w-[44px] !p-0" 
-            onClick={() => isMobile ? setMobileActivityOpen(true) : setShowActivity((p) => !p)} 
-            title="Toggle activity"
-          >
-            {showActivity || mobileActivityOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-          </Button>
-        </div>
-      </div>
-
-      {/* ── Search bar ───────────────────────────── */}
-      {searchOpen && (
-        <div className="flex items-center gap-2 px-4 h-10 border-b border-white/[0.06] bg-white/[0.02] shrink-0">
-          <Search className="h-3.5 w-3.5 text-slate-500" />
-          <input
-            ref={searchInputRef}
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Escape") toggleSearch(); }}
-            placeholder="Search messages…"
-            className="flex-1 bg-transparent text-sm text-slate-200 placeholder:text-slate-600 outline-none"
-          />
-          {searchQuery && (
-            <span className="text-[10px] tabular-nums text-slate-500">
-              {filteredMessages.length}/{allMessages.length}
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-md bg-emerald-400/10 shrink-0">
+              <Sparkles className="h-3.5 w-3.5 text-emerald-400" />
             </span>
-          )}
-          <button onClick={toggleSearch} className="text-slate-500 hover:text-slate-300 transition-colors">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
-
-      {/* ── Other-session banner ─────────────────── */}
-      {otherSession && (
-        <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-amber-400/15 bg-amber-400/[0.04] text-xs text-amber-200">
-          <div className="flex items-center gap-2">
-            <Zap className="h-3 w-3 text-amber-400" />
-            <span>Active in <strong className="text-amber-100">{otherSession.id.slice(0, 18)}</strong> — {otherSession.detail}</span>
+            <span className="text-sm font-semibold text-slate-100 shrink-0">Command</span>
+            {selectedSession && (
+              <>
+                <Separator className="!h-5 !w-px !bg-white/[0.08]" />
+                <span className="text-xs text-slate-400 truncate">
+                  {sessions.find((s) => s.session_id === selectedSession)?.title || selectedSession.slice(0, 24)}
+                </span>
+              </>
+            )}
           </div>
-          <button onClick={jumpToOtherSession} className="inline-flex items-center gap-1 text-amber-300 hover:text-amber-100 transition-colors">
-            Jump <ArrowRight className="h-3 w-3" />
-          </button>
-        </div>
-      )}
 
-      {/* ── Messages ── fixed-height scrollable ──── */}
-      <div
-        ref={scrollContainerRef}
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
-        role="log"
-        aria-live="polite"
-        aria-label="Chat messages"
-      >
-        {allMessages.length === 0 && !sessionQuery.isLoading && !typing && !streamBuffer && !displayedStream ? (
-          <div className="h-full flex flex-col items-center justify-center px-6">
-            <div className="max-w-md w-full text-center">
-              <div className="h-14 w-14 rounded-2xl bg-emerald-400/10 flex items-center justify-center mx-auto mb-5">
-                <Sparkles className="h-7 w-7 text-emerald-400" />
-              </div>
-              <h2 className="text-xl font-semibold text-slate-100 mb-1.5">Pinchy Command</h2>
-              <p className="text-sm text-slate-400 mb-8">
-                Send commands to your agents, run slash commands, and monitor execution in real time.
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                {exampleCommands.map((q, i) => (
-                  <button
-                    key={i}
-                    onClick={() => setDraft(q.label)}
-                    className="flex items-center gap-2.5 px-3.5 py-2.5 text-left text-xs rounded-xl border border-white/[0.06] bg-white/[0.02] text-slate-400 hover:bg-white/[0.05] hover:text-slate-200 hover:border-white/[0.12] transition-all duration-200"
-                  >
-                    <span className="text-emerald-400/60">{q.icon}</span>
-                    <span>{q.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="max-w-3xl mx-auto px-4">
-            {sessionQuery.isLoading && (
-              <div className="flex items-center justify-center gap-2 py-12">
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400/30 border-t-emerald-400" />
-                <span className="text-sm text-slate-500">Loading session…</span>
-              </div>
-            )}
-
-            {/* ── Compact summary cards ──────── */}
-            {compactSummaries.map((cs, i) => (
-              <CompactSummaryCard key={`compact-${cs.timestamp}-${i}`} summary={cs} />
-            ))}
-
-            {/* ── Out-of-context collapse banner ──────── */}
-            {contextBoundary > 0 && (
-              <div className="py-3">
-                <button
-                  onClick={() => setCollapsedOutOfContext((p) => !p)}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-purple-400/15 bg-purple-400/[0.04] text-xs text-purple-300 hover:bg-purple-400/[0.08] transition-colors"
-                >
-                  <EyeOff className="h-3.5 w-3.5 text-purple-400/60" />
-                  <span>
-                    {collapsedOutOfContext
-                      ? `${outOfContextCount} older messages outside context window${compactSummaries.length > 0 ? " (summarised above)" : ""} — click to show`
-                      : `Showing ${outOfContextCount} out-of-context messages — click to hide`}
-                  </span>
-                  {collapsedOutOfContext ? <ChevronDown className="h-3 w-3 ml-auto" /> : <ChevronUp className="h-3 w-3 ml-auto" />}
-                </button>
-              </div>
-            )}
-
-            {filteredMessages.length > 0 && (
-              <div>
-                <div style={{ height: rowVirtualizer.getTotalSize ? rowVirtualizer.getTotalSize() : 0, position: "relative" }}>
-                  {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                    const index = virtualRow.index;
-                    const message = filteredMessages[index];
-                    if (!message) return null;
-                    const role = message.role.toLowerCase();
-                    const isUser = role === "user";
-                    const isSystem = role === "system";
-                    const isTool = role === "tool";
-                    const isOutOfContext = contextBoundary > 0 && index < contextBoundary;
-                    const isCompactedHistory = isSystem && message.content.includes("<compacted_history>");
-                    const isContextDivider = contextBoundary > 0 && index === contextBoundary;
-
-                    if (isTool && message.content.trim().startsWith("{")) return null;
-                    if (!message.content.trim()) return null;
-                    if (isOutOfContext && collapsedOutOfContext && !isCompactedHistory) return null;
-
-                    return (
-                      <div 
-                        key={`${message.role}-${message.timestamp}-${index}`} 
-                        style={{ position: "absolute", top: virtualRow.start, left: 0, width: "100%" }}
-                        className={isMobile ? 'overflow-hidden' : ''}
-                      >
-                        {/* Mobile swipe-to-delete background */}
-                        {isMobile && isUser && (
-                          <div 
-                            className="absolute inset-y-0 right-0 w-24 bg-rose-500/20 flex items-center justify-end pr-4 z-0"
-                            style={{ opacity: swipeOffset > 0 ? Math.min(swipeOffset / 100, 1) : 0 }}
-                          >
-                            <Trash2 className="h-5 w-5 text-rose-400" />
-                          </div>
-                        )}
-                        {isCompactedHistory && <CompactedHistoryCard content={message.content} />}
-                        {isContextDivider && (
-                          <div className="flex items-center gap-3 py-3 select-none">
-                            <div className="flex-1 h-px bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
-                            <div className="flex items-center gap-1.5 text-[10px] text-purple-300/70 font-medium uppercase tracking-wider">
-                              <Layers className="h-3 w-3" />
-                              Context window
-                            </div>
-                            <div className="flex-1 h-px bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
-                          </div>
-                        )}
-                        {!isCompactedHistory && (
-                          <div 
-                            className={`py-5 group ${isOutOfContext ? "opacity-40 hover:opacity-70 transition-opacity" : ""} ${isMobile ? 'px-3' : ''}`}
-                            {...(isMobile && touchSupported ? {
-                              onTouchStart: (e: React.TouchEvent) => {
-                                const touch = e.touches[0];
-                                const startX = touch.clientX;
-                                setSwipingMessage(index);
-                                
-                                const handleTouchMove = (e: TouchEvent) => {
-                                  if (swipingMessage !== index) return;
-                                  const touch = e.touches[0];
-                                  const deltaX = touch.clientX - startX;
-                                  // Only allow left swipe for user messages
-                                  if (!isUser || deltaX > 0) return;
-                                  setSwipeOffset(Math.abs(deltaX));
-                                };
-                                
-                                const handleTouchEnd = () => {
-                                  if (swipingMessage === index && swipeOffset > 80) {
-                                    handleMessageSwipeLeft(index, message.content, role);
-                                  }
-                                  setSwipingMessage(null);
-                                  setSwipeOffset(0);
-                                  document.removeEventListener('touchmove', handleTouchMove);
-                                  document.removeEventListener('touchend', handleTouchEnd);
-                                };
-                                
-                                document.addEventListener('touchmove', handleTouchMove);
-                                document.addEventListener('touchend', handleTouchEnd);
-                              }
-                            } : {})}
-                          >
-                            <div className={`flex gap-3 ${isMobile && isUser ? 'justify-end' : ''}`}>
-                              {/* Avatar: only show on desktop or for non-user messages */}
-                              {(!isMobile || !isUser) && (
-                                <div className="relative">
-                                  <div className={`h-9 w-9 min-w-[44px] rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                                    isUser ? "bg-emerald-400/10" : isSystem ? "bg-amber-400/10" : "bg-white/[0.06]"
-                                  }`}>
-                                    {isUser ? <User className="h-4 w-4 text-emerald-400" />
-                                      : isSystem ? <AlertCircle className="h-4 w-4 text-amber-400" />
-                                      : <Bot className="h-4 w-4 text-slate-400" />}
-                                  </div>
-                                  {isOutOfContext && (
-                                    <div className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-purple-500/20 flex items-center justify-center">
-                                      <EyeOff className="h-2 w-2 text-purple-400" />
-                                    </div>
-                                  )}
-                                </div>
-                              )}
-                              {/* Message bubble */}
-                              <div className={`${isMobile ? (isUser ? 'max-w-[90%]' : 'max-w-[95%]') : 'flex-1 min-w-0'}`}>
-                                {/* Header row */}
-                                <div className={`flex items-center gap-2 mb-1 ${isMobile && isUser ? 'justify-end' : ''}`}>
-                                  {!isMobile && (
-                                    <span className="text-xs font-medium text-slate-200">
-                                      {isUser ? "You" : isSystem ? "System" : "Agent"}
-                                    </span>
-                                  )}
-                                  <span className="text-[10px] tabular-nums text-slate-600">
-                                    {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                  </span>
-                                  {isOutOfContext && (
-                                    <span className="text-[9px] text-purple-400/60 font-medium">out of context</span>
-                                  )}
-                                  {/* Mobile: More actions button */}
-                                  {isMobile && !isUser && (
-                                    <button
-                                      onClick={() => {
-                                        setSelectedMessage({ index, content: message.content, role });
-                                        setMessageActionsOpen(true);
-                                      }}
-                                      className="ml-auto h-8 w-8 min-w-[44px] flex items-center justify-center rounded-lg text-slate-600 hover:text-slate-300 hover:bg-white/[0.06] transition-colors"
-                                    >
-                                      <MoreVertical className="h-4 w-4" />
-                                    </button>
-                                  )}
-                                  {!isUser && !isMobile && (
-                                    <button
-                                      onClick={() => copyMessage(message.content, index)}
-                                      className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-slate-300"
-                                    >
-                                      {copiedIdx === index
-                                        ? <Check className="h-3 w-3 text-emerald-400" />
-                                        : <Copy className="h-3 w-3" />}
-                                    </button>
-                                  )}
-                                </div>
-                                {isUser && message.images?.length ? (
-                                  <div className="flex gap-2 flex-wrap mb-1.5">
-                                    {message.images.map((src, i) => (
-                                      <img key={i} src={src} alt="" className="max-h-48 max-w-[256px] rounded-lg border border-white/[0.08] object-contain" />
-                                    ))}
-                                  </div>
-                                ) : null}
-                                {/* Content */}
-                                {isUser ? (
-                                  <div className={`text-sm text-slate-200 whitespace-pre-wrap break-words overflow-hidden ${isMobile ? 'bg-emerald-400/10 rounded-2xl rounded-tr-sm px-4 py-3' : ''}`}>{message.content !== "[image]" ? message.content : ""}</div>
-                                ) : isSystem ? (
-                                  <div className="text-sm text-amber-200/80 whitespace-pre-wrap break-words overflow-hidden">{message.content}</div>
-                                ) : (
-                                  <div className={`markdown-body text-sm text-slate-300 leading-relaxed overflow-hidden ${isMobile ? 'bg-white/[0.03] rounded-2xl rounded-tl-sm px-4 py-3' : ''}`}>
-                                    <MarkdownBlock content={message.content} />
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                        {!isUser && !isSystem && !isCompactedHistory && receiptByMsgIndex.has(index) && (() => {
-                          return <InlineReceipt receipt={receiptByMsgIndex.get(index)!} index={index} expanded={expandedInlineReceipt === index} onToggle={() => setExpandedInlineReceipt(expandedInlineReceipt === index ? null : index)} />;
-                        })()}
-                      </div>
-                    );
-                  })}
-                </div>
-                <div ref={messagesEndRef} className="h-4" />
-              </div>
-            )}
-
-            {/* Streaming */}
-            {displayedStream && (
-              <div className="py-5">
-                <div className="flex gap-3">
-                  <div className="h-7 w-7 rounded-lg bg-emerald-400/10 flex items-center justify-center shrink-0 mt-0.5">
-                    <Sparkles className="h-3.5 w-3.5 text-emerald-400 animate-pulse" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-medium text-emerald-300">Agent</span>
-                      <span className="text-[10px] text-emerald-400/50">streaming…</span>
-                    </div>
-                    <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap break-words overflow-hidden">
-                      {displayedStream}
-                      <span className="inline-block w-1.5 h-4 bg-emerald-400/70 animate-pulse ml-0.5 align-text-bottom" />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Typing */}
-            {typing && !displayedStream && (
-              <div className="py-5">
-                <div className="flex gap-3">
-                  <div className="h-7 w-7 rounded-lg bg-white/[0.06] flex items-center justify-center shrink-0 mt-0.5">
-                    <Bot className="h-3.5 w-3.5 text-slate-400" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs font-medium text-slate-200">Agent</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 py-0.5">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/70 animate-bounce [animation-delay:0ms]" />
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/70 animate-bounce [animation-delay:150ms]" />
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/70 animate-bounce [animation-delay:300ms]" />
-                      <span className="text-xs text-slate-500 ml-1.5">{typingLabel}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* ── Activity / Receipts (inline) ──────── */}
-            {/* Desktop: Show inline activity panel. Mobile: Hidden here, shown in BottomSheet */}
-            {!isMobile && showActivity && (allReceipts.length > 0 || activityItems.length > 0) && (
-              <div className="mt-2 mb-4 rounded-xl border border-white/[0.06] bg-white/[0.02] overflow-hidden">
-                <div className="flex items-center justify-between px-3 py-2 border-b border-white/[0.04]">
-                  <div className="flex items-center gap-1.5">
-                    <Activity className="h-3.5 w-3.5 text-emerald-400/60" />
-                    <span className="text-xs font-medium text-slate-300">Activity</span>
-                    <span className="text-[10px] tabular-nums text-slate-600 ml-1">
-                      {allReceipts.length + activityItems.length} items
-                    </span>
-                  </div>
-                  <button
-                    onClick={() => { setActivityItems([]); setReceipts([]); }}
-                    className="text-slate-600 hover:text-slate-300 transition-colors"
-                    title="Clear"
-                  >
-                    <RotateCcw className="h-3 w-3" />
-                  </button>
-                </div>
-                <div className="p-2 space-y-1.5 max-h-[400px] overflow-y-auto">
-                  {allReceipts.slice().reverse().map((receipt, idx) => (
-                    <div key={`r-${receipt.timestamp}-${idx}`} className="rounded-lg border border-emerald-400/10 bg-emerald-400/[0.03] p-2.5">
-                      <div
-                        className="flex items-center justify-between gap-1 mb-1 cursor-pointer"
-                        onClick={() => setExpandedReceipt(expandedReceipt === idx ? null : idx)}
-                      >
-                        <div className="flex items-center gap-1">
-                          <ChevronRight className={`h-2.5 w-2.5 text-emerald-400 transition-transform ${expandedReceipt === idx ? "rotate-90" : ""}`} />
-                          <Zap className="h-2.5 w-2.5 text-emerald-400" />
-                          <span className="text-[10px] font-medium text-emerald-300">Receipt</span>
-                        </div>
-                        <span className="text-[9px] tabular-nums text-slate-600">
-                          {new Date(receipt.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-300">
-                        <span className="text-emerald-300 font-medium">{receipt.tokens.total}</span> tok
-                        <span className="text-slate-600"> · </span>
-                        {(() => {
-                          const ok = receipt.tools.filter(t => t.success).length;
-                          const fail = receipt.tools.length - ok;
-                          return fail > 0
-                            ? <>{ok} <span className="text-emerald-400">✓</span> · {fail} <span className="text-rose-400">✗</span></>
-                            : <>{receipt.tools.length} tools</>;
-                        })()}
-                        <span className="text-slate-600"> · </span>
-                        {receipt.durationMs ? `${(receipt.durationMs / 1000).toFixed(1)}s` : "-"}
-                      </div>
-                      {receipt.tools.length > 0 && (
-                        <div className="mt-1.5 flex flex-wrap gap-1">
-                          {(() => {
-                            // Deduplicate: group by tool name, show best status
-                            const grouped = new Map<string, { total: number; ok: number }>();
-                            for (const t of receipt.tools) {
-                              const g = grouped.get(t.tool) ?? { total: 0, ok: 0 };
-                              g.total++;
-                              if (t.success) g.ok++;
-                              grouped.set(t.tool, g);
-                            }
-                            const entries = Array.from(grouped.entries());
-                            const shown = entries.slice(0, 8);
-                            const overflow = entries.length - shown.length;
-                            return (
-                              <>
-                                {shown.map(([name, { total, ok }]) => {
-                                  const anyOk = ok > 0;
-                                  const retried = total > 1;
-                                  return (
-                                    <span
-                                      key={name}
-                                      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] ${
-                                        anyOk
-                                          ? "bg-emerald-400/8 text-emerald-300 border border-emerald-400/15"
-                                          : "bg-rose-400/8 text-rose-300 border border-rose-400/15"
-                                      }`}
-                                    >
-                                      {name}
-                                      {retried && (
-                                        <span className="text-[8px] opacity-60">
-                                          {ok}/{total}
-                                        </span>
-                                      )}
-                                    </span>
-                                  );
-                                })}
-                                {overflow > 0 && (
-                                  <span className="inline-flex items-center rounded px-1.5 py-0.5 text-[9px] text-slate-500">
-                                    +{overflow}
-                                  </span>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </div>
-                      )}
-                      {expandedReceipt === idx && receipt.toolCalls && receipt.toolCalls.length > 0 && (
-                        <div className="mt-2 space-y-1 border-t border-emerald-400/10 pt-2">
-                          <span className="text-[9px] uppercase tracking-widest text-slate-500">Tool Call Details</span>
-                          {receipt.toolCalls.map((tc, tci) => (
-                            <div key={tci} className="rounded-md border border-white/[0.04] bg-black/20 p-2 text-[11px]">
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="font-medium text-slate-200">{tc.name}</span>
-                                <div className="flex items-center gap-2">
-                                  {tc.duration > 0 && <span className="text-slate-600">{tc.duration}ms</span>}
-                                  <span className={tc.success ? "text-emerald-400" : "text-rose-400"}>{tc.success ? "✓" : "✗"}</span>
-                                </div>
-                              </div>
-                              {tc.args && <p className="mt-1 text-slate-500 font-mono text-[10px] break-all">{tc.args}</p>}
-                              {tc.error && <p className="mt-1 text-rose-300 text-[10px]">{tc.error}</p>}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-
-                  {activityItems.slice(-40).reverse().map((item) => (
-                    <div key={`${item.timestamp}-${item.text}`} className="rounded-lg border border-white/[0.04] bg-white/[0.01] p-2.5">
-                      <div className="flex items-center justify-between gap-1 mb-0.5">
-                        <span className={`text-[9px] uppercase tracking-wide font-medium ${activityColor(item.kind)}`}>
-                          {item.kind}
-                        </span>
-                        <span className="text-[9px] tabular-nums text-slate-700">
-                          {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-400 leading-snug">{item.text}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            
-          </div>
-        )}
-      </div>
-
-      {/* ── Compose ──────────────────────────────── */}
-      <div className="shrink-0 border-t border-white/[0.06] bg-white/[0.02] backdrop-blur-sm">
-        <div className="max-w-3xl mx-auto px-4 py-3">
-          <div className="relative">
-            {slashOpen && filteredSlash.length > 0 && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 max-h-64 overflow-y-auto rounded-lg border border-white/[0.08] bg-[#1a1a2e] shadow-xl z-50">
-                {filteredSlash.map((cmd, i) => (
-                  <button
-                    key={cmd.name}
-                    type="button"
-                    onMouseDown={(e) => { e.preventDefault(); acceptSlashCommand(cmd); }}
-                    onMouseEnter={() => setSlashIdx(i)}
-                    className={`w-full text-left px-3 py-2 flex items-start gap-3 transition-colors ${
-                      i === slashIdx ? "bg-emerald-400/10" : "hover:bg-white/[0.04]"
-                    }`}
-                  >
-                    <span className="font-mono text-sm text-emerald-400 shrink-0">/{cmd.name}</span>
-                    <span className="text-xs text-slate-400 pt-0.5 leading-snug">{cmd.description}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            {/* Image preview strip */}
-            {pendingImages.length > 0 && (
-              <div className="flex gap-2 mb-2 flex-wrap">
-                {pendingImages.map((src, i) => (
-                  <div key={i} className="relative group/thumb">
-                    <img src={src} alt="" className="h-16 w-16 rounded-lg object-cover border border-white/[0.08]" />
-                    <button
-                      type="button"
-                      onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
-                      className="absolute -top-1.5 -right-1.5 h-6 w-6 min-w-[24px] rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div
-              onDrop={handleDrop}
-              onDragOver={(e) => e.preventDefault()}
-              className="flex items-end gap-1.5"
-            >
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                className="mb-1.5 h-11 w-11 min-w-[44px] shrink-0 rounded-xl text-slate-500 hover:text-slate-300 flex items-center justify-center transition-colors hover:bg-white/[0.06]"
-                aria-label="Add images"
-              >
-                <ImagePlus className="h-5 w-5" />
-              </button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                multiple
-                className="hidden"
-                onChange={(e) => { if (e.target.files?.length) { addImages(e.target.files); e.target.value = ""; } }}
-              />
-              <TextArea
-                ref={inputRef}
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={handleKeyDown}
-                onPaste={handlePaste}
-                onFocus={handleInputFocus}
-                placeholder="Ask your agent something…"
-                rows={isMobile ? 1 : 1}
-                className={`flex-1 py-3.5 px-4 ${isMobile ? 'min-h-[48px] max-h-32 text-base' : 'min-h-[44px] max-h-36'} rounded-2xl`}
-                style={{ fieldSizing: "content" } as React.CSSProperties}
-              />
-              <button
-                type="button"
-                onClick={sendMessage}
-                disabled={!draft.trim() && pendingImages.length === 0}
-                className="mb-1.5 h-11 w-11 min-w-[44px] shrink-0 rounded-xl bg-emerald-400 text-slate-950 flex items-center justify-center hover:bg-emerald-300 disabled:opacity-30 disabled:hover:bg-emerald-400 transition-all duration-200"
-                aria-label="Send message"
-              >
-                <Send className="h-5 w-5" />
-              </button>
-            </div>
-          </div>
-          {/* Mobile: Show agent info below input */}
-          <div className="flex items-center justify-between mt-2 px-1">
-            <span className={`text-[10px] text-slate-600 ${isMobile ? 'hidden' : ''}`}>
-              <kbd className="font-mono">↵</kbd> send · <kbd className="font-mono">⇧↵</kbd> newline
-            </span>
-            {isMobile && (
-              <span className="text-[10px] text-slate-500 flex-1">
-                {selectedAgent}
+          <div className="ml-auto flex items-center gap-1">
+            {!wsConnected && (
+              <span className="inline-flex items-center gap-1 mr-2 rounded-md border border-rose-400/25 bg-rose-400/10 px-2 py-0.5 text-[10px] text-rose-300 animate-pulse">
+                <WifiOff className="h-3 w-3" /> Reconnecting…
               </span>
             )}
-            <span className="text-[10px] tabular-nums text-slate-600">
-              {!isMobile && selectedAgent && `${selectedAgent}`}
-              {selectedSession && ` · ${selectedSession.slice(0, 12)}…`}
-            </span>
+            {allMessages.length > 0 && (
+              <span className="hidden md:inline-flex items-center gap-1 mr-2 text-[10px] tabular-nums text-slate-500">
+                {allMessages.length} msgs{contextBoundary > 0 && ` (${contextWindowSize} in ctx)`} · {recentReceiptTokens.toLocaleString()} tok
+              </span>
+            )}
+            <Button variant="ghost" size="sm" className="!h-9 !w-9 !p-0" onClick={toggleSearch} title="Search messages (⌘F)">
+              <Search className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" className="!h-9 !w-9 !p-0 hidden sm:flex" onClick={exportSession} title="Export session" disabled={!allMessages.length}>
+              <Download className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" className="!h-9 !w-9 !p-0 hidden sm:flex" onClick={compactSession} title="Compact history" disabled={!allMessages.length}>
+              <Minimize2 className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="sm" className="!h-9 !w-9 !p-0" onClick={() => setShowActivity((p) => !p)} title="Toggle activity">
+              {showActivity ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </Button>
           </div>
         </div>
-      </div>
 
-      {/* ── Mobile Components ───────────────────── */}
-      {/* Activity Bottom Sheet for Mobile */}
-      {ActivityBottomSheet}
-      
-      {/* Message Actions ActionSheet */}
-      <ActionSheet
-        isOpen={messageActionsOpen}
-        onClose={() => setMessageActionsOpen(false)}
-        actions={[
-          {
-            label: "Copy",
-            onClick: () => {
-              if (selectedMessage) {
-                navigator.clipboard.writeText(selectedMessage.content);
-                setCopiedIdx(selectedMessage.index);
-                setTimeout(() => setCopiedIdx(null), 2000);
-              }
-            },
-            icon: Copy,
-          },
-          ...(selectedMessage?.role === "user" ? [{
-            label: "Delete",
-            onClick: () => {
-              // Note: Actual deletion would need API support
-              // For now, just show an action
-            },
-            destructive: true as const,
-            icon: Trash2,
-          }] : []),
-        ]}
-      />
+        {/* Search bar */}
+        {searchOpen && (
+          <div className="flex items-center gap-2 px-4 h-11 border-b border-white/[0.06] bg-white/[0.02] shrink-0">
+            <Search className="h-4 w-4 text-slate-500" />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") toggleSearch();
+              }}
+              placeholder="Search messages…"
+              className="flex-1 bg-transparent text-sm text-slate-100 placeholder:text-slate-500/70 outline-none"
+            />
+            {searchQuery && (
+              <span className="text-[10px] tabular-nums text-slate-500">
+                {filteredMessages.length}/{allMessages.length}
+              </span>
+            )}
+            <button onClick={toggleSearch} className="text-slate-500 hover:text-slate-300 transition-colors">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
+        {/* Other-session banner */}
+        {otherSession && (
+          <div className="flex items-center justify-between gap-3 px-4 py-2 border-b border-amber-400/15 bg-amber-400/[0.04] text-xs text-amber-200 shrink-0">
+            <div className="flex items-center gap-2">
+              <Zap className="h-3 w-3 text-amber-400" />
+              <span>
+                Active in <strong className="text-amber-100">{otherSession.id.slice(0, 18)}</strong> — {otherSession.detail}
+              </span>
+            </div>
+            <button onClick={jumpToOtherSession} className="inline-flex items-center gap-1 text-amber-300 hover:text-amber-100 transition-colors">
+              Jump <ArrowRight className="h-3 w-3" />
+            </button>
+          </div>
+        )}
+
+        {/* Messages - fills remaining space, messages start from top */}
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col" role="log" aria-live="polite" aria-label="Chat messages">
+          <div className="flex-1 flex flex-col px-4 py-4 min-h-0">
+            {allMessages.length === 0 && !sessionQuery.isLoading && !typing && !streamBuffer && !displayedStream ? (
+              <div className="flex-1 flex flex-col items-center justify-center">
+                <div className="max-w-md w-full text-center">
+                  <div className="h-14 w-14 rounded-2xl bg-emerald-400/10 flex items-center justify-center mx-auto mb-5">
+                    <Sparkles className="h-7 w-7 text-emerald-400" />
+                  </div>
+                  <h2 className="text-xl font-semibold text-slate-100 mb-1.5">Pinchy Command</h2>
+                  <p className="text-sm text-slate-400 mb-8">Send commands to your agents, run slash commands, and monitor execution in real time.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {exampleCommands.map((q, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setDraft(q.label)}
+                        className="flex items-center gap-2.5 px-3.5 py-2.5 text-left text-xs rounded-xl border border-white/[0.06] bg-white/[0.02] text-slate-400 hover:bg-white/[0.05] hover:text-slate-200 hover:border-white/[0.12] transition-all duration-200"
+                      >
+                        <span className="text-emerald-400/60">{q.icon}</span>
+                        <span>{q.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex flex-col justify-start">
+                <div className="space-y-4">
+                  {sessionQuery.isLoading && (
+                    <div className="flex items-center justify-center gap-2 py-12">
+                      <div className="h-4 w-4 animate-spin rounded-full border-2 border-emerald-400/30 border-t-emerald-400" />
+                      <span className="text-sm text-slate-500">Loading session…</span>
+                    </div>
+                  )}
+
+                  {/* Compact summary cards */}
+                  {compactSummaries.map((cs, i) => (
+                    <CompactSummaryCard key={`compact-${cs.timestamp}-${i}`} summary={cs} />
+                  ))}
+
+                  {/* Out-of-context collapse banner */}
+                  {contextBoundary > 0 && (
+                    <div className="py-2">
+                      <button
+                        onClick={() => setCollapsedOutOfContext((p) => !p)}
+                        className="w-full flex items-center gap-2 px-3 py-2 rounded-lg border border-purple-400/15 bg-purple-400/[0.04] text-xs text-purple-300 hover:bg-purple-400/[0.08] transition-colors"
+                      >
+                        <EyeOff className="h-3.5 w-3.5 text-purple-400/60" />
+                        <span>
+                          {collapsedOutOfContext
+                            ? `${outOfContextCount} older messages outside context window${compactSummaries.length > 0 ? " (summarised above)" : ""} — click to show`
+                            : `Showing ${outOfContextCount} out-of-context messages — click to hide`}
+                        </span>
+                        {collapsedOutOfContext ? <ChevronDown className="h-3 w-3 ml-auto" /> : <ChevronUp className="h-3 w-3 ml-auto" />}
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Messages */}
+                  {filteredMessages.map((message, index) => {
+                  const role = message.role.toLowerCase();
+                  const isUser = role === "user";
+                  const isSystem = role === "system";
+                  const isTool = role === "tool";
+                  const isOutOfContext = contextBoundary > 0 && index < contextBoundary;
+                  const isCompactedHistory = isSystem && message.content.includes("<compacted_history>");
+                  const isContextDivider = contextBoundary > 0 && index === contextBoundary;
+
+                  if (isTool && message.content.trim().startsWith("{")) return null;
+                  if (!message.content.trim()) return null;
+                  if (isOutOfContext && collapsedOutOfContext && !isCompactedHistory) return null;
+
+                  return (
+                    <div key={`${message.role}-${message.timestamp}-${index}`}>
+                      {isCompactedHistory && <CompactedHistoryCard content={message.content} />}
+                      {isContextDivider && (
+                        <div className="flex items-center gap-3 py-3 select-none">
+                          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
+                          <div className="flex items-center gap-1.5 text-[10px] text-purple-300/70 font-medium uppercase tracking-wider">
+                            <Layers className="h-3 w-3" />
+                            Context window
+                          </div>
+                          <div className="flex-1 h-px bg-gradient-to-r from-transparent via-purple-400/30 to-transparent" />
+                        </div>
+                      )}
+                      {!isCompactedHistory && (
+                        <div className={`py-2 group ${isOutOfContext ? "opacity-40 hover:opacity-70 transition-opacity" : ""}`}>
+                          <div className="flex gap-3">
+                            <div className="relative">
+                              <div
+                                className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                                  isUser ? "bg-emerald-400/10" : isSystem ? "bg-amber-400/10" : "bg-white/[0.06]"
+                                }`}
+                              >
+                                {isUser ? <User className="h-4 w-4 text-emerald-400" /> : isSystem ? <AlertCircle className="h-4 w-4 text-amber-400" /> : <Bot className="h-4 w-4 text-slate-400" />}
+                              </div>
+                              {isOutOfContext && (
+                                <div className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-purple-500/20 flex items-center justify-center">
+                                  <EyeOff className="h-2 w-2 text-purple-400" />
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className="text-xs font-medium text-slate-200">{isUser ? "You" : isSystem ? "System" : "Agent"}</span>
+                                <span className="text-[10px] tabular-nums text-slate-600">
+                                  {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                </span>
+                                {isOutOfContext && <span className="text-[9px] text-purple-400/60 font-medium">out of context</span>}
+                                {!isUser && (
+                                  <button
+                                    onClick={() => copyMessage(message.content, index)}
+                                    className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-slate-300"
+                                  >
+                                    {copiedIdx === index ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                                  </button>
+                                )}
+                              </div>
+                              {isUser && message.images?.length ? (
+                                <div className="flex gap-2 flex-wrap mb-1.5">
+                                  {message.images.map((src, i) => (
+                                    <img key={i} src={src} alt="" className="max-h-48 max-w-[256px] rounded-lg border border-white/[0.08] object-contain" />
+                                  ))}
+                                </div>
+                              ) : null}
+                              {isUser ? (
+                                <div className="text-sm text-slate-200 whitespace-pre-wrap break-words">{message.content !== "[image]" ? message.content : ""}</div>
+                              ) : isSystem ? (
+                                <div className="text-sm text-amber-200/80 whitespace-pre-wrap break-words">{message.content}</div>
+                              ) : (
+                                <div className="markdown-body text-sm text-slate-300 leading-relaxed">
+                                  <MarkdownBlock content={message.content} />
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {!isUser && !isSystem && !isCompactedHistory && receiptByMsgIndex.has(index) && (
+                        <div className="mt-3">
+                          <InlineReceipt
+                            receipt={receiptByMsgIndex.get(index)!}
+                            index={index}
+                            expanded={expandedInlineReceipt === index}
+                            onToggle={() => setExpandedInlineReceipt(expandedInlineReceipt === index ? null : index)}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                <div ref={messagesEndRef} />
+
+                {/* Streaming */}
+                {displayedStream && (
+                  <div className="py-4">
+                    <div className="flex gap-3">
+                      <div className="h-7 w-7 rounded-lg bg-emerald-400/10 flex items-center justify-center shrink-0 mt-0.5">
+                        <Sparkles className="h-3.5 w-3.5 text-emerald-400 animate-pulse" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium text-emerald-300">Agent</span>
+                          <span className="text-[10px] text-emerald-400/50">streaming…</span>
+                        </div>
+                        <div className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap break-words">
+                          {displayedStream}
+                          <span className="inline-block w-1.5 h-4 bg-emerald-400/70 animate-pulse ml-0.5 align-text-bottom" />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Typing */}
+                {typing && !displayedStream && (
+                  <div className="py-4">
+                    <div className="flex gap-3">
+                      <div className="h-7 w-7 rounded-lg bg-white/[0.06] flex items-center justify-center shrink-0 mt-0.5">
+                        <Bot className="h-3.5 w-3.5 text-slate-400" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-xs font-medium text-slate-200">Agent</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 py-0.5">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/70 animate-bounce [animation-delay:0ms]" />
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/70 animate-bounce [animation-delay:150ms]" />
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/70 animate-bounce [animation-delay:300ms]" />
+                          <span className="text-xs text-slate-500 ml-1.5">{typingLabel}</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Input - always at bottom */}
+        <div className="shrink-0 border-t border-white/[0.06] bg-white/[0.02]">
+          <div className="px-4 py-3">
+            <div className="relative">
+              {slashOpen && filteredSlash.length > 0 && (
+                <div className="absolute bottom-full left-0 right-0 mb-1 max-h-64 overflow-y-auto rounded-lg border border-white/[0.08] bg-[#1a1a2e] shadow-xl z-50">
+                  {filteredSlash.map((cmd, i) => (
+                    <button
+                      key={cmd.name}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        acceptSlashCommand(cmd);
+                      }}
+                      onMouseEnter={() => setSlashIdx(i)}
+                      className={`w-full text-left px-3 py-2 flex items-start gap-3 transition-colors ${i === slashIdx ? "bg-emerald-400/10" : "hover:bg-white/[0.04]"}`}
+                    >
+                      <span className="font-mono text-sm text-emerald-400 shrink-0">/{cmd.name}</span>
+                      <span className="text-xs text-slate-400 pt-0.5 leading-snug">{cmd.description}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {pendingImages.length > 0 && (
+                <div className="flex gap-2 mb-2 flex-wrap">
+                  {pendingImages.map((src, i) => (
+                    <div key={i} className="relative group/thumb">
+                      <img src={src} alt="" className="h-16 w-16 rounded-lg object-cover border border-white/[0.08]" />
+                      <button
+                        type="button"
+                        onClick={() => setPendingImages((prev) => prev.filter((_, j) => j !== i))}
+                        className="absolute -top-1.5 -right-1.5 h-6 w-6 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div onDrop={handleDrop} onDragOver={(e) => e.preventDefault()} className="flex items-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="mb-1.5 h-11 w-11 shrink-0 rounded-xl text-slate-500 hover:text-slate-300 flex items-center justify-center transition-colors hover:bg-white/[0.06]"
+                  aria-label="Add images"
+                >
+                  <ImagePlus className="h-5 w-5" />
+                </button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    if (e.target.files?.length) {
+                      addImages(e.target.files);
+                      e.target.value = "";
+                    }
+                  }}
+                />
+                <TextArea
+                  ref={inputRef}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  onPaste={handlePaste}
+                  placeholder="Ask your agent something…"
+                  rows={1}
+                  className="flex-1 py-3.5 px-4 min-h-[44px] max-h-36 rounded-2xl"
+                  style={{ fieldSizing: "content" } as React.CSSProperties}
+                />
+                <button
+                  type="button"
+                  onClick={sendMessage}
+                  disabled={!draft.trim() && pendingImages.length === 0}
+                  className="mb-1.5 h-11 w-11 shrink-0 rounded-xl bg-emerald-400 text-slate-950 flex items-center justify-center hover:bg-emerald-300 disabled:opacity-30 disabled:hover:bg-emerald-400 transition-all duration-200"
+                  aria-label="Send message"
+                >
+                  <Send className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center justify-between mt-2 px-1">
+              <span className="text-[10px] text-slate-600">
+                <kbd className="font-mono">↵</kbd> send · <kbd className="font-mono">⇧↵</kbd> newline
+              </span>
+              <span className="text-[10px] tabular-nums text-slate-600">
+                {selectedAgent && `${selectedAgent}`}
+                {selectedSession && ` · ${selectedSession.slice(0, 12)}…`}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1785,8 +1482,6 @@ function normalizeMessage(message: SessionMessage): LiveMessage {
     images: msg.images,
   };
 }
-
-
 
 function messageKey(role: string | undefined, content: unknown, timestamp: number | undefined): string {
   return timestamp ? `${messageBaseKey(role, content)}|${timestamp}` : messageBaseKey(role, content);
@@ -1807,8 +1502,18 @@ function activityColor(kind: ActivityKind) {
   return "text-slate-500";
 }
 
-function InlineReceipt({ receipt: r, index: _index, expanded, onToggle }: { receipt: ReceiptItem; index: number; expanded: boolean; onToggle: () => void }) {
-  const okCount = r.tools.filter(t => t.success).length;
+function InlineReceipt({
+  receipt: r,
+  index: _index,
+  expanded,
+  onToggle,
+}: {
+  receipt: ReceiptItem;
+  index: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const okCount = r.tools.filter((t) => t.success).length;
   const failCount = r.tools.length - okCount;
   const grouped = new Map<string, { total: number; ok: number }>();
   for (const t of r.tools) {
@@ -1819,19 +1524,16 @@ function InlineReceipt({ receipt: r, index: _index, expanded, onToggle }: { rece
   }
 
   return (
-    <div className="ml-10 -mt-3 mb-2 rounded-lg border border-white/[0.04] bg-white/[0.015] overflow-hidden">
-      <button
-        onClick={onToggle}
-        className="w-full flex items-center gap-2 px-3 py-2 text-[10px] text-slate-500 hover:bg-white/[0.02] transition-colors"
-      >
+    <div className="ml-10 -mt-2 mb-2 rounded-lg border border-white/[0.04] bg-white/[0.015] overflow-hidden">
+      <button onClick={onToggle} className="w-full flex items-center gap-2 px-3 py-2 text-[10px] text-slate-500 hover:bg-white/[0.02] transition-colors">
         <ChevronRight className={`h-2.5 w-2.5 text-slate-600 shrink-0 transition-transform ${expanded ? "rotate-90" : ""}`} />
         <Zap className="h-2.5 w-2.5 text-slate-600 shrink-0" />
         <span className="font-medium text-slate-400">Receipt</span>
-        <span className="tabular-nums">
-          {new Date(r.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
-        </span>
+        <span className="tabular-nums">{new Date(r.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
         <span className="text-slate-600">·</span>
-        <span><span className="text-emerald-300">{r.tokens.total.toLocaleString()}</span> tok</span>
+        <span>
+          <span className="text-emerald-300">{r.tokens.total.toLocaleString()}</span> tok
+        </span>
         <span className="text-slate-600">·</span>
         {r.costUsd != null && r.costUsd > 0 && (
           <>
@@ -1839,84 +1541,70 @@ function InlineReceipt({ receipt: r, index: _index, expanded, onToggle }: { rece
             <span className="text-slate-600">·</span>
           </>
         )}
-        {failCount > 0
-          ? <span>{okCount} <span className="text-emerald-400">✓</span> · {failCount} <span className="text-rose-400">✗</span></span>
-          : <span>{r.tools.length} tools</span>
-        }
+        {failCount > 0 ? (
+          <span>
+            {okCount} <span className="text-emerald-400">✓</span> · {failCount} <span className="text-rose-400">✗</span>
+          </span>
+        ) : (
+          <span>{r.tools.length} tools</span>
+        )}
         <span className="text-slate-600">·</span>
         <span>{r.durationMs ? `${(r.durationMs / 1000).toFixed(1)}s` : "-"}</span>
       </button>
 
       {!expanded && r.tools.length > 0 && (
         <div className="px-3 pb-2 flex flex-wrap gap-1">
-          {Array.from(grouped.entries()).slice(0, 8).map(([name, { total, ok }]) => (
-            <span
-              key={name}
-              className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] ${
-                ok > 0
-                  ? "bg-emerald-400/8 text-emerald-300 border border-emerald-400/15"
-                  : "bg-rose-400/8 text-rose-300 border border-rose-400/15"
-              }`}
-            >
-              {name}
-              {total > 1 && <span className="text-[8px] opacity-60">{ok}/{total}</span>}
-            </span>
-          ))}
+          {Array.from(grouped.entries())
+            .slice(0, 8)
+            .map(([name, { total, ok }]) => (
+              <span
+                key={name}
+                className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] ${
+                  ok > 0
+                    ? "bg-emerald-400/8 text-emerald-300 border border-emerald-400/15"
+                    : "bg-rose-400/8 text-rose-300 border border-rose-400/15"
+                }`}
+              >
+                {name}
+                {total > 1 && <span className="text-[8px] opacity-60">{ok}/{total}</span>}
+              </span>
+            ))}
         </div>
       )}
 
       {expanded && (
         <div className="border-t border-white/[0.04]">
           <div className="px-3 py-2 flex flex-wrap gap-x-4 gap-y-1 text-[10px]">
-            <span className="text-slate-500">Prompt: <span className="text-slate-300 tabular-nums">{r.tokens.prompt.toLocaleString()}</span></span>
-            <span className="text-slate-500">Completion: <span className="text-slate-300 tabular-nums">{r.tokens.completion.toLocaleString()}</span></span>
-            <span className="text-slate-500">Total: <span className="text-emerald-300 tabular-nums">{r.tokens.total.toLocaleString()}</span></span>
+            <span className="text-slate-500">
+              Prompt: <span className="text-slate-300 tabular-nums">{r.tokens.prompt.toLocaleString()}</span>
+            </span>
+            <span className="text-slate-500">
+              Completion: <span className="text-slate-300 tabular-nums">{r.tokens.completion.toLocaleString()}</span>
+            </span>
+            <span className="text-slate-500">
+              Total: <span className="text-emerald-300 tabular-nums">{r.tokens.total.toLocaleString()}</span>
+            </span>
             {r.modelCalls != null && (
-              <span className="text-slate-500">Model calls: <span className="text-slate-300 tabular-nums">{r.modelCalls}</span></span>
+              <span className="text-slate-500">
+                Model calls: <span className="text-slate-300 tabular-nums">{r.modelCalls}</span>
+              </span>
             )}
             {r.durationMs != null && (
-              <span className="text-slate-500">Duration: <span className="text-slate-300 tabular-nums">{(r.durationMs / 1000).toFixed(1)}s</span></span>
+              <span className="text-slate-500">
+                Duration: <span className="text-slate-300 tabular-nums">{(r.durationMs / 1000).toFixed(1)}s</span>
+              </span>
             )}
             {r.modelId && (
-              <span className="text-slate-500">Model: <span className="text-sky-300 font-mono">{r.modelId}</span></span>
+              <span className="text-slate-500">
+                Model: <span className="text-sky-300 font-mono">{r.modelId}</span>
+              </span>
             )}
             {r.costUsd != null && r.costUsd > 0 && (
-              <span className="text-slate-500">Cost: <span className="text-amber-300 tabular-nums">${r.costUsd < 0.01 ? r.costUsd.toFixed(4) : r.costUsd.toFixed(2)}</span></span>
+              <span className="text-slate-500">
+                Cost: <span className="text-amber-300 tabular-nums">${r.costUsd < 0.01 ? r.costUsd.toFixed(4) : r.costUsd.toFixed(2)}</span>
+              </span>
             )}
           </div>
-
-          {r.callDetails && r.callDetails.length > 1 && (
-            <div className="px-3 pb-2">
-              <span className="text-[9px] uppercase tracking-widest text-slate-500">Model Calls</span>
-              <div className="mt-1 space-y-1">
-                {r.callDetails.map((d, di) => (
-                  <div key={di} className="flex items-center gap-3 text-[10px]">
-                    <span className="font-mono text-sky-300/80">{d.model || "unknown"}</span>
-                    <span className="text-slate-500 tabular-nums">{(d.promptTokens + d.completionTokens).toLocaleString()} tok</span>
-                    {d.costUsd != null && <span className="text-amber-300/70 tabular-nums">${d.costUsd < 0.01 ? d.costUsd.toFixed(4) : d.costUsd.toFixed(2)}</span>}
-                    <span className="text-slate-600 tabular-nums">{d.latencyMs >= 1000 ? `${(d.latencyMs / 1000).toFixed(1)}s` : `${d.latencyMs}ms`}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {(r.userPrompt || r.replySummary) && (
-            <div className="px-3 pb-2 space-y-1.5">
-              {r.userPrompt && (
-                <div className="rounded-md border border-white/[0.04] bg-black/20 p-2">
-                  <span className="text-[9px] uppercase tracking-widest text-slate-500">Input</span>
-                  <p className="mt-0.5 text-[11px] text-slate-400 leading-snug break-words">{r.userPrompt}</p>
-                </div>
-              )}
-              {r.replySummary && (
-                <div className="rounded-md border border-white/[0.04] bg-black/20 p-2">
-                  <span className="text-[9px] uppercase tracking-widest text-slate-500">Output</span>
-                  <p className="mt-0.5 text-[11px] text-slate-300 leading-snug break-words">{r.replySummary}</p>
-                </div>
-              )}
-            </div>
-          )}
 
           {r.toolCalls && r.toolCalls.length > 0 && (
             <div className="px-3 pb-2 space-y-1">
@@ -1926,7 +1614,7 @@ function InlineReceipt({ receipt: r, index: _index, expanded, onToggle }: { rece
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium text-slate-200">{tc.name}</span>
                     <div className="flex items-center gap-2">
-                      {tc.duration > 0 && <span className="text-slate-600 tabular-nums">{tc.duration >= 1000 ? `${(tc.duration / 1000).toFixed(1)}s` : `${tc.duration}ms`}</span>}
+                      {tc.duration > 0 && <span className="text-slate-600">{tc.duration}ms</span>}
                       <span className={tc.success ? "text-emerald-400" : "text-rose-400"}>{tc.success ? "✓" : "✗"}</span>
                     </div>
                   </div>
@@ -1936,126 +1624,8 @@ function InlineReceipt({ receipt: r, index: _index, expanded, onToggle }: { rece
               ))}
             </div>
           )}
-
-          {(!r.toolCalls || r.toolCalls.length === 0) && r.tools.length > 0 && (
-            <div className="px-3 pb-2 flex flex-wrap gap-1">
-              {Array.from(grouped.entries()).map(([name, { total, ok }]) => (
-                <span
-                  key={name}
-                  className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[9px] ${
-                    ok > 0
-                      ? "bg-emerald-400/8 text-emerald-300 border border-emerald-400/15"
-                      : "bg-rose-400/8 text-rose-300 border border-rose-400/15"
-                  }`}
-                >
-                  {name}
-                  {total > 1 && <span className="text-[8px] opacity-60">{ok}/{total}</span>}
-                </span>
-              ))}
-            </div>
-          )}
         </div>
       )}
-    </div>
-  );
-}
-
-// Mobile Activity Bottom Sheet Content
-function MobileActivityContent({ 
-  receipts, 
-  activityItems, 
-  onClear,
-  expandedReceipt,
-  onToggleReceipt,
-}: { 
-  receipts: ReceiptItem[];
-  activityItems: ActivityItem[];
-  onClear: () => void;
-  expandedReceipt: number | null;
-  onToggleReceipt: (idx: number) => void;
-}) {
-  return (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.06]">
-        <div className="flex items-center gap-2">
-          <Activity className="h-4 w-4 text-emerald-400" />
-          <span className="text-sm font-medium text-slate-200">Activity</span>
-          <span className="text-xs tabular-nums text-slate-500">
-            {receipts.length + activityItems.length} items
-          </span>
-        </div>
-        <button
-          onClick={onClear}
-          className="h-10 w-10 min-w-[44px] flex items-center justify-center rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-400/10 transition-colors"
-        >
-          <RotateCcw className="h-4 w-4" />
-        </button>
-      </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {receipts.length === 0 && activityItems.length === 0 && (
-          <div className="text-center py-8">
-            <Activity className="h-8 w-8 text-slate-600 mx-auto mb-2" />
-            <p className="text-sm text-slate-500">No activity yet</p>
-          </div>
-        )}
-        {receipts.slice().reverse().map((receipt, idx) => {
-          const okCount = receipt.tools.filter(t => t.success).length;
-          const failCount = receipt.tools.length - okCount;
-          const isExpanded = expandedReceipt === idx;
-          
-          return (
-            <div key={`mobile-r-${receipt.timestamp}-${idx}`} className="rounded-xl border border-emerald-400/15 bg-emerald-400/[0.04] p-3">
-              <button
-                onClick={() => onToggleReceipt(idx)}
-                className="w-full flex items-center justify-between gap-2"
-              >
-                <div className="flex items-center gap-2">
-                  <Zap className="h-4 w-4 text-emerald-400" />
-                  <span className="text-xs font-medium text-emerald-300">Receipt</span>
-                </div>
-                <ChevronRight className={`h-4 w-4 text-emerald-400 transition-transform ${isExpanded ? "rotate-90" : ""}`} />
-              </button>
-              <div className="mt-2 text-xs text-slate-400 space-y-1">
-                <div className="flex justify-between">
-                  <span>Tokens: <span className="text-emerald-300">{receipt.tokens.total.toLocaleString()}</span></span>
-                  <span className="tabular-nums">{new Date(receipt.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Tools: {failCount > 0 ? `${okCount} ✓ · ${failCount} ✗` : receipt.tools.length}</span>
-                  <span>{receipt.durationMs ? `${(receipt.durationMs / 1000).toFixed(1)}s` : "-"}</span>
-                </div>
-                {receipt.costUsd != null && receipt.costUsd > 0 && (
-                  <div className="text-amber-300">${receipt.costUsd.toFixed(4)}</div>
-                )}
-              </div>
-              {isExpanded && receipt.toolCalls && receipt.toolCalls.length > 0 && (
-                <div className="mt-3 pt-2 border-t border-emerald-400/10 space-y-2">
-                  {receipt.toolCalls.map((tc, tci) => (
-                    <div key={tci} className="text-xs">
-                      <div className="flex items-center justify-between">
-                        <span className="font-medium text-slate-300">{tc.name}</span>
-                        <span className={tc.success ? "text-emerald-400" : "text-rose-400"}>{tc.success ? "✓" : "✗"}</span>
-                      </div>
-                      {tc.duration > 0 && <span className="text-slate-600">{tc.duration}ms</span>}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
-        {activityItems.slice(-20).reverse().map((item, idx) => (
-          <div key={`mobile-a-${item.timestamp}-${idx}`} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className={`text-xs font-medium ${activityColor(item.kind)}`}>{item.kind}</span>
-              <span className="text-[10px] tabular-nums text-slate-600">
-                {new Date(item.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-              </span>
-            </div>
-            <p className="text-xs text-slate-400">{item.text}</p>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -2064,7 +1634,7 @@ function CompactSummaryCard({ summary }: { summary: { summary: string; messagesC
   const [expanded, setExpanded] = useState(true);
 
   return (
-    <div className="py-3">
+    <div className="py-2">
       <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/[0.04] overflow-hidden">
         <button
           onClick={() => setExpanded((p) => !p)}
@@ -2075,9 +1645,7 @@ function CompactSummaryCard({ summary }: { summary: { summary: string; messagesC
           <span className="text-[10px] text-emerald-400/50 ml-1">
             {summary.messagesCompacted} msgs compacted · {summary.messagesKept} in context
           </span>
-          <span className="text-[10px] text-slate-600 ml-auto mr-1">
-            {new Date(summary.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-          </span>
+          <span className="text-[10px] text-slate-600 ml-auto mr-1">{new Date(summary.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
           {expanded ? <ChevronUp className="h-3 w-3 text-emerald-400/60" /> : <ChevronDown className="h-3 w-3 text-emerald-400/60" />}
         </button>
         {expanded && (
@@ -2097,7 +1665,7 @@ function CompactedHistoryCard({ content }: { content: string }) {
   const inner = content.replace(/<\/?compacted_history>/g, "").trim();
 
   return (
-    <div className="py-3">
+    <div className="py-2">
       <div className="rounded-xl border border-purple-400/15 bg-purple-400/[0.04] overflow-hidden">
         <button
           onClick={() => setExpanded((p) => !p)}
@@ -2105,12 +1673,8 @@ function CompactedHistoryCard({ content }: { content: string }) {
         >
           <Layers className="h-3.5 w-3.5 text-purple-400" />
           <span className="text-xs font-medium text-purple-300">Compacted History</span>
-          <span className="text-[10px] text-purple-400/50 ml-1">
-            {inner.length > 200 ? `${Math.ceil(inner.length / 4)} tokens approx` : "summary"}
-          </span>
-          <span className="text-[10px] text-slate-600 ml-auto mr-1">
-            {new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-          </span>
+          <span className="text-[10px] text-purple-400/50 ml-1">{inner.length > 200 ? `${Math.ceil(inner.length / 4)} tokens approx` : "summary"}</span>
+          <span className="text-[10px] text-slate-600 ml-auto mr-1">{new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</span>
           {expanded ? <ChevronUp className="h-3 w-3 text-purple-400/60" /> : <ChevronDown className="h-3 w-3 text-purple-400/60" />}
         </button>
         {expanded && (

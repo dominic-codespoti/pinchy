@@ -225,7 +225,7 @@ export function SessionSidebar({
   // ── Expanded state ──────────────────────────────
   return (
     <div
-      className="flex flex-col w-56 shrink-0 border-r border-white/[0.06] bg-white/[0.015] overflow-hidden"
+      className="flex flex-col h-full w-full overflow-hidden"
       onKeyDown={handleKeyDown}
     >
       {/* Agent picker header */}
@@ -283,18 +283,18 @@ export function SessionSidebar({
 
       {/* Filter */}
       <div className="px-2.5 py-2 shrink-0">
-        <div className="flex items-center gap-1.5 rounded-md border border-white/[0.06] bg-white/[0.03] px-2 py-1.5">
-          <Search className="h-3 w-3 text-slate-600 shrink-0" />
+        <div className="flex items-center gap-1.5 rounded-xl border border-white/[0.08] !bg-[#0f1520] px-2.5 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] hover:border-white/[0.14] hover:!bg-[#141b2a] focus-within:border-emerald-400/40 focus-within:!bg-[#141b2a] focus-within:shadow-[0_0_0_3px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.04)] transition-all duration-200">
+          <Search className="h-3 w-3 text-slate-500 shrink-0" />
           <input
             ref={filterRef}
             type="text"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
             placeholder="Filter…"
-            className="flex-1 bg-transparent text-xs text-slate-200 placeholder:text-slate-600 outline-none min-w-0"
+            className="flex-1 bg-transparent text-xs text-slate-200 placeholder:text-slate-500/70 outline-none min-w-0"
           />
           {filter && (
-            <button onClick={() => setFilter("")} className="text-slate-600 hover:text-slate-300">
+            <button onClick={() => setFilter("")} className="text-slate-500 hover:text-slate-300">
               <X className="h-3 w-3" />
             </button>
           )}

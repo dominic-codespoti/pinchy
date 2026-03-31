@@ -20,6 +20,16 @@ export default defineConfig({
       "/ws": {
         target: "ws://127.0.0.1:3131",
         ws: true,
+        changeOrigin: true,
+        configure: (proxy, _options) => {
+          proxy.on("error", (err, _req, _res) => {
+            // Suppress expected WebSocket errors (browser disconnects during HMR)
+            if ("code" in err && err.code === "ECONNRESET") {
+              return;
+            }
+            console.warn("[vite] ws proxy error:", err.message);
+          });
+        },
       },
     },
   },

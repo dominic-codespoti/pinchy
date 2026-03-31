@@ -128,7 +128,7 @@ export function AgentsListRoute() {
               <Plus className="h-3.5 w-3.5 text-emerald-400/60" />
               <span className="text-xs font-medium text-slate-300">Create Agent</span>
             </div>
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_1fr_auto_1fr]">
               <Input
                 placeholder="agent-id"
                 value={form.newAgentId}
@@ -141,8 +141,17 @@ export function AgentsListRoute() {
                 onChange={(event) => form.setNewAgentModel(event.target.value)}
                 className="min-h-[44px]"
               />
-              <div className="space-y-1">
-                <div className="flex items-center gap-2 min-h-[44px]">
+              <div className="flex items-center h-[44px]">
+                <div className="flex items-center gap-2 rounded-xl border border-white/[0.08] bg-[#0f1520] px-3 h-full shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-md focus-within:border-emerald-400/40 focus-within:shadow-[0_0_0_3px_rgba(52,211,153,0.12),inset_0_1px_0_rgba(255,255,255,0.04)] transition-all duration-200">
+                  {form.newAgentHeartbeat !== null && (
+                    <input
+                      type="number"
+                      placeholder="300"
+                      value={form.newAgentHeartbeat}
+                      onChange={(event) => form.setNewAgentHeartbeat(parseInt(event.target.value, 10) || 0)}
+                      className="w-12 bg-transparent text-sm text-slate-100 placeholder:text-slate-500/80 outline-none min-w-0"
+                    />
+                  )}
                   <Checkbox
                     checked={form.newAgentHeartbeat !== null}
                     onCheckedChange={(next) => {
@@ -153,17 +162,10 @@ export function AgentsListRoute() {
                       }
                     }}
                   />
-                  <label className="text-[10px] uppercase tracking-widest text-slate-500">Heartbeat</label>
+                  <label className="text-[10px] uppercase tracking-widest text-slate-500 whitespace-nowrap select-none">
+                    {form.newAgentHeartbeat !== null ? "sec heartbeat" : "Heartbeat"}
+                  </label>
                 </div>
-                {form.newAgentHeartbeat !== null && (
-                  <Input
-                    type="number"
-                    placeholder="heartbeat"
-                    value={form.newAgentHeartbeat}
-                    onChange={(event) => form.setNewAgentHeartbeat(parseInt(event.target.value, 10) || 0)}
-                    className="min-h-[44px]"
-                  />
-                )}
               </div>
               <button
                 type="button"
@@ -1007,13 +1009,13 @@ function AgentMemoryPanel({ agentId }: { agentId: string }) {
       {/* Search bar */}
       <div className="flex gap-2 flex-col sm:flex-row">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-500" />
-          <input
+          <Search className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+          <Input
             type="text"
             placeholder="Search memories…"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-11 min-h-[44px] w-full rounded-lg border border-white/[0.06] bg-white/[0.02] pl-9 pr-8 text-sm text-slate-200 placeholder:text-slate-600 outline-none focus:border-emerald-400/30 transition-colors"
+            className="h-11 w-full pl-10 pr-9"
           />
           {search && (
             <button
