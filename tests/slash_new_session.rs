@@ -22,11 +22,7 @@ fn ensure_test_db() -> &'static PinchyDb {
 }
 
 /// Helper: build a [`slash::Context`] pointing at a temp workspace.
-fn test_ctx(
-    workspace: &std::path::Path,
-    agent_id: &str,
-    pinchy_home: &std::path::Path,
-) -> Context {
+fn test_ctx(workspace: &std::path::Path, agent_id: &str, pinchy_home: &std::path::Path) -> Context {
     Context {
         agent_id: agent_id.to_string(),
         agent_root: workspace.parent().unwrap_or(workspace).to_path_buf(),
@@ -73,7 +69,10 @@ async fn slash_new_creates_session_and_updates_index() {
 
     // 1. Session is inserted in DB
     let sessions = db.list_sessions_for_agent("test-agent").unwrap();
-    let session = sessions.iter().find(|s| s.session_id == session_id).expect("session should exist in db");
+    let session = sessions
+        .iter()
+        .find(|s| s.session_id == session_id)
+        .expect("session should exist in db");
     assert_eq!(session.session_id, session_id);
     assert_eq!(session.agent_id, "test-agent");
 
@@ -136,5 +135,9 @@ async fn slash_new_multiple_sessions_append_to_index() {
 
     // CURRENT_SESSION should be the second one.
     let current = db.current_session("multi-agent").unwrap();
-    assert_eq!(current.as_deref(), Some(id2.as_str()), "current session should be the last one created");
+    assert_eq!(
+        current.as_deref(),
+        Some(id2.as_str()),
+        "current session should be the last one created"
+    );
 }
