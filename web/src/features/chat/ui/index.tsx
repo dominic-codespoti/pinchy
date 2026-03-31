@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import { useUiStore } from "@/app/store/ui";
 import { SessionSidebar } from "@/shared/ui/components/SessionSidebar";
+import { useViewport } from "@/shared/lib/useViewport";
 import { toText, asMsTimestamp } from "@/shared/lib/utils";
 
 const markedParser = new Marked({
@@ -168,6 +169,7 @@ type GatewayEvent = {
 
 export function ChatRoute() {
   const queryClient = useQueryClient();
+  const { isMobile } = useViewport();
 
   const [selectedAgent, setSelectedAgent] = useState("default");
   const [selectedSession, setSelectedSession] = useState("");
@@ -1054,8 +1056,10 @@ export function ChatRoute() {
 
   return (
     <div className="flex h-screen bg-[var(--bg)] overflow-hidden">
-      {/* Session sidebar */}
-      <div className="w-64 border-r border-white/[0.06] flex flex-col shrink-0 overflow-hidden">
+      {/* Session sidebar - responsive width based on collapsed state */}
+      {/* On mobile when collapsed, completely hide the sidebar; on desktop show as mini sidebar */}
+      {/* When expanded on mobile, use higher z-index to overlay above mobile header */}
+      <div className={`${sidebarCollapsed ? (isMobile ? 'w-0 opacity-0' : 'w-10') : 'w-64'} border-r border-white/[0.06] flex flex-col shrink-0 overflow-hidden relative ${sidebarCollapsed ? 'z-10' : (isMobile ? 'z-[55]' : 'z-10')} transition-all duration-200`}>
         <SessionSidebar
           sessions={sessions}
           selectedSession={selectedSession}
@@ -1072,6 +1076,7 @@ export function ChatRoute() {
             userPickedSessionRef.current = false;
             setSelectedAgent(v);
           }}
+          isMobile={isMobile}
         />
       </div>
 
@@ -1171,7 +1176,7 @@ export function ChatRoute() {
         )}
 
         {/* Messages - fills remaining space, messages start from top */}
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col" role="log" aria-live="polite" aria-label="Chat messages">
+        <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto overflow-x-hidden flex flex-col ${isMobile ? 'pb-16' : ''}`} role="log" aria-live="polite" aria-label="Chat messages">
           <div className="flex-1 flex flex-col px-4 py-4 min-h-0">
             {allMessages.length === 0 && !sessionQuery.isLoading && !typing && !streamBuffer && !displayedStream ? (
               <div className="flex-1 flex flex-col items-center justify-center">
@@ -1282,9 +1287,9 @@ export function ChatRoute() {
                                 {!isUser && (
                                   <button
                                     onClick={() => copyMessage(message.content, index)}
-                                    className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-slate-600 hover:text-slate-300"
+                                    className={`ml-auto transition-opacity text-slate-600 hover:text-slate-300 ${isMobile ? 'opacity-100 p-2 -m-2' : 'opacity-0 group-hover:opacity-100'}`}
                                   >
-                                    {copiedIdx === index ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                                    {copiedIdx === index ? <Check className="h-4 w-4 text-emerald-400" /> : <Copy className="h-4 w-4" />}
                                   </button>
                                 )}
                               </div>
@@ -1373,7 +1378,7 @@ export function ChatRoute() {
         </div>
 
         {/* Input - always at bottom */}
-        <div className="shrink-0 border-t border-white/[0.06] bg-white/[0.02]">
+        <div className={`shrink-0 border-t border-white/[0.06] bg-white/[0.02] ${isMobile ? 'pb-20' : ''}`}>
           <div className="px-4 py-3">
             <div className="relative">
               {slashOpen && filteredSlash.length > 0 && (
@@ -1465,6 +1470,18 @@ export function ChatRoute() {
               </span>
             </div>
           </div>
+          {/* Mobile FAB to toggle sidebar - only shows when sidebar is collapsed on mobile */}
+          {/* Positioned above bottom nav, high z-index to stay on top */}
+          {isMobile && sidebarCollapsed && (
+            <button
+              onClick={() => setSidebarCollapsed(false)}
+              className="fixed left-4 bottom-[88px] z-[60] h-12 w-12 rounded-full bg-emerald-400 text-slate-950 shadow-lg shadow-emerald-400/20 flex items-center justify-center hover:bg-emerald-300 transition-all duration-200"
+              title="Open sessions"
+              aria-label="Open sessions sidebar"
+            >
+              <PanelLeft className="h-5 w-5" />
+            </button>
+          )}
         </div>
       </div>
     </div>

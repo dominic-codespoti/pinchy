@@ -2,6 +2,18 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
 
+// Filter out expected WebSocket noise during dev restarts
+const originalError = console.error;
+console.error = (...args) => {
+  const msg = args.join(" ");
+  if (msg.includes("ws proxy socket error") || 
+      msg.includes("ECONNRESET") || 
+      msg.includes("EPIPE")) {
+    return;
+  }
+  originalError.apply(console, args);
+};
+
 export default defineConfig({
   base: "/react/",
   plugins: [react()],
@@ -21,15 +33,6 @@ export default defineConfig({
         target: "ws://127.0.0.1:3131",
         ws: true,
         changeOrigin: true,
-        configure: (proxy, _options) => {
-          proxy.on("error", (err, _req, _res) => {
-            // Suppress expected WebSocket errors (browser disconnects during HMR)
-            if ("code" in err && err.code === "ECONNRESET") {
-              return;
-            }
-            console.warn("[vite] ws proxy error:", err.message);
-          });
-        },
       },
     },
   },

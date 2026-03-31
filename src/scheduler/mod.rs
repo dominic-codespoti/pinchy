@@ -574,6 +574,16 @@ pub async fn load_persisted_cron_jobs(agent_id: &str) -> Vec<PersistedCronJob> {
     Vec::new()
 }
 
+/// Load all persisted cron job entries from db (all agents, single query).
+pub async fn load_all_persisted_cron_jobs() -> Vec<PersistedCronJob> {
+    if let Some(db) = crate::store::global_db() {
+        return db.list_all_cron_jobs().unwrap_or_default();
+    }
+
+    warn!("no database available — skipping load_all_persisted_cron_jobs");
+    Vec::new()
+}
+
 /// Load cron run records for a given agent.
 pub async fn load_cron_runs(agent_id: &str) -> Vec<JobRun> {
     if let Some(db) = crate::store::global_db() {

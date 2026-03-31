@@ -302,6 +302,8 @@ const rootRoute = createRootRouteWithContext<RouterContext>()({
 
         {/* ── Mobile Bottom Navigation ───────────── */}
         <MobileBottomNav items={navItems.slice(0, 5).map(({ to, label, icon }) => ({ to, label, icon }))} />
+        {/* Spacer for fixed bottom nav on mobile */}
+        <div className="h-16 md:hidden" />
       </div>
     );
   },

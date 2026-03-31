@@ -8,6 +8,7 @@ import {
   Bot,
   ChevronsUpDown,
   Trash2,
+  PanelLeft,
 } from "lucide-react";
 
 type SessionEntry = {
@@ -32,6 +33,7 @@ type Props = {
   agentIds: string[];
   selectedAgent: string;
   onAgentChange: (agentId: string) => void;
+  isMobile?: boolean;
 };
 
 // ── Date grouping helpers ──────────────────────────
@@ -84,6 +86,7 @@ export function SessionSidebar({
   agentIds,
   selectedAgent,
   onAgentChange,
+  isMobile,
 }: Props) {
   const [filter, setFilter] = useState("");
   const [agentOpen, setAgentOpen] = useState(false);
@@ -177,24 +180,26 @@ export function SessionSidebar({
   // ── Collapsed state ─────────────────────────────
   if (collapsed) {
     return (
-      <div className="flex flex-col items-center w-10 shrink-0 border-r border-white/[0.06] bg-white/[0.015] py-2 gap-2">
+      <div className="flex flex-col h-full w-10 shrink-0 border-r border-white/[0.06] bg-white/[0.015] py-2 gap-2">
+        {/* Expand button - more prominent with icon and hover effect */}
         <button
           onClick={onToggleCollapse}
-          className="h-7 w-7 flex items-center justify-center rounded-md text-slate-500 hover:text-slate-200 hover:bg-white/[0.06] transition-colors"
+          className="h-8 w-8 mx-auto flex items-center justify-center rounded-md bg-white/[0.06] text-slate-400 hover:text-emerald-300 hover:bg-emerald-400/10 transition-colors border border-white/[0.08]"
           title={`${selectedAgent} — Expand sessions (⌘J)`}
         >
-          <Bot className="h-3.5 w-3.5" />
+          <PanelLeft className="h-4 w-4" />
         </button>
+        <div className="w-5 h-px bg-white/[0.06] mx-auto" />
         <button
           onClick={onNewSession}
-          className="h-7 w-7 flex items-center justify-center rounded-md text-slate-500 hover:text-emerald-300 hover:bg-emerald-400/10 transition-colors"
+          className="h-7 w-7 mx-auto flex items-center justify-center rounded-md text-slate-500 hover:text-emerald-300 hover:bg-emerald-400/10 transition-colors"
           title="New session"
         >
           <Plus className="h-3.5 w-3.5" />
         </button>
-        <div className="w-5 h-px bg-white/[0.06] my-1" />
+        <div className="w-5 h-px bg-white/[0.06] mx-auto my-1" />
         {/* Mini session dots */}
-        <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[calc(100%-80px)] px-1">
+        <div className="flex flex-col gap-1.5 overflow-y-auto max-h-[calc(100%-100px)] px-1">
           {sessions.slice(0, 20).map((s) => {
             const isActive = s.session_id === selectedSession;
             const isBackend = s.session_id === currentBackendSession;
@@ -225,9 +230,20 @@ export function SessionSidebar({
   // ── Expanded state ──────────────────────────────
   return (
     <div
-      className="flex flex-col h-full w-full overflow-hidden"
+      className="flex flex-col h-full w-full overflow-hidden pt-14 relative"
       onKeyDown={handleKeyDown}
     >
+      {/* Mobile close button */}
+      {isMobile && (
+        <button
+          onClick={onToggleCollapse}
+          className="absolute top-3 right-3 h-10 w-10 flex items-center justify-center rounded-full text-slate-400 hover:text-slate-100 hover:bg-white/[0.1] transition-colors z-20"
+          title="Close sidebar"
+          aria-label="Close sidebar"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      )}
       {/* Agent picker header */}
       <div className="px-2.5 pt-2.5 pb-2 border-b border-white/[0.06] shrink-0">
         <div className="relative" ref={agentPickerRef}>

@@ -4,28 +4,13 @@ use super::super::auth::validate_path_segment;
 
 /// `GET /api/cron/jobs` — list all cron jobs for all agents.
 pub(crate) async fn api_cron_jobs_all() -> impl IntoResponse {
-    let agents_dir = crate::utils::agents_dir();
-    let mut all_jobs = Vec::new();
+    let jobs = crate::scheduler::load_all_persisted_cron_jobs().await;
+    let jobs_json: Vec<_> = jobs
+        .iter()
+        .map(|j| cron_job_to_json(&j.agent_id, j))
+        .collect();
 
-    if let Ok(mut rd) = tokio::fs::read_dir(agents_dir).await {
-        while let Ok(Some(entry)) = rd.next_entry().await {
-            let is_dir = entry
-                .file_type()
-                .await
-                .map(|ft| ft.is_dir())
-                .unwrap_or(false);
-            if !is_dir {
-                continue;
-            }
-            let agent_id = entry.file_name().to_string_lossy().to_string();
-            let jobs = crate::scheduler::load_persisted_cron_jobs(&agent_id).await;
-            for job in jobs {
-                all_jobs.push(cron_job_to_json(&agent_id, &job));
-            }
-        }
-    }
-
-    Json(serde_json::json!({ "jobs": all_jobs }))
+    Json(serde_json::json!({ "jobs": jobs_json }))
 }
 
 /// `GET /api/cron/jobs/:agent_id` — list cron jobs for a specific agent.
