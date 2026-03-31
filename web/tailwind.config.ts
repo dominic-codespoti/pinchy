@@ -1,54 +1,82 @@
-import type { Config } from "tailwindcss";
+import type { Config } from "tailwindcss"
 
-const config: Config = {
-  content: ["./index.html", "./src/**/*.{ts,tsx}"],
+const config = {
+  darkMode: ["class"],
+  content: [
+    './pages/**/*.{ts,tsx}',
+    './components/**/*.{ts,tsx}',
+    './app/**/*.{ts,tsx}',
+    './src/**/*.{ts,tsx}',
+    './features/**/*.{ts,tsx}',
+    './shared/**/*.{ts,tsx}',
+  ],
+  prefix: "",
   theme: {
+    container: {
+      center: true,
+      padding: "2rem",
+      screens: {
+        "2xl": "1400px",
+      },
+    },
     extend: {
       colors: {
-        panel: "#16181d",
-        base: "#0f1115",
-        ink: "#ebf0fa",
-        mute: "#9ca9bf",
-        accent: "#34d399",
-        danger: "#f87171",
-        success: "#4ade80",
-      },
-      boxShadow: {
-        shell: "0 24px 56px rgba(0,0,0,.35)",
-        glass: "0 8px 32px rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.06)",
-        glow: "0 0 15px rgba(52,211,153,.2)",
-        "glow-strong": "0 0 25px rgba(52,211,153,.35)",
-        "glow-card": "0 8px 32px rgba(0,0,0,.25), 0 0 15px rgba(52,211,153,.15)",
-      },
-      backdropBlur: {
-        glass: "16px",
+        border: "hsl(var(--border))",
+        input: "hsl(var(--input))",
+        ring: "hsl(var(--ring))",
+        background: "hsl(var(--background))",
+        foreground: "hsl(var(--foreground))",
+        primary: {
+          DEFAULT: "hsl(var(--primary))",
+          foreground: "hsl(var(--primary-foreground))",
+        },
+        secondary: {
+          DEFAULT: "hsl(var(--secondary))",
+          foreground: "hsl(var(--secondary-foreground))",
+        },
+        destructive: {
+          DEFAULT: "hsl(var(--destructive))",
+          foreground: "hsl(var(--destructive-foreground))",
+        },
+        muted: {
+          DEFAULT: "hsl(var(--muted))",
+          foreground: "hsl(var(--muted-foreground))",
+        },
+        accent: {
+          DEFAULT: "hsl(var(--accent))",
+          foreground: "hsl(var(--accent-foreground))",
+        },
+        popover: {
+          DEFAULT: "hsl(var(--popover))",
+          foreground: "hsl(var(--popover-foreground))",
+        },
+        card: {
+          DEFAULT: "hsl(var(--card))",
+          foreground: "hsl(var(--card-foreground))",
+        },
       },
       borderRadius: {
-        xl: "0.75rem",
-        "2xl": "1rem",
-      },
-      animation: {
-        shimmer: "shimmer 1.8s ease-in-out infinite",
-        "glow-pulse": "glow-pulse 2s ease-in-out infinite",
-        "status-pulse": "status-pulse 2s ease-in-out infinite",
+        lg: "var(--radius)",
+        md: "calc(var(--radius) - 2px)",
+        sm: "calc(var(--radius) - 4px)",
       },
       keyframes: {
-        shimmer: {
-          "0%": { backgroundPosition: "-200% 0" },
-          "100%": { backgroundPosition: "200% 0" },
+        "accordion-down": {
+          from: { height: "0" },
+          to: { height: "var(--radix-accordion-content-height)" },
         },
-        "glow-pulse": {
-          "0%, 100%": { boxShadow: "0 0 8px rgba(52,211,153,.2)" },
-          "50%": { boxShadow: "0 0 16px rgba(52,211,153,.4)" },
+        "accordion-up": {
+          from: { height: "var(--radix-accordion-content-height)" },
+          to: { height: "0" },
         },
-        "status-pulse": {
-          "0%, 100%": { opacity: "1", transform: "scale(1)" },
-          "50%": { opacity: "0.6", transform: "scale(1.3)" },
-        },
+      },
+      animation: {
+        "accordion-down": "accordion-down 0.2s ease-out",
+        "accordion-up": "accordion-up 0.2s ease-out",
       },
     },
   },
   plugins: [require("tailwindcss-animate")],
-};
+} satisfies Config
 
-export default config;
+export default config
