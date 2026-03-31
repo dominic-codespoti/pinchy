@@ -201,7 +201,7 @@ src/
 ## Development
 
 ```bash
-make dev              # Vite HMR + Rust auto-rebuild
+make dev              # Next.js HMR + Rust auto-rebuild
 make build            # Build web + cargo
 make release          # Production build
 cargo fmt             # Format
