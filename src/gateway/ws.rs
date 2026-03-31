@@ -5,7 +5,7 @@ use axum::{
     },
     response::IntoResponse,
 };
-use tracing::warn;
+use tracing::{warn, debug};
 
 use super::handlers::agents::collect_agent_ids;
 use super::AppState;
@@ -149,7 +149,9 @@ async fn handle_ws(mut socket: WebSocket, state: AppState) {
                     }
                     Some(Ok(Message::Close(_))) | None => break,
                     Some(Err(e)) => {
-                        warn!("ws recv error: {e}");
+                        // Connection reset without closing handshake is expected 
+                        // when clients disconnect abruptly (e.g., browser refresh/close)
+                        debug!("ws recv error: {e}");
                         break;
                     }
                     _ => {} // binary — ignore
