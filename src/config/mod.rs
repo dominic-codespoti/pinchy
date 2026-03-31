@@ -141,6 +141,9 @@ pub struct Config {
     pub cron_events_max_keep: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chromium_path: Option<String>,
+    /// MCP server definitions.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub mcp_servers: std::collections::HashMap<String, crate::mcp::McpServerConfig>,
 }
 
 fn default_session_expiry_days() -> Option<u64> {
@@ -561,6 +564,8 @@ impl Config {
         use std::collections::HashSet;
 
         const KNOWN_PROVIDERS: &[&str] = &[
+            "anthropic",
+            "bedrock",
             "openai",
             "azure-openai",
             "azure_openai",
@@ -703,7 +708,7 @@ impl Config {
         for model in &self.models {
             let needs_key = !matches!(
                 model.provider.as_str(),
-                "copilot" | "ollama" | "lmstudio" | "vllm"
+                "copilot" | "ollama" | "lmstudio" | "vllm" | "anthropic"
             );
             if needs_key && model.api_key.is_none() {
                 warnings.push(format!(

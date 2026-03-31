@@ -413,6 +413,21 @@ const AUTO_PLUCK_RULES: &[(&[&str], &[&str])] = &[
         ],
         &["send_message"],
     ),
+    // MCP tools: surface when user mentions MCP servers or external tools
+    (
+        &[
+            "mcp",
+            "model context protocol",
+            "mcp server",
+            "mcp tool",
+            "external tool",
+            "filesystem server",
+            "github server",
+            "postgres server",
+            "sqlite server",
+        ],
+        &["mcp_list_servers", "mcp_list_tools", "mcp_call_tool"],
+    ),
 ];
 
 /// Scan `user_message` for domain keywords and return deferred tools that
@@ -868,6 +883,7 @@ pub fn init() {
     builtins::session_yield::register();
     builtins::send_message::register();
     builtins::self_update::register();
+    builtins::mcp::register();
 
     // Attach handlers to the built-in tools.
     register_handler(
@@ -1048,6 +1064,18 @@ pub fn init() {
         "delegate",
         Arc::new(|args, ws| Box::pin(async move { builtins::delegate::delegate(&ws, args).await })),
     );
+    register_handler(
+        "mcp_list_servers",
+        Arc::new(|args, _ws| Box::pin(async move { builtins::mcp::mcp_list_servers(args).await })),
+    );
+    register_handler(
+        "mcp_list_tools",
+        Arc::new(|args, _ws| Box::pin(async move { builtins::mcp::mcp_list_tools(args).await })),
+    );
+    register_handler(
+        "mcp_call_tool",
+        Arc::new(|args, _ws| Box::pin(async move { builtins::mcp::mcp_call_tool(args).await })),
+    );
 
     // Mark less-common tools as deferred (auto-injected when relevant
     // keywords appear in the user's message via auto_pluck_deferred).
@@ -1072,6 +1100,9 @@ pub fn init() {
             "edit_skill",
             "self_update",
             "send_message",
+            "mcp_list_servers",
+            "mcp_list_tools",
+            "mcp_call_tool",
         ];
         let mut reg = REGISTRY.lock().expect("tool registry poisoned");
         for entry in reg.iter_mut() {

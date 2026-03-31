@@ -73,13 +73,14 @@ async fn run_tool_loop_inner(
             ProviderResponse::Final(text) => {
                 // Legacy fallback: if a provider doesn't support native func calling,
                 // it might return a formatted JSON block.
-                let parsed_req = crate::tools::parsing::extract_fenced_json(&text)
-                    .and_then(|j| serde_json::from_str::<crate::tools::parsing::ToolRequest>(&j).ok());
+                let parsed_req = crate::tools::parsing::extract_fenced_json(&text).and_then(|j| {
+                    serde_json::from_str::<crate::tools::parsing::ToolRequest>(&j).ok()
+                });
                 if let Some(req) = parsed_req {
                     let id = format!("call_fallback_{}", crate::agent::types::epoch_millis());
                     let name = req.name;
                     let arguments = serde_json::to_string(&req.args).unwrap_or_default();
-                    
+
                     debug!(tool = %name, "invoking tool (fallback JSON extraction)");
 
                     let inv = make_invocation(&id, &name, &arguments);
