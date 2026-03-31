@@ -26,12 +26,15 @@ pub(crate) async fn api_sessions_list(Path(agent_id): Path<String>) -> impl Into
                 // `created_at` is stored as epoch milliseconds; the frontend
                 // sidebar expects `modified` as epoch seconds.
                 let modified_secs = e.created_at / 1000;
+                // Get the exchange count for this session (best effort)
+                let message_count = db.exchange_count(&e.session_id).unwrap_or(0);
                 serde_json::json!({
                     "file": format!("{}.jsonl", e.session_id),
                     "session_id": e.session_id,
                     "created_at": e.created_at,
                     "modified": modified_secs,
                     "title": e.title,
+                    "message_count": message_count,
                 })
             })
             .collect();

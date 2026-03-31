@@ -306,8 +306,16 @@ pub async fn start_gateway_with_config(
             delete(handlers::memory::api_memory_delete),
         )
         // Skills
-        .route("/skills", get(handlers::skills::api_skills_list))
-        .route("/skills/:name", delete(handlers::skills::api_skills_delete))
+        .route(
+            "/skills",
+            get(handlers::skills::api_skills_list).post(handlers::skills::api_skills_create),
+        )
+        .route(
+            "/skills/:name",
+            get(handlers::skills::api_skills_get)
+                .put(handlers::skills::api_skills_update)
+                .delete(handlers::skills::api_skills_delete),
+        )
         // AI
         .route(
             "/ai/enhance-prompt",
@@ -331,13 +339,49 @@ pub async fn start_gateway_with_config(
         )
         // Model discovery
         .route(
+            "/models/registry",
+            get(handlers::models::api_models_registry),
+        )
+        .route(
             "/models/:config_model_id",
             get(handlers::models::api_models_list),
+        )
+        .route("/models", get(handlers::models::api_all_models))
+        // Provider auth status
+        .route(
+            "/providers/status",
+            get(handlers::providers::api_providers_status),
+        )
+        .route(
+            "/providers/:provider/test",
+            post(handlers::providers::api_provider_test),
+        )
+        // API key save/clear/masked endpoints (require auth)
+        .route(
+            "/auth/:provider/masked",
+            get(handlers::providers::api_auth_masked_key),
+        )
+        .route(
+            "/auth/:provider",
+            post(handlers::providers::api_auth_save_key)
+                .delete(handlers::providers::api_auth_clear),
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,
         ));
+
+    // Public auth endpoints: Copilot OAuth device flow (no auth required).
+    // These need to be accessible before the user has authenticated with GitHub.
+    let public_auth_router = Router::new()
+        .route(
+            "/auth/copilot/start",
+            post(handlers::providers::api_auth_copilot_start),
+        )
+        .route(
+            "/auth/copilot/poll",
+            post(handlers::providers::api_auth_copilot_poll),
+        );
 
     // Webhooks: outside auth middleware — uses per-agent ?secret= param.
     // Nested under /api so the URL is /api/webhook/:agent_id but NOT behind
@@ -364,15 +408,20 @@ pub async fn start_gateway_with_config(
         warn!("No UI assets on disk or embedded — dashboard will 404");
     }
 
-    let mut app = Router::new()
+    // Build the authenticated portion with auth middleware
+    let authed_app = Router::new()
         .nest("/api", api_router)
-        .nest("/api", webhook_router)
         .route("/ws", get(ws::ws_handler))
         .route("/ws/logs", get(ws::ws_logs_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,
-        ))
+        ));
+
+    // Merge public routes AFTER the auth layer so they're not affected
+    let mut app = authed_app
+        .nest("/api", public_auth_router)
+        .nest("/api", webhook_router)
         .layer(
             CorsLayer::new()
                 .allow_origin(allowed_origins())
