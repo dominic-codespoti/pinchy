@@ -66,8 +66,8 @@ export function AgentsTable({
     [sortedAgents, groups, selectedGroupId]
   );
 
-  const handleView = useCallback((id: string) => router.push(`/agents/${id}`), [router]);
-  const handleEdit = useCallback((id: string) => router.push(`/agents/${id}`), [router]);
+  const handleView = useCallback((id: string) => router.push(`/agents/${encodeURIComponent(id)}`), [router]);
+  const handleEdit = useCallback((id: string) => router.push(`/agents/${encodeURIComponent(id)}`), [router]);
 
   const handleDelete = useCallback((id: string, name: string) => {
     setDeleteDialog({ open: true, agentId: id, agentName: name });

@@ -19,6 +19,9 @@ export type {
   ApiSettings,
   AdvancedSettings,
   GeneralSettings,
+  McpServerConfig,
+  McpServers,
+  McpTransport,
 } from './types';
 
 // API
@@ -54,6 +57,8 @@ export { SecurityPage } from './components/security/security-page';
 export { NotificationsPage } from './components/notifications/notifications-page';
 export { WebhooksPage } from './components/webhooks/webhooks-page';
 export { MaintenancePage } from './components/maintenance/maintenance-page';
+export { AdvancedPage } from './components/advanced/advanced-page';
+export { McpPage } from './components/mcp/mcp-page';
 
 // Model components
 export { ProviderList } from './components/models/provider-list';

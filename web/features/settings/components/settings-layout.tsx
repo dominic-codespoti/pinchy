@@ -7,6 +7,7 @@ import {
   Bell,
   Shield,
   Settings2,
+  Plug,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { PageContainer } from '@/shared/components/page-container';
@@ -43,6 +44,12 @@ const settingsNavItems: SettingsNavItem[] = [
     label: 'Advanced',
     href: '/settings/advanced',
     icon: <Settings2 className="h-4 w-4" />,
+  },
+  {
+    id: 'mcp',
+    label: 'MCP Servers',
+    href: '/settings/mcp',
+    icon: <Plug className="h-4 w-4" />,
   },
 ];
 
@@ -82,7 +89,7 @@ function SettingsTabs() {
 
 export function SettingsLayout({ children }: SettingsLayoutProps) {
   return (
-    <PageContainer maxWidth="narrow" className="space-y-6">
+    <PageContainer className="space-y-6">
       {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold tracking-tight">Settings</h1>

@@ -31,6 +31,7 @@ export interface Agent {
     systemPrompt: string;
     toolsEnabled: string[];
   };
+  // Backend does not provide creation time - generated client-side
   createdAt: string;
   hasHeartbeat?: boolean;
   lastHeartbeatAt?: string;
@@ -40,6 +41,7 @@ export interface Agent {
   tools?: string;
   heartbeat?: string;
   sessionCount?: number;
+  cronJobsCount?: number;
   watchPaths?: string[];
   maxTurns?: number | null;
   historyMessages?: number | null;
@@ -54,8 +56,10 @@ export interface Agent {
 export interface RawAgent {
   id: string;
   model?: string;
+  provider?: string;
   timezone?: string;
   has_heartbeat?: boolean;
+  last_heartbeat_at?: string;
   has_soul?: boolean;
   has_tools?: boolean;
   cron_jobs_count?: number;
@@ -67,6 +71,7 @@ export interface RawAgent {
   reasoning_effort?: string | null;
   enabled_skills?: string[] | null;
   watch_paths?: string[];
+  created_at?: string;
   // Additional fields from api_agent_get (detail endpoint)
   soul?: string;
   tools?: string;
@@ -77,10 +82,12 @@ export interface RawAgent {
 export interface CreateAgentInput {
   id: string;
   model?: string;
+  provider?: string;
   soul?: string;
   tools?: string;
   heartbeat?: string;
   heartbeat_secs?: number;
+  enabled_skills?: string[];
 }
 
 export interface UpdateAgentInput {

@@ -5,7 +5,7 @@ import { ModelsPage } from '@/features/settings';
 
 export default function ModelsRoute() {
   return (
-    <PageContainer maxWidth="narrow" className="space-y-6">
+    <PageContainer className="space-y-6">
       <ModelsPage />
     </PageContainer>
   );

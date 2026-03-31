@@ -1,13 +1,15 @@
 import { fetchApi, isNotFoundError } from '@/shared/api/client';
 import { Memory, RawMemory, MemoryListResponse } from './types';
 
-function transformMemory(raw: RawMemory): Memory {
+function transformMemory(raw: RawMemory, agentId: string): Memory {
   return {
-    id: raw.id,
-    agentId: raw.agent_id,
-    content: raw.content,
-    category: raw.category,
+    id: raw.key,
+    agentId,
+    content: raw.value,
+    category: raw.tags?.[0],
+    tags: raw.tags ?? [],
     timestamp: raw.timestamp,
+    score: raw.score,
   };
 }
 
@@ -15,7 +17,7 @@ export async function getAgentMemories(agentId: string, search?: string): Promis
   try {
     const queryParams = search ? `?q=${encodeURIComponent(search)}` : '';
     const response = await fetchApi<MemoryListResponse>(`/api/agents/${agentId}/memory${queryParams}`);
-    return (response.entries || []).map(transformMemory);
+    return (response.entries || []).map((entry) => transformMemory(entry, agentId));
   } catch (error) {
     if (isNotFoundError(error)) {
       return [];
@@ -29,11 +31,13 @@ export async function searchMemories(agentId: string, query: string): Promise<Me
 }
 
 export async function addMemory(agentId: string, content: string, category?: string): Promise<Memory> {
-  const response = await fetchApi<RawMemory>(`/api/agents/${agentId}/memory`, {
-    method: 'POST',
-    body: JSON.stringify({ content, category }),
-  });
-  return transformMemory(response);
+  // NOTE: Backend has no POST endpoint for memory creation.
+  // Memories are only created via the save_memory tool during agent execution.
+  // This function is disabled and will throw an error.
+  throw new Error(
+    'Direct memory creation is not supported. ' +
+    'Memories are created automatically via the save_memory tool during agent execution.'
+  );
 }
 
 export async function deleteMemory(memoryId: string): Promise<void> {

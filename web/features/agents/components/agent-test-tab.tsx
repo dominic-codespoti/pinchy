@@ -33,7 +33,7 @@ const PRESET_PROMPTS = [
   'What tools do you have?',
 ];
 
-export function TestAgentPanel({ agentId, agentName, defaultOpen = true }: TestAgentPanelProps) {
+export function TestAgentPanel({ agentId, agentName, defaultOpen = false }: TestAgentPanelProps) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -44,7 +44,6 @@ export function TestAgentPanel({ agentId, agentName, defaultOpen = true }: TestA
   const [messages, setMessages] = useState<TestMessage[]>([]);
   const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
 
-  // Scroll to bottom on new messages
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -84,14 +83,12 @@ export function TestAgentPanel({ agentId, agentName, defaultOpen = true }: TestA
     setTokenUsage(null);
     setIsLoading(true);
 
-    // Add user message to history
     addMessage({
       role: 'user',
       content,
       status: 'completed',
     });
 
-    // Add pending assistant message
     const assistantMessage = addMessage({
       role: 'assistant',
       content: '',
@@ -99,7 +96,6 @@ export function TestAgentPanel({ agentId, agentName, defaultOpen = true }: TestA
     });
     setPendingMessageId(assistantMessage.id);
 
-    // Send via HTTP
     try {
       const startTime = Date.now();
       const response = await fetch('/api/agents/test', {
@@ -163,11 +159,11 @@ export function TestAgentPanel({ agentId, agentName, defaultOpen = true }: TestA
     <Collapsible open={isOpen} onOpenChange={setIsOpen}>
       <Card>
         <CollapsibleTrigger asChild>
-          <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors">
+          <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <CardTitle className="text-base font-medium">Test Agent</CardTitle>
-                <Sparkles className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium">Test Agent</CardTitle>
+                <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
               </div>
               <div className="flex items-center gap-2">
                 <Badge variant="outline" className="text-xs">HTTP</Badge>
@@ -180,25 +176,23 @@ export function TestAgentPanel({ agentId, agentName, defaultOpen = true }: TestA
         </CollapsibleTrigger>
 
         <CollapsibleContent>
-          <CardContent className="space-y-4">
-            {/* Preset Prompts */}
-            <div className="flex flex-wrap gap-2">
+          <CardContent className="space-y-3 pt-0">
+            <div className="flex flex-wrap gap-1.5">
               {PRESET_PROMPTS.map((prompt) => (
                 <Button
                   key={prompt}
                   variant="outline"
                   size="sm"
                   onClick={() => handlePresetClick(prompt)}
-                  className="text-xs"
+                  className="text-xs h-7 px-2"
                 >
                   {prompt}
                 </Button>
               ))}
             </div>
 
-            {/* Stats */}
             {(responseTime || tokenUsage) && (
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+              <div className="flex items-center gap-3 text-xs text-muted-foreground">
                 {responseTime && (
                   <div className="flex items-center gap-1">
                     <Clock className="h-3 w-3" />
@@ -206,40 +200,38 @@ export function TestAgentPanel({ agentId, agentName, defaultOpen = true }: TestA
                   </div>
                 )}
                 {tokenUsage?.input !== undefined && (
-                  <span>Input: {tokenUsage.input} tokens</span>
+                  <span>In: {tokenUsage.input}</span>
                 )}
                 {tokenUsage?.output !== undefined && (
-                  <span>Output: {tokenUsage.output} tokens</span>
+                  <span>Out: {tokenUsage.output}</span>
                 )}
               </div>
             )}
 
-            {/* Error */}
             {error && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{error}</AlertDescription>
+              <Alert variant="destructive" className="py-2">
+                <AlertCircle className="h-3.5 w-3.5" />
+                <AlertDescription className="text-xs">{error}</AlertDescription>
               </Alert>
             )}
 
-            {/* Message History */}
-            <ScrollArea className="h-64 border rounded-md">
-              <div ref={scrollRef} className="p-4 space-y-4">
+            <ScrollArea className="min-h-[200px] max-h-[400px] border rounded-md">
+              <div ref={scrollRef} className="p-3 space-y-3">
                 {messages.length === 0 ? (
-                  <div className="text-center text-sm text-muted-foreground py-8">
+                  <div className="text-center text-xs text-muted-foreground py-12">
                     <p>No messages yet.</p>
                     <p>Send a message to test {agentName}.</p>
                   </div>
                 ) : (
                   messages.map((message) => (
                     <div key={message.id} className={message.role === 'user' ? 'flex justify-end' : ''}>
-                      <div className={`group relative max-w-[80%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'} rounded-lg p-3`}>
+                      <div className={`group relative max-w-[85%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'} rounded-md p-2.5`}>
                         <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                         {message.role === 'assistant' && message.status === 'completed' && message.content && (
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="absolute top-0 right-0 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                            className="absolute top-1 right-1 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
                             onClick={() => handleCopyResponse(message.content)}
                           >
                             <Copy className="h-3 w-3" />
@@ -250,19 +242,18 @@ export function TestAgentPanel({ agentId, agentName, defaultOpen = true }: TestA
                   ))
                 )}
                 {isLoading && pendingMessageId && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground ml-12">
-                    <div className="flex gap-1">
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground ml-8">
+                    <div className="flex gap-0.5">
                       <Skeleton className="h-1 w-1 rounded-full animate-bounce" />
                       <Skeleton className="h-1 w-1 rounded-full animate-bounce delay-100" />
                       <Skeleton className="h-1 w-1 rounded-full animate-bounce delay-200" />
                     </div>
-                    <span>Thinking</span>
+                    <span className="text-xs">Thinking</span>
                   </div>
                 )}
               </div>
             </ScrollArea>
 
-            {/* Input Area */}
             <div className="space-y-2">
               <div className="flex gap-2">
                 <Textarea
@@ -270,28 +261,29 @@ export function TestAgentPanel({ agentId, agentName, defaultOpen = true }: TestA
                   onChange={(e) => setInput(e.target.value)}
                   onKeyDown={handleKeyDown}
                   placeholder="Type a test message..."
-                  className="min-h-[60px] resize-none"
+                  className="min-h-[60px] resize-none text-sm"
                   disabled={isLoading}
                 />
                 <Button
                   onClick={handleSend}
                   disabled={!input.trim() || isLoading}
-                  className="shrink-0"
+                  className="shrink-0 h-[60px]"
+                  size="sm"
                 >
                   <Send className="h-4 w-4" />
                 </Button>
               </div>
-              <CardDescription className="flex items-center justify-between">
-                <span>Press Enter to send, Shift+Enter for new line</span>
+              <CardDescription className="flex items-center justify-between text-xs">
+                <span>Enter to send, Shift+Enter for new line</span>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={clearHistory}
                   disabled={messages.length === 0}
-                  className="h-6 px-2"
+                  className="h-6 px-2 text-xs"
                 >
                   <Trash2 className="h-3 w-3 mr-1" />
-                  Clear History
+                  Clear
                 </Button>
               </CardDescription>
             </div>

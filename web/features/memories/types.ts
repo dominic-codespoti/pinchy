@@ -3,24 +3,17 @@ export interface Memory {
   agentId: string;
   content: string;
   category?: string;
+  tags: string[];
   timestamp: string;
+  score?: number;
 }
 
 export interface RawMemory {
-  id: string;
-  agent_id: string;
-  content: string;
-  category?: string;
-  timestamp: string;
-}
-
-export interface MemoryEntry {
-  id: string;
-  agent_id: string;
-  content: string;
-  category?: string;
-  timestamp: string;
+  key: string;
+  value: string;
   tags?: string[];
+  timestamp: string;
+  score?: number;
 }
 
 export interface MemoryListResponse {

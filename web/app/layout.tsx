@@ -86,7 +86,9 @@ export default function RootLayout({
           <div className="flex h-screen overflow-hidden">
             <Sidebar />
             <main className="flex-1 overflow-auto">
-              {children}
+              <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+                {children}
+              </div>
             </main>
           </div>
           <BottomNav />

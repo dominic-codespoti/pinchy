@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { useAgent, useDeleteAgent, useAddMemory, useUpdateMemory, useDeleteMemory } from '../hooks';
+import { useAgent, useDeleteAgent, useDeleteMemory } from '../hooks';
 import { useAgentSessions } from '../hooks/queries';
 import { useAgentFiles } from '../hooks/queries';
 import { useAgentMemories } from '../hooks/queries';
@@ -91,8 +91,6 @@ export function AgentDetailPage({ id }: AgentDetailPageProps) {
   const { data: files, isLoading: filesLoading } = useAgentFiles(id);
   const { data: memories, isLoading: memoriesLoading } = useAgentMemories(id);
   const { data: sessions, isLoading: sessionsLoading } = useAgentSessions(id);
-  const addMemory = useAddMemory(id);
-  const updateMemory = useUpdateMemory(id);
   const deleteMemoryMutation = useDeleteMemory(id);
   const [editOpen, setEditOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -106,7 +104,7 @@ export function AgentDetailPage({ id }: AgentDetailPageProps) {
   // 404 / Not Found State
   if (!agentLoading && !agent && !agentError) {
     return (
-      <PageContainer maxWidth="full" className="space-y-6">
+      <PageContainer className="space-y-6">
         <Link href="/agents">
           <Button variant="ghost" size="sm">
             <ArrowLeft className="h-4 w-4 mr-2" />
@@ -135,7 +133,7 @@ export function AgentDetailPage({ id }: AgentDetailPageProps) {
   // Error State
   if (agentError) {
     return (
-      <PageContainer maxWidth="full" className="space-y-6">
+      <PageContainer className="space-y-6">
         <Link href="/agents">
           <Button variant="ghost" size="sm">
             <ArrowLeft className="h-4 w-4 mr-2" />
@@ -160,7 +158,7 @@ export function AgentDetailPage({ id }: AgentDetailPageProps) {
 
   return (
     <TooltipProvider>
-      <PageContainer maxWidth="full" className="space-y-6">
+      <PageContainer className="space-y-6">
         {/* Header */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
@@ -287,7 +285,7 @@ export function AgentDetailPage({ id }: AgentDetailPageProps) {
               ) : agent ? (
                 <>
                   <OverviewTab agent={agent} onEdit={() => setEditOpen(true)} />
-                  <TestAgentPanel agentId={id} agentName={agent.name} />
+                  <TestAgentPanel agentId={id} agentName={agent.name} defaultOpen={false} />
                 </>
               ) : null}
             </TabErrorBoundary>
@@ -310,13 +308,7 @@ export function AgentDetailPage({ id }: AgentDetailPageProps) {
               ) : (
                 <MemoryTab
                   memories={memories ?? []}
-                  onAddMemory={async (content, category) => {
-                    await addMemory.mutateAsync({ content, category });
-                  }}
-                  onUpdateMemory={async (memoryId, content) => {
-                    await updateMemory.mutateAsync({ memoryId, content });
-                  }}
-                  onDeleteMemory={async (memoryId) => {
+                  onDeleteMemory={async (memoryId: string) => {
                     await deleteMemoryMutation.mutateAsync(memoryId);
                   }}
                 />

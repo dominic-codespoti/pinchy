@@ -4,8 +4,7 @@ import { useState } from 'react';
 import { Memory } from '../types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Pencil, Trash2, ChevronDown, ChevronUp, Check, X } from 'lucide-react';
+import { Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { DeleteMemoryDialog } from './delete-memory-dialog';
 import { Card, CardContent } from '@/components/ui/card';
 
@@ -33,16 +32,13 @@ function formatRelativeTime(timestamp: string): string {
 
 interface MemoryCardProps {
   memory: Memory;
-  onUpdate?: (memoryId: string, content: string) => Promise<void>;
   onDelete?: (memoryId: string) => Promise<void>;
 }
 
 const MAX_PREVIEW_LENGTH = 150;
 
-export function MemoryCard({ memory, onUpdate, onDelete }: MemoryCardProps) {
+export function MemoryCard({ memory, onDelete }: MemoryCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState(memory.content);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -57,22 +53,6 @@ export function MemoryCard({ memory, onUpdate, onDelete }: MemoryCardProps) {
     ? memory.content
     : memory.content.slice(0, MAX_PREVIEW_LENGTH) + '...';
 
-  const handleSave = async () => {
-    if (!onUpdate || editContent.trim() === '') return;
-    setIsLoading(true);
-    try {
-      await onUpdate(memory.id, editContent.trim());
-      setIsEditing(false);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleCancel = () => {
-    setEditContent(memory.content);
-    setIsEditing(false);
-  };
-
   const handleDelete = async () => {
     if (!onDelete) return;
     setIsLoading(true);
@@ -83,39 +63,6 @@ export function MemoryCard({ memory, onUpdate, onDelete }: MemoryCardProps) {
       setIsDeleteDialogOpen(false);
     }
   };
-
-  if (isEditing) {
-    return (
-      <Card className="bg-muted/30">
-        <CardContent className="pt-6">
-          <Textarea
-            value={editContent}
-            onChange={(e) => setEditContent(e.target.value)}
-            className="min-h-[100px] mb-2"
-            disabled={isLoading}
-          />
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary" className={`text-xs ${categoryStyle}`}>
-                {categoryLabel}
-              </Badge>
-              <span className="text-xs text-muted-foreground">
-                {formatRelativeTime(memory.timestamp)}
-              </span>
-            </div>
-            <div className="flex gap-1">
-              <Button size="sm" variant="ghost" onClick={handleCancel} disabled={isLoading}>
-                <X className="h-4 w-4" />
-              </Button>
-              <Button size="sm" variant="default" onClick={handleSave} disabled={isLoading}>
-                <Check className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
 
   return (
     <>
@@ -148,23 +95,16 @@ export function MemoryCard({ memory, onUpdate, onDelete }: MemoryCardProps) {
               </span>
             </div>
 
-            {(onUpdate || onDelete) && (
+            {onDelete && (
               <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                {onUpdate && (
-                  <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setIsEditing(true)}>
-                    <Pencil className="h-3.5 w-3.5" />
-                  </Button>
-                )}
-                {onDelete && (
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    className="h-7 w-7 p-0 text-destructive hover:text-destructive"
-                    onClick={() => setIsDeleteDialogOpen(true)}
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </Button>
-                )}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 w-7 p-0 text-destructive hover:text-destructive"
+                  onClick={() => setIsDeleteDialogOpen(true)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </Button>
               </div>
             )}
           </div>

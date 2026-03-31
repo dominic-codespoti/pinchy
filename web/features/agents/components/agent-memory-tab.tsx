@@ -3,14 +3,13 @@
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { Memory } from '../types';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Plus, Search, Filter } from 'lucide-react';
+import { Search, Filter, Brain } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { MemoryCard } from './memory-card';
-import { AddMemoryDialog } from './add-memory-dialog';
 import { MemoryFilters } from './memory-filters';
 
 const MEMORY_CATEGORIES = [
@@ -23,20 +22,15 @@ const MEMORY_CATEGORIES = [
 
 interface MemoryTabProps {
   memories: Memory[];
-  onAddMemory?: (content: string, category?: string) => Promise<void>;
-  onUpdateMemory?: (memoryId: string, content: string) => Promise<void>;
   onDeleteMemory?: (memoryId: string) => Promise<void>;
 }
 
 export function MemoryTab({
   memories,
-  onAddMemory,
-  onUpdateMemory,
   onDeleteMemory,
 }: MemoryTabProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('all');
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
 
   const filteredMemories = useMemo(() => {
     return memories.filter((memory) => {
@@ -48,37 +42,18 @@ export function MemoryTab({
     });
   }, [memories, searchQuery, selectedCategory]);
 
-  const handleAddMemory = async (content: string, category?: string) => {
-    if (onAddMemory) {
-      await onAddMemory(content, category);
-    }
-    setIsAddDialogOpen(false);
-  };
-
-  if (memories.length === 0 && !searchQuery) {
+  // Empty state - compact with icon
+  if (memories.length === 0) {
     return (
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Memory</CardTitle>
-          <Button size="sm" onClick={() => setIsAddDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Add Memory
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <div className="text-center py-12">
-            <CardDescription className="mb-4">No memories recorded yet</CardDescription>
-            <Button onClick={() => setIsAddDialogOpen(true)}>
-              <Plus className="h-4 w-4 mr-1" />
-              Add First Memory
-            </Button>
-          </div>
-          <AddMemoryDialog
-            open={isAddDialogOpen}
-            onOpenChange={setIsAddDialogOpen}
-            onSubmit={handleAddMemory}
-            categories={MEMORY_CATEGORIES.filter(c => c.id !== 'all')}
-          />
+        <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+          <Brain className="h-10 w-10 text-muted-foreground/50 mb-3" />
+          <p className="text-sm font-medium text-muted-foreground">
+            No memories recorded yet
+          </p>
+          <p className="text-xs text-muted-foreground/70 mt-1">
+            Memories are created using the save_memory tool
+          </p>
         </CardContent>
       </Card>
     );
@@ -86,22 +61,18 @@ export function MemoryTab({
 
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle>Memory ({filteredMemories.length})</CardTitle>
-        <div className="flex items-center gap-2">
-          <Link href="/memories/query">
-            <Button variant="outline" size="sm">
-              <Filter className="h-4 w-4 mr-1" />
-              Advanced
-            </Button>
-          </Link>
-          <Button size="sm" onClick={() => setIsAddDialogOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            Add Memory
+      <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <CardTitle className="text-sm font-medium">
+          Memory ({filteredMemories.length})
+        </CardTitle>
+        <Link href="/memories/query">
+          <Button variant="outline" size="sm">
+            <Filter className="h-3.5 w-3.5 mr-1.5" />
+            Advanced
           </Button>
-        </div>
+        </Link>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-3 pt-0">
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -109,7 +80,7 @@ export function MemoryTab({
               placeholder="Search memories..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-9"
+              className="pl-9 h-9 text-sm"
             />
           </div>
         </div>
@@ -120,33 +91,25 @@ export function MemoryTab({
           onSelectCategory={setSelectedCategory}
         />
 
-        <ScrollArea className="h-[400px] pr-4">
+        <ScrollArea className="max-h-[300px] pr-2">
           {filteredMemories.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
+            <div className="text-center py-6 text-sm text-muted-foreground">
               {searchQuery || selectedCategory !== 'all'
                 ? 'No memories match your filters'
                 : 'No memories recorded yet'}
             </div>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-2">
               {filteredMemories.map((memory) => (
                 <MemoryCard
                   key={memory.id}
                   memory={memory}
-                  onUpdate={onUpdateMemory}
                   onDelete={onDeleteMemory}
                 />
               ))}
             </div>
           )}
         </ScrollArea>
-
-        <AddMemoryDialog
-          open={isAddDialogOpen}
-          onOpenChange={setIsAddDialogOpen}
-          onSubmit={handleAddMemory}
-          categories={MEMORY_CATEGORIES.filter(c => c.id !== 'all')}
-        />
       </CardContent>
     </Card>
   );
@@ -155,28 +118,19 @@ export function MemoryTab({
 export function MemoryTabSkeleton() {
   return (
     <Card>
-      <CardHeader className="flex flex-row items-center justify-between">
-        <Skeleton className="h-6 w-32" />
-        <Skeleton className="h-9 w-28" />
+      <CardHeader className="flex flex-row items-center justify-between pb-3">
+        <Skeleton className="h-5 w-24" />
       </CardHeader>
-      <CardContent className="space-y-4">
-        <Skeleton className="h-10 w-full" />
+      <CardContent className="space-y-3 pt-0">
+        <Skeleton className="h-9 w-full" />
         <div className="flex gap-2">
           {[...Array(5)].map((_, i) => (
-            <Skeleton key={i} className="h-8 w-20" />
+            <Skeleton key={i} className="h-7 w-16" />
           ))}
         </div>
-        <div className="space-y-3">
-          {[...Array(4)].map((_, i) => (
-            <Card key={i}>
-              <CardContent className="pt-6">
-                <Skeleton className="h-4 w-full" />
-                <div className="flex items-center gap-2 mt-2">
-                  <Skeleton className="h-4 w-16" />
-                  <Skeleton className="h-4 w-24" />
-                </div>
-              </CardContent>
-            </Card>
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => (
+            <Skeleton key={i} className="h-20 w-full" />
           ))}
         </div>
       </CardContent>

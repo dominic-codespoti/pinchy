@@ -1,9 +1,10 @@
 import { Agent } from "../types";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Edit } from "lucide-react";
+import { Separator } from "@/components/ui/separator";
+import { Edit, Clock, Calendar, Activity } from "lucide-react";
 import { getHeartbeatStatus } from "@/shared/components/heartbeat-badge";
 
 interface OverviewTabProps {
@@ -14,156 +15,156 @@ interface OverviewTabProps {
 export function OverviewTab({ agent, onEdit }: OverviewTabProps) {
   const statusVariant = agent.status === 'active' ? 'default' : 'secondary';
   const heartbeatStatus = getHeartbeatStatus(agent.hasHeartbeat, agent.lastHeartbeatAt);
+  const heartbeatVariant = heartbeatStatus === 'online' ? 'default' : heartbeatStatus === 'offline' ? 'destructive' : 'secondary';
 
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between">
-          <div>
-            <CardTitle>Agent Information</CardTitle>
-            <CardDescription>View and manage agent details</CardDescription>
-          </div>
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-base">Agent Overview</CardTitle>
           <Button variant="outline" size="sm" onClick={onEdit}>
-            <Edit className="h-4 w-4 mr-2" />
+            <Edit className="h-3.5 w-3.5 mr-1.5" />
             Edit
           </Button>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <CardDescription className="text-sm">Status</CardDescription>
-              <Badge variant={statusVariant} className="mt-1 capitalize">
-                {agent.status}
-              </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Section 1: Agent Status */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="flex items-center gap-2">
+            <Badge variant={statusVariant} className="capitalize text-xs">
+              {agent.status}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2">
+            <Activity className="h-3.5 w-3.5 text-muted-foreground" />
+            <Badge variant={heartbeatVariant} className="capitalize text-xs">
+              {heartbeatStatus}
+            </Badge>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Calendar className="h-3.5 w-3.5" />
+            <span>{new Date(agent.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+          </div>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="h-3.5 w-3.5" />
+            <span>
+              {agent.lastHeartbeatAt
+                ? new Date(agent.lastHeartbeatAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+                : 'Never'}
+            </span>
+          </div>
+        </div>
+
+        {agent.description && (
+          <p className="text-sm text-muted-foreground">{agent.description}</p>
+        )}
+
+        {agent.heartbeatInterval && (
+          <p className="text-xs text-muted-foreground">
+            Heartbeat interval: {agent.heartbeatInterval}s
+          </p>
+        )}
+
+        <Separator />
+
+        {/* Section 2: Configuration */}
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Model</span>
+              <span className="font-medium">{agent.config.model || 'Default'}</span>
             </div>
-            <div>
-              <CardDescription className="text-sm">Heartbeat Status</CardDescription>
-              <div className="mt-1">
-                <Badge
-                  variant={heartbeatStatus === 'online' ? 'default' : heartbeatStatus === 'offline' ? 'destructive' : 'secondary'}
-                  className="capitalize"
-                >
-                  {heartbeatStatus}
+            <div className="flex items-center gap-2">
+              <span className="text-muted-foreground">Provider</span>
+              <span className="font-medium">{agent.config.provider}</span>
+            </div>
+            {agent.maxTurns !== undefined && agent.maxTurns !== null && (
+              <div className="flex items-center gap-2">
+                <span className="text-muted-foreground">Max Turns</span>
+                <span className="font-medium">{agent.maxTurns}</span>
+              </div>
+            )}
+          </div>
+
+          {agent.enabledSkills && agent.enabledSkills.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">Skills</span>
+              {agent.enabledSkills.map((skill) => (
+                <Badge key={skill} variant="outline" className="text-xs">
+                  {skill}
                 </Badge>
-              </div>
-            </div>
-            <div>
-              <CardDescription className="text-sm">Created</CardDescription>
-              <p className="mt-1">{new Date(agent.createdAt).toLocaleDateString()}</p>
-            </div>
-            <div>
-              <CardDescription className="text-sm">Last Seen</CardDescription>
-              <p className="mt-1">
-                {agent.lastHeartbeatAt
-                  ? new Date(agent.lastHeartbeatAt).toLocaleString()
-                  : 'Never'}
-              </p>
-            </div>
-          </div>
-
-          {agent.heartbeatInterval && (
-            <div>
-              <CardDescription className="text-sm">Heartbeat Interval</CardDescription>
-              <p className="mt-1">{agent.heartbeatInterval}s</p>
+              ))}
             </div>
           )}
 
-          {agent.description && (
-            <div>
-              <CardDescription className="text-sm">Description</CardDescription>
-              <p className="mt-1">{agent.description}</p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Configuration</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            <div>
-              <CardDescription className="text-sm">Model</CardDescription>
-              <p className="mt-1 font-medium">{agent.config.model || 'Default'}</p>
-            </div>
-            <div>
-              <CardDescription className="text-sm">Provider</CardDescription>
-              <p className="mt-1 font-medium">{agent.config.provider}</p>
-            </div>
-          </div>
-
-          {agent.config.systemPrompt && (
-            <div>
-              <CardDescription className="text-sm">System Prompt</CardDescription>
-              <div className="mt-1 text-sm bg-muted p-3 rounded-md">
-                {agent.config.systemPrompt}
-              </div>
+          {agent.watchPaths && agent.watchPaths.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">Watch</span>
+              {agent.watchPaths.map((path) => (
+                <Badge key={path} variant="outline" className="text-xs font-mono">
+                  {path}
+                </Badge>
+              ))}
             </div>
           )}
 
           {agent.config.toolsEnabled.length > 0 && (
-            <div>
-              <CardDescription className="text-sm">Tools Enabled</CardDescription>
-              <div className="mt-1 flex flex-wrap gap-2">
-                {agent.config.toolsEnabled.map((tool) => (
-                  <Badge key={tool} variant="outline">{tool}</Badge>
-                ))}
-              </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">Tools</span>
+              {agent.config.toolsEnabled.map((tool) => (
+                <Badge key={tool} variant="secondary" className="text-xs">
+                  {tool}
+                </Badge>
+              ))}
             </div>
           )}
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+
+        {/* Section 3: System Prompt */}
+        {agent.config.systemPrompt && (
+          <>
+            <Separator />
+            <div className="space-y-2">
+              <span className="text-sm text-muted-foreground">System Prompt</span>
+              <div className="text-sm bg-muted p-3 rounded-md line-clamp-4">
+                {agent.config.systemPrompt}
+              </div>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
 export function OverviewTabSkeleton() {
   return (
-    <div className="space-y-4">
-      <Card>
-        <CardHeader className="flex flex-row items-start justify-between">
-          <div>
-            <Skeleton className="h-6 w-32" />
-            <Skeleton className="h-4 w-48 mt-1" />
-          </div>
-          <Skeleton className="h-9 w-20" />
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            {[...Array(4)].map((_, i) => (
-              <div key={i}>
-                <Skeleton className="h-4 w-16" />
-                <Skeleton className="h-6 w-20 mt-1" />
-              </div>
-            ))}
-          </div>
-          <div>
-            <Skeleton className="h-4 w-20" />
-            <Skeleton className="h-20 w-full mt-1" />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-6 w-24" />
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid gap-4 md:grid-cols-2">
-            {[...Array(2)].map((_, i) => (
-              <div key={i}>
-                <Skeleton className="h-4 w-16" />
-                <Skeleton className="h-6 w-24 mt-1" />
-              </div>
-            ))}
-          </div>
-          <div>
-            <Skeleton className="h-4 w-20" />
-            <Skeleton className="h-24 w-full mt-1" />
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-5 w-32" />
+          <Skeleton className="h-8 w-16" />
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[...Array(4)].map((_, i) => (
+            <Skeleton key={i} className="h-5 w-20" />
+          ))}
+        </div>
+        <Skeleton className="h-4 w-full" />
+        <Skeleton className="h-px w-full" />
+        <div className="flex gap-4">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-4 w-24" />
+        </div>
+        <div className="flex gap-2">
+          <Skeleton className="h-5 w-16" />
+          <Skeleton className="h-5 w-16" />
+          <Skeleton className="h-5 w-16" />
+        </div>
+      </CardContent>
+    </Card>
   );
 }

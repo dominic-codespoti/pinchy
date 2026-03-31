@@ -18,7 +18,7 @@ export function NotAvailable({
   returnLabel = 'Back to Dashboard',
 }: NotAvailableProps) {
   return (
-    <PageContainer maxWidth="narrow" className="space-y-6">
+    <PageContainer className="space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Construction className="h-6 w-6 text-muted-foreground" />

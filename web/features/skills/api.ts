@@ -28,6 +28,8 @@ export async function getSkillDetail(name: string): Promise<SkillDetail> {
     manifest?: string;
     instructions?: string;
     raw?: string;
+    reference_files?: string[];
+    allowed_tools?: string;
   }>(`/api/skills/${encodeURIComponent(name)}`);
 
   return {
@@ -41,6 +43,8 @@ export async function getSkillDetail(name: string): Promise<SkillDetail> {
     manifest: response.manifest,
     instructions: response.instructions,
     raw: response.raw,
+    referenceFiles: response.reference_files,
+    allowedTools: response.allowed_tools,
   };
 }
 

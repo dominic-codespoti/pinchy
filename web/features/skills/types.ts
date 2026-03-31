@@ -16,6 +16,8 @@ export interface SkillDetail extends Skill {
   manifest?: string;
   instructions?: string;
   raw?: string;
+  referenceFiles?: string[];
+  allowedTools?: string;
 }
 
 export interface UpdateSkillInput {

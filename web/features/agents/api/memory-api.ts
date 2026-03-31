@@ -1,26 +1,26 @@
 import { fetchApi, isNotFoundError } from '@/shared/api/client';
-import { Memory, RawMemory } from '../types';
+import { Memory } from '../types';
 
-// Backend memory endpoint returns { entries: [...] } not raw array
+// Backend memory endpoint returns entries with key/value/tags, not id/content/category
 interface MemoryEntry {
-  id: string;
-  agent_id: string;
-  content: string;
-  category?: string;
-  timestamp: string;
+  key: string;
+  value: string;
   tags?: string[];
+  timestamp: string;
+  score?: number;
 }
 
 interface MemoryListResponse {
   entries: MemoryEntry[];
 }
 
-function transformMemory(entry: MemoryEntry): Memory {
+function transformMemory(entry: MemoryEntry, agentId: string): Memory {
   return {
-    id: entry.id,
-    agentId: entry.agent_id,
-    content: entry.content,
-    category: entry.category,
+    id: entry.key,
+    agentId,
+    content: entry.value,
+    category: entry.tags?.[0],
+    tags: entry.tags ?? [],
     timestamp: entry.timestamp,
   };
 }
@@ -28,8 +28,8 @@ function transformMemory(entry: MemoryEntry): Memory {
 export async function getAgentMemories(agentId: string, search?: string): Promise<Memory[]> {
   try {
     const queryParams = search ? `?q=${encodeURIComponent(search)}` : '';
-    const response = await fetchApi<MemoryListResponse>(`/api/agents/${agentId}/memory${queryParams}`);
-    return (response.entries || []).map(transformMemory);
+    const response = await fetchApi<MemoryListResponse>(`/api/agents/${encodeURIComponent(agentId)}/memory${queryParams}`);
+    return (response.entries || []).map((entry) => transformMemory(entry, agentId));
   } catch (error) {
     if (isNotFoundError(error)) {
       // Endpoint not available - return empty array
@@ -62,7 +62,7 @@ export async function deleteMemory(memoryId: string): Promise<void> {
     throw new Error('Invalid memory ID format. Expected: agent_id/key');
   }
   const [agentId, key] = parts;
-  await fetchApi<void>(`/api/agents/${agentId}/memory/${key}`, {
+  await fetchApi<void>(`/api/agents/${encodeURIComponent(agentId)}/memory/${encodeURIComponent(key)}`, {
     method: 'DELETE',
   });
 }

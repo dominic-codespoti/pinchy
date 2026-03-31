@@ -7,7 +7,7 @@ export function transformSession(raw: RawSession, agentId?: string): Session {
     id: raw.session_id,
     agentId: agentId ?? '', // Must be populated by the caller when available
     title: raw.title ?? undefined,
-    messageCount: 0, // Backend doesn't provide message count
+    messageCount: raw.message_count ?? 0,
     // created_at is in milliseconds, modified is in seconds
     createdAt: new Date(raw.created_at).toISOString(),
     updatedAt: new Date(raw.modified * 1000).toISOString(),
@@ -21,6 +21,7 @@ interface RawAgentSession {
   file: string;
   created_at: number; // Unix timestamp in milliseconds
   modified: number;   // Unix timestamp in seconds
+  message_count?: number;
 }
 
 interface SessionsListResponse {
@@ -30,13 +31,13 @@ interface SessionsListResponse {
 // Backend returns sessions at /api/agents/:id/sessions
 export async function getAgentSessions(agentId: string): Promise<Session[]> {
   try {
-    const response = await fetchApi<SessionsListResponse>(`/api/agents/${agentId}/sessions`);
+    const response = await fetchApi<SessionsListResponse>(`/api/agents/${encodeURIComponent(agentId)}/sessions`);
     const rawSessions = response.sessions ?? [];
     return rawSessions.map((raw) => ({
       id: raw.session_id,
       agentId,
       title: raw.title ?? undefined,
-      messageCount: 0, // API doesn't provide message count
+      messageCount: raw.message_count ?? 0,
       // created_at is in milliseconds, modified is in seconds
       createdAt: new Date(raw.created_at).toISOString(),
       updatedAt: new Date(raw.modified * 1000).toISOString(),
@@ -51,17 +52,18 @@ export async function getAgentSessions(agentId: string): Promise<Session[]> {
 }
 
 export async function createSession(agentId: string): Promise<Session> {
+  // Backend does not support direct session creation via API
   // Sessions are created by sending a message to the webhook endpoint
-  // or by starting a new conversation
+  // This returns a placeholder session that will be replaced when the first message is sent
   const sessionId = `${agentId}-${Date.now()}`;
   const now = new Date().toISOString();
 
   return {
     id: sessionId,
     agentId,
-    title: 'New Session',
-    messageCount: 0,
-    createdAt: now,
+    title: 'New Session', // Placeholder - actual title set by first message
+    messageCount: 0, // Placeholder - updated when messages are sent
+    createdAt: now, // Client-generated since backend doesn't provide this
     updatedAt: now,
   };
 }
@@ -78,7 +80,7 @@ export async function deleteSession(id: string): Promise<void> {
   // Handle cases where agent_id itself contains hyphens
   const agentId = parts.slice(0, -1).join('-');
   const sessionFile = `${id}.jsonl`;
-  await fetchApi<{ session_id: string; deleted: boolean }>(`/api/agents/${agentId}/sessions/${sessionFile}`, {
+  await fetchApi<{ session_id: string; deleted: boolean }>(`/api/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionFile)}`, {
     method: 'DELETE',
   });
 }

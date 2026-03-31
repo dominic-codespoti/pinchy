@@ -12,21 +12,18 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { FileUpload } from './file-upload';
 import { FilePreview } from './file-preview';
 import { FileActions } from './file-actions';
-
-function formatFileSize(bytes: number): string {
-  if (bytes === 0) return '0 Bytes';
-  const k = 1024;
-  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-}
+import { FileText, FolderOpen } from 'lucide-react';
 
 function formatDate(dateString: string): string {
   const date = new Date(dateString);
-  return date.toLocaleString();
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }
 
 interface FilesTabProps {
@@ -46,13 +43,13 @@ export function FilesTab({ agentId, files }: FilesTabProps) {
   if (files.length === 0) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Files</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <FileUpload agentId={agentId} />
-          <p className="text-muted-foreground text-center py-8">
-            No files in workspace. Upload a file to get started.
+        <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+          <FolderOpen className="h-10 w-10 text-muted-foreground/50 mb-3" />
+          <p className="text-sm font-medium text-muted-foreground">
+            No files in workspace
+          </p>
+          <p className="text-xs text-muted-foreground/70 mt-1">
+            Files are created using the write_file tool
           </p>
         </CardContent>
       </Card>
@@ -61,37 +58,36 @@ export function FilesTab({ agentId, files }: FilesTabProps) {
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Files ({files.length})</CardTitle>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-sm font-medium">
+          Files ({files.length})
+        </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <FileUpload agentId={agentId} />
-
+      <CardContent className="pt-0">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead className="w-24">Size</TableHead>
-              <TableHead className="w-44">Modified</TableHead>
-              <TableHead className="w-28">Actions</TableHead>
+              <TableHead className="text-xs">Name</TableHead>
+              <TableHead className="text-xs w-32">Modified</TableHead>
+              <TableHead className="text-xs w-24 text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {files.map((file) => (
               <TableRow key={file.path}>
-                <TableCell
-                  className="font-medium cursor-pointer hover:underline"
-                  onClick={() => handleFileClick(file)}
-                >
-                  {file.name}
+                <TableCell>
+                  <button
+                    onClick={() => handleFileClick(file)}
+                    className="flex items-center gap-2 font-medium text-sm hover:underline text-left"
+                  >
+                    <FileText className="h-4 w-4 text-muted-foreground" />
+                    {file.name}
+                  </button>
                 </TableCell>
-                <TableCell className="text-muted-foreground">
-                  {formatFileSize(file.size)}
-                </TableCell>
-                <TableCell className="text-muted-foreground text-sm">
+                <TableCell className="text-muted-foreground text-xs">
                   {formatDate(file.modifiedAt)}
                 </TableCell>
-                <TableCell>
+                <TableCell className="text-right">
                   <FileActions
                     file={file}
                     agentId={agentId}
@@ -117,15 +113,15 @@ export function FilesTab({ agentId, files }: FilesTabProps) {
 export function FilesTabSkeleton() {
   return (
     <Card>
-      <CardHeader>
-        <Skeleton className="h-6 w-24" />
+      <CardHeader className="pb-3">
+        <Skeleton className="h-5 w-20" />
       </CardHeader>
-      <CardContent className="space-y-4">
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-10 w-full" />
-        {[...Array(4)].map((_, i) => (
-          <Skeleton key={i} className="h-12 w-full mt-px" />
-        ))}
+      <CardContent className="pt-0">
+        <div className="space-y-2">
+          {[...Array(3)].map((_, i) => (
+            <Skeleton key={i} className="h-10 w-full" />
+          ))}
+        </div>
       </CardContent>
     </Card>
   );

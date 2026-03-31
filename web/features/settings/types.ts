@@ -57,6 +57,12 @@ export interface ModelInfo {
   reasoning?: boolean;
   attachment?: boolean;
   family?: string;
+  cache_read_price?: number;
+  cache_write_price?: number;
+  modalities?: {
+    input?: string[];
+    output?: string[];
+  };
 }
 
 export interface ProviderConfig {
@@ -160,6 +166,25 @@ export interface AdvancedSettings {
   logRetentionDays: number;
   debugMode: boolean;
 }
+
+// ============================================================================
+// MCP Server Types
+// ============================================================================
+
+export type McpTransport = 'stdio' | 'sse' | 'streamablehttp';
+
+export interface McpServerConfig {
+  name?: string;
+  transport?: McpTransport;
+  command?: string;
+  args?: string[];
+  url?: string;
+  env?: Record<string, string>;
+  timeout?: number;
+  max_concurrent?: number;
+}
+
+export type McpServers = Record<string, McpServerConfig>;
 
 export interface GeneralSettings {
   api: ApiSettings;

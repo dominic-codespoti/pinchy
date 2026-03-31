@@ -13,25 +13,26 @@ interface AgentFileResponse {
 export async function getAgentFiles(agentId: string): Promise<AgentFile[]> {
   // Backend doesn't support listing files, only accessing specific ones
   // Return common agent files that might exist
+  // Note: size and modifiedAt are hardcoded since backend doesn't provide file metadata
   const allowedFiles = ['SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'];
   return allowedFiles.map(filename => ({
     name: filename,
     path: filename,
-    size: 0,
-    modifiedAt: new Date().toISOString(),
+    size: 0, // Backend does not provide file size
+    modifiedAt: new Date().toISOString(), // Backend does not provide modification time
     isDirectory: false,
   }));
 }
 
 // Backend supports GET /api/agents/:id/files/:filename for allowed files
 export async function getAgentFileContent(agentId: string, filename: string): Promise<string> {
-  const response = await fetchApi<AgentFileResponse>(`/api/agents/${agentId}/files/${encodeURIComponent(filename)}`);
+  const response = await fetchApi<AgentFileResponse>(`/api/agents/${encodeURIComponent(agentId)}/files/${encodeURIComponent(filename)}`);
   return response.content;
 }
 
 // Backend supports PUT /api/agents/:id/files/:filename to save file content
 export async function saveAgentFileContent(agentId: string, filename: string, content: string): Promise<void> {
-  await fetchApi<{ filename: string; saved: boolean }>(`/api/agents/${agentId}/files/${encodeURIComponent(filename)}`, {
+  await fetchApi<{ filename: string; saved: boolean }>(`/api/agents/${encodeURIComponent(agentId)}/files/${encodeURIComponent(filename)}`, {
     method: 'PUT',
     body: JSON.stringify({ content }),
   });
@@ -61,7 +62,7 @@ async function fetchApiBinary(endpoint: string, options?: RequestInit): Promise<
 
 // Backend supports GET /api/agents/:id/files/:filename for allowed files
 export async function downloadAgentFile(agentId: string, filename: string): Promise<Blob> {
-  const response = await fetchApiBinary(`/api/agents/${agentId}/files/${encodeURIComponent(filename)}`);
+  const response = await fetchApiBinary(`/api/agents/${encodeURIComponent(agentId)}/files/${encodeURIComponent(filename)}`);
   return response.blob();
 }
 

@@ -31,12 +31,39 @@ export async function fetchModelsRegistry(): Promise<ModelsDevProvider[]> {
 
 export async function fetchModels(): Promise<ModelInfo[]> {
   try {
-    const response = await fetchApi<{ models: Array<{ id: string; name: string; provider: string; description?: string }> }>(`${API_BASE_URL}/api/models`);
+    const response = await fetchApi<{ models: Array<{
+      id: string;
+      name: string;
+      provider: string;
+      description?: string;
+      input_price?: number;
+      output_price?: number;
+      context_window?: number;
+      max_output?: number;
+      tool_call?: boolean;
+      reasoning?: boolean;
+      attachment?: boolean;
+      family?: string;
+      cache_read_price?: number;
+      cache_write_price?: number;
+      modalities?: { input?: string[]; output?: string[] };
+    }> }>(`${API_BASE_URL}/api/models`);
     return (response.models || []).map(m => ({
       id: m.id,
       name: m.name || m.id,
       provider: m.provider,
       description: m.description || m.provider,
+      input_price: m.input_price,
+      output_price: m.output_price,
+      context_window: m.context_window,
+      max_output: m.max_output,
+      tool_call: m.tool_call,
+      reasoning: m.reasoning,
+      attachment: m.attachment,
+      family: m.family,
+      cache_read_price: m.cache_read_price,
+      cache_write_price: m.cache_write_price,
+      modalities: m.modalities,
     }));
   } catch (error) {
     console.error('[settings] Failed to fetch models:', error);

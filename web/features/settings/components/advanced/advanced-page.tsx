@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useConfig, useUpdateConfig } from '../hooks/use-config';
+import { useConfig, useUpdateConfig } from '../../hooks';
 
 interface ConfigData {
   max_context_tokens?: number;
