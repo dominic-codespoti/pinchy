@@ -2,6 +2,7 @@
 
 pub mod copilot_token;
 pub mod github_device;
+pub mod store;
 
 /// A typed authentication error that any model provider can return.
 ///
