@@ -32,6 +32,12 @@ pub struct CohereProvider {
     client: Client,
 }
 
+impl Default for CohereProvider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CohereProvider {
     /// Create a new provider with API key from environment.
     ///

@@ -88,6 +88,7 @@ struct GeminiResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     usage_metadata: Option<GeminiUsageMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[allow(dead_code)]
     prompt_feedback: Option<serde_json::Value>,
 }
 
@@ -96,8 +97,10 @@ struct GeminiResponse {
 struct GeminiCandidate {
     content: GeminiContent,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[allow(dead_code)]
     finish_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[allow(dead_code)]
     safety_ratings: Option<Vec<serde_json::Value>>,
 }
 

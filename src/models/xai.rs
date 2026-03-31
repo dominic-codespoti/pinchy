@@ -29,10 +29,17 @@ pub const DEFAULT_BASE_URL: &str = "https://api.x.ai/v1";
 /// Provider that talks to the xAI (Grok) chat completions API.
 pub struct XaiProvider {
     api_key: String,
+    #[allow(dead_code)]
     base_url: String,
     endpoint: String,
     model: String,
     client: Client,
+}
+
+impl Default for XaiProvider {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl XaiProvider {
