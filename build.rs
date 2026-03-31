@@ -8,10 +8,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Only attempt build if web/ source exists (not present in crates.io package)
     if web_dir.join("package.json").exists() {
-        println!("cargo:rerun-if-changed=web/src");
-        println!("cargo:rerun-if-changed=web/index.html");
+        println!("cargo:rerun-if-changed=web/app");
         println!("cargo:rerun-if-changed=web/package.json");
-        println!("cargo:rerun-if-changed=web/vite.config.ts");
+        println!("cargo:rerun-if-changed=web/next.config.mjs");
         println!("cargo:rerun-if-changed=web/tailwind.config.ts");
 
         // Skip if output already exists (make web was run manually)

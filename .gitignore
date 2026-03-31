@@ -26,5 +26,26 @@ config.yaml
 
 # Frontend workspace
 web/node_modules/
-web/.vite/
+web/.next/
+web/out/
 static/react/
+
+# Build artifacts
+.next/
+static/
+test-results/
+reference/
+*.png
+
+# Generated summary docs
+ALL_SETTINGS_PAGES_COMPLETE.md
+AUTH_ALIGNMENT_SUMMARY.md
+AUTH_UI_FIX_SUMMARY.md
+CHANGES.md
+FULL_WIDTH_SHADCN_COMPLETE.md
+IMPLEMENTATION_SUMMARY.md
+MODEL_IMPLEMENTATION_SUMMARY.md
+MODEL_INTEGRATION_ANALYSIS.md
+OAUTH_UI_COMPLETE.md
+PROVIDERS_COMPLETE.md
+UI_REDESIGN_COMPLETE.md

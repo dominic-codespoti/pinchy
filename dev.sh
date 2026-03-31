@@ -4,40 +4,66 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 WEB="$ROOT/web"
 
+echo "🧹 Cleaning up stale processes…"
+# Kill any existing pinchy processes
+pkill -f "target/debug/pinchy" 2>/dev/null || true
+pkill -f "target/release/pinchy" 2>/dev/null || true
+
+# Clean up Next.js cache files that can cause type errors
+rm -f "$WEB/.next/dev/types/validator.ts" 2>/dev/null || true
+
+# Wait for ports to be free
+for port in 3131 3132; do
+  while lsof -i :$port 2>/dev/null | grep -q LISTEN; do
+    echo "  Waiting for port $port to be free…"
+    sleep 0.5
+  done
+done
+
+echo "🔨 Ensuring fresh Rust build…"
+# Touch main source files to force recompile
+touch "$ROOT/src/main.rs"
+touch "$ROOT/src/models_dev/mod.rs"
+touch "$ROOT/src/gateway/mod.rs"
+
+# Do an initial build to ensure binary exists and is fresh
+if ! cargo build; then
+  echo "❌ Build failed"
+  exit 1
+fi
+echo "✅ Build complete"
+
 cleanup() {
   trap - EXIT INT TERM
   echo ""
   echo "🦀 Shutting down…"
-  kill 0 2>/dev/null
-  wait 2>/dev/null
+  # Kill the entire process group
+  kill -- -$$ 2>/dev/null || true
+  wait 2>/dev/null || true
+  exit 0
 }
 trap cleanup EXIT INT TERM
 
-# ── 1. Build the React frontend once (fast if unchanged) ──
-echo "⚡ Building React frontend…"
-(cd "$WEB" && pnpm run build)
+# ── 1. Start Next.js dev server (HMR on :3000) ──
+echo "🔥 Starting Next.js dev server (http://localhost:3000)…"
+(cd "$WEB" && npx next dev --port 3000) &
 
-# ── 2. Start Vite dev server (HMR on :5173) ──
-echo "🔥 Starting Vite dev server (http://localhost:5173/react/)…"
-(cd "$WEB" && pnpm exec vite --clearScreen false) &
-VITE_PID=$!
-
-# ── 3. Start Rust backend with cargo-watch (auto-rebuild on changes) ──
+# ── 2. Start Rust backend with cargo-watch (auto-rebuild on changes) ──
 if command -v cargo-watch &>/dev/null; then
   echo "👀 Starting cargo watch (auto-rebuild on Rust changes)…"
-  (cd "$ROOT" && cargo watch -x run -w src -w Cargo.toml --why) &
+  echo "   Tip: Install cargo-watch with 'cargo install cargo-watch'"
+  (cd "$ROOT" && cargo watch -x run -w src -w Cargo.toml --delay 0.5) &
 else
   echo "🦀 Starting cargo run (install cargo-watch for auto-rebuild: cargo install cargo-watch)…"
   (cd "$ROOT" && cargo run) &
 fi
-RUST_PID=$!
 
 echo ""
 echo "┌─────────────────────────────────────────────┐"
 echo "│  Pinchy Dev Mode                            │"
 echo "│                                             │"
-echo "│  Frontend (HMR):  http://localhost:5173/react/  │"
-echo "│  Backend  (API):  http://localhost:3131      │"
+echo "│  Frontend (HMR):  http://localhost:3000     │"
+echo "│  Backend  (API):  http://localhost:3131    │"
 echo "│                                             │"
 echo "│  Press Ctrl+C to stop both                  │"
 echo "└─────────────────────────────────────────────┘"

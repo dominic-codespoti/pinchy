@@ -1,13 +1,25 @@
-.PHONY: dev build web run update install release lint setup backup backup-list restore publish
+.PHONY: dev dev-clean build web run update install release lint setup backup backup-list restore publish watch
 
-# Start everything: Vite HMR + Rust backend (auto-rebuild if cargo-watch installed)
+# Start everything: Next.js HMR + Rust backend (auto-rebuild if cargo-watch installed)
 dev:
 	@bash dev.sh
 
+# Force clean rebuild and start
+dev-clean:
+	@echo "🧹 Cleaning build artifacts…"
+	@cargo clean
+	@rm -f web/.next/dev/types/validator.ts 2>/dev/null || true
+	@bash dev.sh
+
+# Install cargo-watch for backend hot reloading
+watch:
+	@cargo install cargo-watch
+	@echo "✅ cargo-watch installed. Run 'make dev' for hot reloading."
+
 # Build React frontend into static/react/
 web:
-	@cd web && [ -d node_modules ] || pnpm install --frozen-lockfile
-	@cd web && pnpm run build
+	@cd web && [ -d node_modules ] || npm install --legacy-peer-deps
+	@cd web && npm run build
 
 # Build Rust backend (rebuilds frontend first)
 build: web
