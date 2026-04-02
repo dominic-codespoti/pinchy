@@ -28,6 +28,8 @@ export function ChatPage({ agents = [], agentsLoading = false }: ChatPageProps) 
     mobileSidebarOpen,
     setMobileSidebarOpen,
     isCreatingSession,
+    isSessionHydrating,
+    isMessagesHydrating,
     handleSendMessage,
     handleNewChat,
     handleStopStreaming,
@@ -85,14 +87,13 @@ export function ChatPage({ agents = [], agentsLoading = false }: ChatPageProps) 
           selectedAgentId={selectedAgentId}
           sessionsLoading={sessionsLoading}
           currentSession={currentSession}
+          sessionIdFromUrl={sessionIdFromUrl}
+          isSessionHydrating={isSessionHydrating}
+          isMessagesHydrating={isMessagesHydrating}
           agents={agents}
           onSendMessage={handleSendMessage}
           onStopStreaming={handleStopStreaming}
           onNewChat={handleNewChat}
-          onSelectAgent={(id) => {
-            setSelectedAgentId(id);
-            navigateToAgent(id);
-          }}
           agentsLoading={agentsLoading}
           isCreatingSession={isCreatingSession}
         />

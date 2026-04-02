@@ -40,7 +40,7 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 w-full min-w-0">
       {uniqueMessages.map((message) => (
         <MessageBubble
           key={message.id}

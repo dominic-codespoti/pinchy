@@ -63,6 +63,64 @@ export const SessionSchema = z.object({
 
 export const RawSessionSchema = SessionSchema;
 
+export const ToolCallSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  arguments: z.record(z.string(), z.unknown()),
+});
+
+export const ToolResultSchema = z.object({
+  tool_call_id: z.string(),
+  content: z.string(),
+  is_error: z.boolean().optional(),
+});
+
+export const TokenUsageSummarySchema = z.object({
+  prompt_tokens: z.number(),
+  completion_tokens: z.number(),
+  total_tokens: z.number(),
+  cached_tokens: z.number().default(0),
+  reasoning_tokens: z.number().default(0),
+});
+
+export const ToolCallRecordSchema = z.object({
+  tool: z.string(),
+  args_summary: z.string(),
+  success: z.boolean(),
+  duration_ms: z.number(),
+  error: z.string().optional(),
+});
+
+export const ModelCallDetailSchema = z.object({
+  model: z.string(),
+  prompt_tokens: z.number(),
+  completion_tokens: z.number(),
+  cached_tokens: z.number(),
+  reasoning_tokens: z.number(),
+  cost_usd: z.number().optional(),
+  latency_ms: z.number(),
+});
+
+export const TurnReceiptSchema = z.object({
+  agent: z.string(),
+  session: z.string().optional(),
+  started_at: z.number(),
+  duration_ms: z.number(),
+  user_prompt: z.string(),
+  tool_calls: z.array(ToolCallRecordSchema).default([]),
+  tokens: TokenUsageSummarySchema,
+  model_calls: z.number(),
+  reply_summary: z.string(),
+  model_id: z.string(),
+  estimated_cost_usd: z.number().optional(),
+  call_details: z.array(ModelCallDetailSchema).default([]),
+});
+
+export const ReceiptGetResponseSchema = z.object({
+  file: z.string(),
+  receipts: z.array(TurnReceiptSchema),
+});
+
 // ============================================================================
 // Provider Status Schemas
 // ============================================================================
@@ -212,6 +270,12 @@ export type Agent = z.infer<typeof AgentSchema>;
 export type RawAgent = z.infer<typeof RawAgentSchema>;
 export type Session = z.infer<typeof SessionSchema>;
 export type RawSession = z.infer<typeof RawSessionSchema>;
+export type ToolCall = z.infer<typeof ToolCallSchema>;
+export type ToolResult = z.infer<typeof ToolResultSchema>;
+export type TokenUsageSummary = z.infer<typeof TokenUsageSummarySchema>;
+export type ToolCallRecord = z.infer<typeof ToolCallRecordSchema>;
+export type ModelCallDetail = z.infer<typeof ModelCallDetailSchema>;
+export type TurnReceipt = z.infer<typeof TurnReceiptSchema>;
 export type ProviderStatus = z.infer<typeof ProviderStatusSchema>;
 export type CronJob = z.infer<typeof CronJobSchema>;
 export type BackendCronJob = z.infer<typeof BackendCronJobSchema>;

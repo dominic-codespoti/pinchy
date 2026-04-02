@@ -1,11 +1,12 @@
 'use client';
 
-import { useRef, useEffect } from 'react';
-import { WifiOff, Bot, ChevronDown } from 'lucide-react';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
+import { useRef, useEffect, useMemo, useState } from 'react';
+import { Bot, Compass, FileText, Lightbulb, ListChecks, Sparkles, Bug, Scale, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
 import { Agent } from '@/features/agents/types';
 import { Message } from '@/shared/types/common';
 import { MessageList } from './message-list';
@@ -26,13 +27,15 @@ interface ChatMessageListProps {
   selectedAgentId: string;
   sessionsLoading: boolean;
   currentSession?: ChatSession;
+  sessionIdFromUrl: string | null;
   agents?: Agent[];
   onSendMessage: (content: string) => void;
   onStopStreaming: () => void;
   onNewChat: () => void;
-  onSelectAgent?: (id: string) => void;
   agentsLoading?: boolean;
   isCreatingSession?: boolean;
+  isSessionHydrating?: boolean;
+  isMessagesHydrating?: boolean;
 }
 
 export function ChatMessageList({
@@ -44,22 +47,43 @@ export function ChatMessageList({
   selectedAgentId,
   sessionsLoading,
   currentSession,
+  sessionIdFromUrl,
   agents,
   onSendMessage,
   onStopStreaming,
   onNewChat,
-  onSelectAgent,
   agentsLoading,
   isCreatingSession = false,
+  isSessionHydrating = false,
+  isMessagesHydrating = false,
 }: ChatMessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const [draft, setDraft] = useState('');
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
 
-  const hasAgent = !!selectedAgentId;
+  const selectedAgent = useMemo(
+    () => agents?.find((agent) => agent.id === selectedAgentId),
+    [agents, selectedAgentId]
+  );
+
+  const hasSessionSelection = Boolean(sessionIdFromUrl);
+  const showLoadingState = sessionsLoading || isSessionHydrating || (hasSessionSelection && isMessagesHydrating);
+  const showMessages = messages.length > 0;
+  const showEmptyState = !showLoadingState && !showMessages;
+
+  const handlePromptSelect = (prompt: string) => {
+    setDraft(prompt);
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      const nextLength = prompt.length;
+      inputRef.current?.setSelectionRange(nextLength, nextLength);
+    });
+  };
 
   const placeholder = !selectedAgentId
     ? 'Select an agent to start chatting...'
@@ -75,20 +99,23 @@ export function ChatMessageList({
     : 0;
 
   return (
-    <div className="flex flex-col flex-1 min-h-0">
-      <ScrollArea className="flex-1 p-4">
-        {sessionsLoading || !currentSession ? (
+    <div className="flex flex-col flex-1 min-h-0 min-w-0">
+      <ScrollArea className="flex-1 min-w-0 p-4">
+        {showLoadingState ? (
           <div className="space-y-4">
-            <div key="skeleton-1" className="h-20 bg-muted animate-pulse rounded" />
-            <div key="skeleton-2" className="h-20 bg-muted animate-pulse rounded" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
           </div>
-        ) : messages.length === 0 ? (
+        ) : showEmptyState ? (
           <EmptyState
-            agents={agents}
+            currentSession={currentSession}
+            sessionIdFromUrl={sessionIdFromUrl}
+            isSessionHydrating={isSessionHydrating}
             selectedAgentId={selectedAgentId}
-            onSelectAgent={onSelectAgent}
+            selectedAgentName={selectedAgent?.name}
             agentsLoading={agentsLoading}
             onNewChat={onNewChat}
+            onPromptSelect={handlePromptSelect}
           />
         ) : (
           <MessageList messages={messages} isLoading={isStreaming && !streamingContent} />
@@ -120,8 +147,12 @@ export function ChatMessageList({
       <div className="p-4 bg-background">
         <MessageInput
           onSend={onSendMessage}
+          value={draft}
+          onValueChange={setDraft}
           disabled={!isWsConnected || !selectedAgentId || isStreaming || isCreatingSession}
+          isWorking={isStreaming || isCreatingSession}
           placeholder={placeholder}
+          textareaRef={inputRef}
         />
 
         {!isWsConnected && (
@@ -136,99 +167,105 @@ export function ChatMessageList({
 }
 
 interface EmptyStateProps {
-  agents?: Agent[];
+  currentSession?: ChatSession;
+  sessionIdFromUrl: string | null;
+  isSessionHydrating: boolean;
+  selectedAgentName?: string;
   selectedAgentId?: string;
-  onSelectAgent?: (id: string) => void;
   agentsLoading?: boolean;
   onNewChat?: () => void;
+  onPromptSelect: (prompt: string) => void;
 }
+
+const PROMPT_CARDS = [
+  { title: 'Plan my day', prompt: 'Help me plan my day and prioritize the most important tasks.', icon: Compass },
+  { title: 'Draft a message', prompt: 'Draft a clear message I can send, then help me tighten the tone.', icon: FileText },
+  { title: 'Summarize something', prompt: 'Summarize this clearly and pull out the most important points.', icon: Sparkles },
+  { title: 'Brainstorm ideas', prompt: 'Brainstorm a few strong ideas and group them by direction.', icon: Lightbulb },
+  { title: 'Debug an issue', prompt: 'Help me debug this issue step by step and suggest likely causes.', icon: Bug },
+  { title: 'Learn quickly', prompt: 'Teach me this topic quickly with the essentials, examples, and next steps.', icon: Bot },
+  { title: 'Compare options', prompt: 'Compare these options with tradeoffs, risks, and a recommendation.', icon: Scale },
+  { title: 'Create a checklist', prompt: 'Turn this into a practical checklist I can work through.', icon: ListChecks },
+];
 
 function EmptyState({
-  agents,
+  currentSession,
+  sessionIdFromUrl,
+  isSessionHydrating,
+  selectedAgentName,
   selectedAgentId,
-  onSelectAgent,
   agentsLoading,
   onNewChat,
+  onPromptSelect,
 }: EmptyStateProps) {
-  return (
-    <div className="flex flex-col items-center justify-center h-full gap-6 p-8">
-      <div className="w-full max-w-sm space-y-4">
-        <div className="text-center space-y-2">
-          <Bot className="size-12 mx-auto text-muted-foreground opacity-50" />
-          <h3 className="text-lg font-medium">Start a new chat</h3>
-          <p className="text-sm text-muted-foreground">
-            Select an agent and start a conversation
-          </p>
-        </div>
+  const hasAgent = Boolean(selectedAgentId);
+  const hasSessionSelection = Boolean(sessionIdFromUrl);
+  const headline = hasAgent
+    ? `What should ${selectedAgentName || 'this agent'} help with?`
+    : 'Choose an agent to get started';
 
-        <div className="space-y-3">
-          <AgentSelectorCompact
-            agents={agents}
-            selectedId={selectedAgentId || ''}
-            onSelect={onSelectAgent || (() => {})}
-            isLoading={agentsLoading || false}
-          />
-
-          <Button
-            onClick={onNewChat}
-            disabled={!selectedAgentId}
-            className="w-full"
-          >
-            New Chat
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-interface AgentSelectorCompactProps {
-  agents?: Agent[];
-  selectedId: string;
-  onSelect: (id: string) => void;
-  isLoading: boolean;
-}
-
-function AgentSelectorCompact({ agents, selectedId, onSelect, isLoading }: AgentSelectorCompactProps) {
-  if (isLoading) {
-    return (
-      <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/50">
-        <Bot className="size-4 text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">Loading agents...</span>
-      </div>
-    );
-  }
-
-  if (!agents?.length) {
-    return (
-      <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/50">
-        <Bot className="size-4 text-muted-foreground" />
-        <span className="text-sm text-muted-foreground">No agents available</span>
-      </div>
-    );
-  }
-
-  const selectedAgent = agents.find(a => a.id === selectedId);
+  const subtext = hasAgent
+    ? hasSessionSelection
+      ? currentSession?.title || 'Start with a prompt below, or type your own message.'
+      : 'Pick a starter prompt below, or open a blank chat and write your own.'
+    : agentsLoading
+      ? 'Loading agents...'
+      : 'Select an agent from the sidebar, then choose a starter prompt.';
 
   return (
-    <Select value={selectedId} onValueChange={onSelect}>
-      <SelectTrigger className="w-full">
-        <div className="flex items-center gap-2">
-          <Bot className="size-4" />
-          <span className="truncate">{selectedAgent?.name || selectedId || 'Select agent...'}</span>
-        </div>
-        <ChevronDown className="size-4 ml-auto" />
-      </SelectTrigger>
-      <SelectContent>
-        {agents.map(agent => (
-          <SelectItem key={agent.id} value={agent.id}>
-            <div className="flex items-center gap-2">
-              <Bot className="size-4" />
-              <span>{agent.name}</span>
+    <div className="flex h-full items-center justify-center py-8">
+      <Card className="mx-auto w-full max-w-5xl border-dashed">
+        <CardHeader className="space-y-2 text-center">
+          <CardTitle className="text-2xl">{headline}</CardTitle>
+          <CardDescription className="mx-auto max-w-2xl text-sm sm:text-base">
+            {subtext}
+          </CardDescription>
+          {isSessionHydrating && (
+            <CardDescription>Preparing your new chat…</CardDescription>
+          )}
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {hasAgent ? (
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              {PROMPT_CARDS.map(({ title, prompt, icon: Icon }) => (
+                <Button
+                  key={title}
+                  type="button"
+                  variant="outline"
+                  className="h-auto min-h-32 flex-col items-start gap-3 whitespace-normal px-4 py-4 text-left"
+                  onClick={() => onPromptSelect(prompt)}
+                >
+                  <Icon className="size-4 text-muted-foreground" />
+                  <div className="space-y-1">
+                    <div className="font-medium text-foreground">{title}</div>
+                    <div className="text-sm text-muted-foreground">{prompt}</div>
+                  </div>
+                </Button>
+              ))}
             </div>
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
+          ) : (
+            <Card className="mx-auto max-w-xl">
+              <CardContent className="flex items-center gap-3 p-4 text-sm text-muted-foreground">
+                <Bot className="size-4" />
+                <span>Select an agent from the sidebar to unlock starter prompts.</span>
+              </CardContent>
+            </Card>
+          )}
+
+          {!hasSessionSelection && (
+            <div className="flex justify-center">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={onNewChat}
+                disabled={!selectedAgentId}
+              >
+                Start blank chat
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }

@@ -1,5 +1,6 @@
 import { fetchApi, isNotFoundError } from '@/shared/api/client';
-import { Message, ToolCall, ToolResult } from '@/shared/types/common';
+import { ReceiptGetResponseSchema } from '@/lib/validation/schemas';
+import { Message, ToolCall, ToolResult, TurnReceipt } from '@/shared/types/common';
 import { ChatSession, RawChatSession } from './types';
 
 interface SessionsListResponse {
@@ -8,6 +9,11 @@ interface SessionsListResponse {
 
 interface MessagesResponse {
   messages: unknown[];
+}
+
+interface ReceiptGetResponse {
+  file: string;
+  receipts: TurnReceipt[];
 }
 
 interface RawSessionMessage {
@@ -165,7 +171,171 @@ export function normalizeSessionMessages(messages: unknown[]): Message[] {
     }
   });
 
-  return normalizedMessages;
+  return mergeToolOnlyAssistantMessages(normalizedMessages);
+}
+
+function mergeToolOnlyAssistantMessages(messages: Message[]): Message[] {
+  const mergedMessages: Message[] = [];
+  let pendingToolOnlyAssistantMessages: Message[] = [];
+
+  const flushPendingToolOnlyMessages = () => {
+    if (pendingToolOnlyAssistantMessages.length === 0) {
+      return;
+    }
+
+    mergedMessages.push(...pendingToolOnlyAssistantMessages);
+    pendingToolOnlyAssistantMessages = [];
+  };
+
+  for (const message of messages) {
+    const isAssistant = message.role === 'assistant';
+    const hasContent = message.content.trim().length > 0;
+    const hasToolCalls = Boolean(message.tool_calls?.length);
+
+    if (isAssistant && !hasContent && hasToolCalls) {
+      pendingToolOnlyAssistantMessages.push(message);
+      continue;
+    }
+
+    if (isAssistant && hasContent && pendingToolOnlyAssistantMessages.length > 0) {
+      const mergedToolCalls = pendingToolOnlyAssistantMessages.flatMap((pendingMessage) => pendingMessage.tool_calls ?? []);
+      const mergedToolResults = pendingToolOnlyAssistantMessages.flatMap((pendingMessage) => pendingMessage.tool_results ?? []);
+
+      mergedMessages.push({
+        ...message,
+        tool_calls: [...mergedToolCalls, ...(message.tool_calls ?? [])],
+        tool_results: [...mergedToolResults, ...(message.tool_results ?? [])],
+      });
+      pendingToolOnlyAssistantMessages = [];
+      continue;
+    }
+
+    flushPendingToolOnlyMessages();
+    mergedMessages.push(message);
+  }
+
+  flushPendingToolOnlyMessages();
+
+  return mergedMessages;
+}
+
+function getMessageTimestampMs(message: Message): number | null {
+  const parsed = Date.parse(message.timestamp);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function normalizeComparableText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function receiptSummaryMatchesMessage(message: Message, receipt: TurnReceipt): boolean {
+  if (!receipt.reply_summary) {
+    return false;
+  }
+
+  const summary = normalizeComparableText(receipt.reply_summary);
+  const content = normalizeComparableText(message.content);
+
+  if (summary.length < 24 || content.length === 0) {
+    return false;
+  }
+
+  return content.includes(summary) || summary.includes(content.slice(0, Math.min(content.length, summary.length)));
+}
+
+function getReceiptKey(receipt: TurnReceipt): string {
+  return [
+    receipt.session ?? 'no-session',
+    receipt.started_at,
+    receipt.model_id,
+    receipt.reply_summary,
+  ].join(':');
+}
+
+export function dedupeReceipts(receipts: TurnReceipt[]): TurnReceipt[] {
+  const seen = new Set<string>();
+
+  return receipts
+    .slice()
+    .sort((a, b) => a.started_at - b.started_at)
+    .filter((receipt) => {
+      const key = getReceiptKey(receipt);
+      if (seen.has(key)) {
+        return false;
+      }
+
+      seen.add(key);
+      return true;
+    });
+}
+
+export function attachReceiptsToMessages(messages: Message[], receipts: TurnReceipt[]): Message[] {
+  if (messages.length === 0 || receipts.length === 0) {
+    return messages;
+  }
+
+  const nextMessages: Message[] = messages.map((message) => ({
+    ...message,
+    turn_receipt: undefined,
+  }));
+
+  const contentCandidates = nextMessages
+    .map((message, index) => ({ message, index }))
+    .filter(({ message }) => message.role === 'assistant' && message.content.trim().length > 0);
+
+  const candidateIndexes = contentCandidates.length > 0
+    ? contentCandidates
+    : nextMessages
+      .map((message, index) => ({ message, index }))
+      .filter(({ message }) => message.role === 'assistant' && Boolean(message.tool_calls?.length));
+
+  if (candidateIndexes.length === 0) {
+    return nextMessages;
+  }
+
+  let nextCandidatePointer = 0;
+
+  for (const receipt of dedupeReceipts(receipts)) {
+    let matchedIndex = -1;
+
+    for (let pointer = nextCandidatePointer; pointer < candidateIndexes.length; pointer += 1) {
+      const candidate = candidateIndexes[pointer];
+
+      if (receiptSummaryMatchesMessage(candidate.message, receipt)) {
+        matchedIndex = pointer;
+        break;
+      }
+    }
+
+    if (matchedIndex === -1) {
+      for (let pointer = nextCandidatePointer; pointer < candidateIndexes.length; pointer += 1) {
+        const candidate = candidateIndexes[pointer];
+        const candidateTimestamp = getMessageTimestampMs(candidate.message);
+
+        if (candidateTimestamp !== null && candidateTimestamp + 1000 >= receipt.started_at) {
+          matchedIndex = pointer;
+          break;
+        }
+      }
+    }
+
+    if (matchedIndex === -1 && nextCandidatePointer < candidateIndexes.length) {
+      matchedIndex = nextCandidatePointer;
+    }
+
+    if (matchedIndex === -1) {
+      continue;
+    }
+
+    const messageIndex = candidateIndexes[matchedIndex].index;
+    nextMessages[messageIndex] = {
+      ...nextMessages[messageIndex],
+      turn_receipt: receipt,
+    };
+    nextCandidatePointer = matchedIndex + 1;
+  }
+
+  return nextMessages;
 }
 
 export async function getAgentSessions(agentId: string): Promise<ChatSession[]> {
@@ -190,6 +360,25 @@ export async function getSessionMessages(sessionId: string, agentId: string): Pr
     if (isNotFoundError(error)) {
       return [];
     }
+    throw error;
+  }
+}
+
+export async function getSessionReceipts(sessionId: string, agentId: string): Promise<TurnReceipt[]> {
+  try {
+    const sessionFile = `${sessionId}.receipts.jsonl`;
+    const response = await fetchApi<ReceiptGetResponse>(
+      `/api/agents/${agentId}/receipts/${sessionFile}`,
+      undefined,
+      ReceiptGetResponseSchema
+    );
+
+    return dedupeReceipts(response.receipts ?? []);
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return [];
+    }
+
     throw error;
   }
 }

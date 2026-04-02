@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
-import { getSessionMessages } from '@/features/chat/api';
+import { TurnReceiptSchema } from '@/lib/validation/schemas';
+import { attachReceiptsToMessages, dedupeReceipts, getSessionMessages, getSessionReceipts } from '@/features/chat/api';
 import { useWebSocket } from '@/shared/providers/websocket';
 import { Agent } from '@/features/agents/types';
-import { Message } from '@/shared/types/common';
+import { Message, TurnReceipt } from '@/shared/types/common';
 import { useAgentSessions } from '../hooks';
 import { ChatSession, Mention } from '../types';
 
@@ -30,6 +31,8 @@ export interface UseChatReturn {
   mobileSidebarOpen: boolean;
   setMobileSidebarOpen: (open: boolean) => void;
   isCreatingSession: boolean;
+  isSessionHydrating: boolean;
+  isMessagesHydrating: boolean;
   handleSendMessage: (content: string) => void;
   handleNewChat: () => void;
   handleStopStreaming: () => void;
@@ -49,6 +52,9 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
   const [streamingStartTime, setStreamingStartTime] = useState<Date>(new Date());
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [isCreatingSession, setIsCreatingSession] = useState(false);
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
+  const [isMessagesHydrating, setIsMessagesHydrating] = useState(false);
+  const [sessionReceipts, setSessionReceipts] = useState<TurnReceipt[]>([]);
 
   const currentSessionIdRef = useRef<string | null>(null);
   const previousSessionIdRef = useRef<string | null>(null);
@@ -82,6 +88,14 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
     }
 
     return null;
+  }, []);
+
+  const appendReceipts = useCallback((incomingReceipts: TurnReceipt[]) => {
+    if (incomingReceipts.length === 0) {
+      return;
+    }
+
+    setSessionReceipts((previous) => dedupeReceipts([...previous, ...incomingReceipts]));
   }, []);
 
   const getPersistedMessageKey = useCallback((sessionId: string, role: string, content: string, timestamp: unknown) => {
@@ -178,6 +192,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
         if (agentId === selectedAgentId) {
           // Update ref IMMEDIATELY before async navigation to prevent race condition
           currentSessionIdRef.current = sessionId;
+          setPendingSessionId(sessionId);
           // Always navigate to the new session - this allows clicking "New Chat"
           // even when already viewing an existing session
           updateChatUrl(agentId, sessionId, 'replace');
@@ -257,6 +272,26 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
         continue;
       }
 
+      if (msgType === 'turn_receipt') {
+        const parsedReceipt = TurnReceiptSchema.safeParse(msg);
+        if (!parsedReceipt.success) {
+          continue;
+        }
+
+        const receipt = parsedReceipt.data;
+        const agentId = receipt.agent;
+        const receiptSessionId = receipt.session ?? null;
+        const currentSessionId = currentSessionIdRef.current;
+        const isForCurrentSession = Boolean(receiptSessionId && receiptSessionId === currentSessionId);
+        const isForOurAgentWithoutSession = agentId === selectedAgentId && !currentSessionId;
+
+        if (isForCurrentSession || isForOurAgentWithoutSession) {
+          appendReceipts([receipt]);
+        }
+
+        continue;
+      }
+
       if (msgType === 'agent_chunk' || msgType === 'stream_delta') {
         const delta = (msg.delta ?? msg.content) as string;
         const agentId = msg.agent as string;
@@ -321,6 +356,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
     getMessageSignature,
     getPersistedMessageKey,
     lastMessages,
+    appendReceipts,
     queryClient,
     selectedAgentId,
     updateChatUrl,
@@ -344,6 +380,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
     
     if (isNavigatingBetweenSessions || isNavigatingToEmpty) {
       setLocalMessages([]);
+      setSessionReceipts([]);
       setStreamingContent('');
       setIsStreaming(false);
       // Clear seen messages cache when changing sessions
@@ -351,23 +388,40 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
     }
   }, [sessionIdFromUrl]);
 
+  useEffect(() => {
+    if (!pendingSessionId) {
+      return;
+    }
+
+    if (!sessionIdFromUrl || currentSession?.id === pendingSessionId) {
+      setPendingSessionId(null);
+    }
+  }, [currentSession?.id, pendingSessionId, sessionIdFromUrl]);
+
   // Load session messages when session changes
   useEffect(() => {
     // Only fetch when both values are present. Don't clear messages here -
     // clearing is handled by the session navigation effect above.
     if (!sessionIdFromUrl || !selectedAgentId) {
+      setIsMessagesHydrating(false);
+      setSessionReceipts([]);
       return;
     }
 
     let cancelled = false;
+    setIsMessagesHydrating(true);
 
-    getSessionMessages(sessionIdFromUrl, selectedAgentId)
-      .then(messages => {
+    Promise.all([
+      getSessionMessages(sessionIdFromUrl, selectedAgentId),
+      getSessionReceipts(sessionIdFromUrl, selectedAgentId),
+    ])
+      .then(([messages, receipts]) => {
         if (cancelled) {
           return;
         }
 
         setLocalMessages(messages);
+        setSessionReceipts(receipts);
         seenMessagesRef.current.clear();
         messages.forEach((msg) => {
           const persistedKey = getPersistedMessageKey(sessionIdFromUrl, msg.role, msg.content, msg.timestamp);
@@ -375,8 +429,13 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
             seenMessagesRef.current.add(persistedKey);
           }
         });
+        setIsMessagesHydrating(false);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) {
+          setIsMessagesHydrating(false);
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -470,8 +529,11 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
 
     // Always clear local state to ensure a fresh chat context
     setLocalMessages([]);
+    setSessionReceipts([]);
     setStreamingContent('');
     setIsStreaming(false);
+    setPendingSessionId(null);
+    setIsMessagesHydrating(false);
 
     // Send /new command via WebSocket to create session
     const message = {
@@ -503,11 +565,13 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
   }, [send, selectedAgentId]);
 
   const navigateToSession = useCallback((sessionId: string) => {
+    setPendingSessionId(null);
     updateChatUrl(selectedAgentId, sessionId);
   }, [selectedAgentId, updateChatUrl]);
 
   const navigateToAgent = useCallback((agentId: string) => {
     setSelectedAgentId(agentId);
+    setPendingSessionId(null);
     updateChatUrl(agentId);
   }, [updateChatUrl]);
 
@@ -517,7 +581,11 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
   }, [sessions, selectedAgentId]);
 
   const displayMessages = useMemo(() => {
-    if (!isStreaming || !streamingContent) return localMessages;
+    const hydratedMessages = attachReceiptsToMessages(localMessages, sessionReceipts);
+
+    if (!isStreaming || !streamingContent) {
+      return hydratedMessages;
+    }
 
     const streamingMessage: Message = {
       id: `streaming-${streamingStartTime.getTime()}`,
@@ -526,8 +594,8 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
       timestamp: new Date().toISOString(),
     };
 
-    return [...localMessages, streamingMessage];
-  }, [localMessages, streamingContent, isStreaming]);
+    return [...hydratedMessages, streamingMessage];
+  }, [localMessages, sessionReceipts, streamingContent, isStreaming, streamingStartTime]);
 
   const availableMentions = useMemo(() => {
     const mentions: Mention[] = [];
@@ -538,6 +606,10 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
     });
     return mentions;
   }, [agents, selectedAgentId]);
+
+  const isSessionHydrating = Boolean(
+    sessionIdFromUrl && !currentSession && pendingSessionId === sessionIdFromUrl
+  );
 
   return {
     selectedAgentId,
@@ -558,6 +630,8 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
     mobileSidebarOpen,
     setMobileSidebarOpen,
     isCreatingSession,
+    isSessionHydrating,
+    isMessagesHydrating,
     handleSendMessage,
     handleNewChat,
     handleStopStreaming,

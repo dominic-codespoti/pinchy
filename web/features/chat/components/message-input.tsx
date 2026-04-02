@@ -1,25 +1,38 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 import { Send, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 
 interface MessageInputProps {
   onSend: (message: string) => void;
+  value: string;
+  onValueChange: (value: string) => void;
   disabled?: boolean;
+  isWorking?: boolean;
   placeholder?: string;
+  textareaRef?: React.Ref<HTMLTextAreaElement>;
 }
 
-export function MessageInput({ onSend, disabled, placeholder = 'Type a message...' }: MessageInputProps) {
-  const [value, setValue] = useState('');
+export function MessageInput({
+  onSend,
+  value,
+  onValueChange,
+  disabled,
+  isWorking = false,
+  placeholder = 'Type a message...',
+  textareaRef,
+}: MessageInputProps) {
+  const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const resolvedTextareaRef = textareaRef ?? internalTextareaRef;
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
     if (!trimmed || disabled) return;
     onSend(trimmed);
-    setValue('');
-  }, [value, disabled, onSend]);
+    onValueChange('');
+  }, [value, disabled, onSend, onValueChange]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -31,8 +44,9 @@ export function MessageInput({ onSend, disabled, placeholder = 'Type a message..
   return (
     <div className="flex gap-2">
       <Textarea
+        ref={resolvedTextareaRef}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => onValueChange(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         disabled={disabled}
@@ -40,7 +54,7 @@ export function MessageInput({ onSend, disabled, placeholder = 'Type a message..
         rows={1}
       />
       <Button onClick={handleSend} disabled={!value.trim() || disabled} size="icon">
-        {disabled ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+        {isWorking ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
       </Button>
     </div>
   );

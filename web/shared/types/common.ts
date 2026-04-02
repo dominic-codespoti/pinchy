@@ -15,6 +15,7 @@ export interface Message {
   exchange_id?: string;
   tool_calls?: ToolCall[];
   tool_results?: ToolResult[];
+  turn_receipt?: TurnReceipt;
 }
 
 export interface ToolCall {
@@ -27,6 +28,47 @@ export interface ToolResult {
   tool_call_id: string;
   content: string;
   is_error?: boolean;
+}
+
+export interface ToolCallRecord {
+  tool: string;
+  args_summary: string;
+  success: boolean;
+  duration_ms: number;
+  error?: string;
+}
+
+export interface TokenUsageSummary {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+}
+
+export interface ModelCallDetail {
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+  cost_usd?: number;
+  latency_ms: number;
+}
+
+export interface TurnReceipt {
+  agent: string;
+  session?: string;
+  started_at: number;
+  duration_ms: number;
+  user_prompt: string;
+  tool_calls: ToolCallRecord[];
+  tokens: TokenUsageSummary;
+  model_calls: number;
+  reply_summary: string;
+  model_id: string;
+  estimated_cost_usd?: number;
+  call_details: ModelCallDetail[];
 }
 
 // ============================================================================

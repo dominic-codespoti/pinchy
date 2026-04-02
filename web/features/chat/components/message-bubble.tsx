@@ -11,14 +11,23 @@ interface MessageBubbleProps {
   isStreaming?: boolean;
 }
 
-export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
-  const isUser = message.role === 'user';
-  const hasToolReceipts = !!message.tool_calls?.length;
-  const hasContent = message.content.trim().length > 0;
-  const time = new Date(message.timestamp).toLocaleTimeString([], {
+function formatClockTime(timestamp: string): string {
+  return new Date(timestamp).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
+  const isUser = message.role === 'user';
+  const hasReceiptSurface = Boolean(message.turn_receipt) || !!message.tool_calls?.length || !!message.turn_receipt?.tool_calls.length;
+  const hasContent = message.content.trim().length > 0;
+  const time = formatClockTime(message.timestamp);
+
+  // Guard: Don't render empty messages (no content, no receipts, not streaming)
+  if (!hasContent && !hasReceiptSurface && !isStreaming) {
+    return null;
+  }
 
   return (
     <div className={cn('flex w-full', isUser ? 'justify-end' : 'justify-start')}>
@@ -28,12 +37,12 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
             {isUser ? 'U' : 'A'}
           </AvatarFallback>
         </Avatar>
-        <div className={cn('flex min-w-0 flex-1 flex-col gap-2', isUser && 'items-end')}>
+        <div className={cn('flex min-w-0 w-full flex-1 flex-col gap-2', isUser && 'items-end')}>
           {hasContent && (
             <div
               className={cn(
-                'max-w-full rounded-2xl px-4 py-3',
-                isUser ? 'bg-primary text-primary-foreground' : 'bg-muted'
+                'rounded-2xl px-4 py-3 overflow-hidden',
+                isUser ? 'bg-primary text-primary-foreground w-fit max-w-full' : 'bg-muted w-full'
               )}
             >
               {isUser ? (
@@ -49,17 +58,25 @@ export function MessageBubble({ message, isStreaming }: MessageBubbleProps) {
             </div>
           )}
 
-          {!isUser && hasToolReceipts && (
-            <ToolReceipts toolCalls={message.tool_calls} toolResults={message.tool_results} />
+          {hasContent && !isUser && !hasReceiptSurface && (
+            <span className="text-xs text-muted-foreground">{time}</span>
           )}
 
-          {!hasContent && !hasToolReceipts && !isUser && isStreaming && (
+          {!isUser && hasReceiptSurface && (
+            <ToolReceipts
+              timestamp={message.timestamp}
+              turnReceipt={message.turn_receipt}
+              toolCalls={message.tool_calls}
+              toolResults={message.tool_results}
+              receiptToolCalls={message.turn_receipt?.tool_calls}
+            />
+          )}
+
+          {!hasContent && !hasReceiptSurface && !isUser && isStreaming && (
             <div className="rounded-2xl bg-muted px-4 py-3">
               <span className="inline-block h-4 w-1.5 animate-pulse bg-current align-middle" />
             </div>
           )}
-
-          <span className="text-xs text-muted-foreground">{time}</span>
         </div>
       </div>
     </div>
