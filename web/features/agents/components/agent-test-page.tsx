@@ -7,10 +7,14 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { MarkdownContent } from '@/shared/components/markdown-content';
 import { useWebSocket } from '@/shared/providers/websocket';
 import { useAgent } from '../hooks';
 import { Send, Sparkles, Trash2, Copy, Clock, AlertCircle, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
+import { sendTestMessage } from '../api/files-api';
+import { TestMessageResponseSchema } from '@/lib/validation/schemas';
+import { z } from 'zod';
 
 const PRESET_PROMPTS = [
   'Hello',
@@ -19,6 +23,8 @@ const PRESET_PROMPTS = [
   'What tools do you have?',
   'Tell me about yourself',
 ];
+
+type TestMessageResponse = z.infer<typeof TestMessageResponseSchema>;
 
 interface TestMessage {
   id: string;
@@ -42,7 +48,7 @@ export function AgentTestPage({ id }: AgentTestPageProps) {
   const [responseTime, setResponseTime] = useState<number | null>(null);
   const [tokenUsage, setTokenUsage] = useState<{ input?: number; output?: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const { send, lastMessage, status } = useWebSocket();
+  const { send, lastMessages, status } = useWebSocket();
   const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
   const [messages, setMessages] = useState<TestMessage[]>([]);
 
@@ -78,59 +84,64 @@ export function AgentTestPage({ id }: AgentTestPageProps) {
 
   // Handle WebSocket messages
   useEffect(() => {
-    if (!lastMessage || typeof lastMessage !== 'object') return;
+    if (!lastMessages || lastMessages.length === 0) return;
 
-    const msg = lastMessage as Record<string, unknown>;
+    // Process ALL messages in the batch
+    for (const lastMessage of lastMessages) {
+      if (!lastMessage || typeof lastMessage !== 'object') continue;
 
-    // Handle agent response messages
-    if (msg.type === 'agent_response' && msg.agent_id === id) {
-      const content = msg.content as string;
-      const usage = msg.usage as { input_tokens?: number; output_tokens?: number } | undefined;
+      const msg = lastMessage as Record<string, unknown>;
 
-      if (pendingMessageId) {
-        updateMessage(pendingMessageId, {
-          status: 'completed',
-          content,
-        });
-        setPendingMessageId(null);
-        setIsLoading(false);
+      // Handle agent response messages
+      if (msg.type === 'agent_response' && msg.agent_id === id) {
+        const content = msg.content as string;
+        const usage = msg.usage as { input_tokens?: number; output_tokens?: number } | undefined;
 
-        const pendingMsg = messages.find((m: TestMessage) => m.id === pendingMessageId);
-        if (pendingMsg) {
-          const elapsed = Date.now() - new Date(pendingMsg.timestamp).getTime();
-          setResponseTime(elapsed);
-        }
-
-        if (usage) {
-          setTokenUsage({
-            input: usage.input_tokens,
-            output: usage.output_tokens,
+        if (pendingMessageId) {
+          updateMessage(pendingMessageId, {
+            status: 'completed',
+            content,
           });
+          setPendingMessageId(null);
+          setIsLoading(false);
+
+          const pendingMsg = messages.find((m: TestMessage) => m.id === pendingMessageId);
+          if (pendingMsg) {
+            const elapsed = Date.now() - new Date(pendingMsg.timestamp).getTime();
+            setResponseTime(elapsed);
+          }
+
+          if (usage) {
+            setTokenUsage({
+              input: usage.input_tokens,
+              output: usage.output_tokens,
+            });
+          }
+        } else {
+          addMessage({
+            role: 'assistant',
+            content,
+            status: 'completed',
+          });
+          setIsLoading(false);
         }
-      } else {
-        addMessage({
-          role: 'assistant',
-          content,
-          status: 'completed',
-        });
+      }
+
+      // Handle errors
+      if (msg.type === 'error' && msg.agent_id === id) {
+        setError((msg.error as string) || 'An error occurred');
         setIsLoading(false);
+
+        if (pendingMessageId) {
+          updateMessage(pendingMessageId, {
+            status: 'error',
+            error: (msg.error as string) || 'An error occurred',
+          });
+          setPendingMessageId(null);
+        }
       }
     }
-
-    // Handle errors
-    if (msg.type === 'error' && msg.agent_id === id) {
-      setError((msg.error as string) || 'An error occurred');
-      setIsLoading(false);
-
-      if (pendingMessageId) {
-        updateMessage(pendingMessageId, {
-          status: 'error',
-          error: (msg.error as string) || 'An error occurred',
-        });
-        setPendingMessageId(null);
-      }
-    }
-  }, [lastMessage, id, pendingMessageId, messages, addMessage, updateMessage]);
+  }, [lastMessages, id, pendingMessageId, messages, addMessage, updateMessage]);
 
   const handleSend = useCallback(async () => {
     if (!input.trim() || isLoading || status !== 'connected') return;
@@ -168,20 +179,7 @@ export function AgentTestPage({ id }: AgentTestPageProps) {
     // Fallback: also send via HTTP if WebSocket fails
     try {
       const startTime = Date.now();
-      const response = await fetch('/api/agents/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agent_id: id,
-          content,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const data: TestMessageResponse = await sendTestMessage(id, content);
 
       // Only update if we haven't already received via WebSocket
       if (pendingMessageId === assistantMessage.id) {
@@ -335,7 +333,11 @@ export function AgentTestPage({ id }: AgentTestPageProps) {
               <div key={message.id} className="group relative">
                 <div className={`${message.role === 'user' ? 'flex justify-end' : ''}`}>
                   <div className={`max-w-[80%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'} rounded-lg p-3`}>
-                    <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    {message.role === 'user' ? (
+                      <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                    ) : (
+                      <MarkdownContent content={message.content} />
+                    )}
                   </div>
                 </div>
                 {message.role === 'assistant' && message.status === 'completed' && message.content && (
@@ -354,9 +356,9 @@ export function AgentTestPage({ id }: AgentTestPageProps) {
           {isLoading && !pendingMessageId && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground ml-12">
               <div className="flex gap-1">
-                <span className="animate-bounce">.</span>
-                <span className="animate-bounce delay-100">.</span>
-                <span className="animate-bounce delay-200">.</span>
+                <span key="agent-test-1" className="animate-bounce">.</span>
+                <span key="agent-test-2" className="animate-bounce delay-100">.</span>
+                <span key="agent-test-3" className="animate-bounce delay-200">.</span>
               </div>
               <span>Thinking</span>
             </div>

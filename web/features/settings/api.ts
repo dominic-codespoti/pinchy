@@ -10,7 +10,12 @@ import {
   ProviderStatusItem,
   ModelsDevProvider,
 } from './types';
-import { fetchApi, ApiError } from '@/shared/api/client';
+import { fetchApi, fetchApiEmpty, ApiError } from '@/shared/api/client';
+import { z } from 'zod';
+import {
+  ModelsListResponseSchema,
+  ProviderStatusResponseSchema,
+} from '@/lib/validation/schemas';
 
 const API_BASE_URL = '';
 
@@ -18,11 +23,29 @@ const API_BASE_URL = '';
 // Models Registry API (models.dev integration)
 // ============================================================================
 
+// Schema for models registry response
+const ModelsRegistryResponseSchema = z.object({
+  providers: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    env: z.array(z.string()).default([]),
+    api: z.string().optional(),
+    doc: z.string().optional(),
+    models: z.array(z.object({
+      id: z.string(),
+      name: z.string(),
+      description: z.string().optional(),
+    })).default([]),
+  })),
+});
+
 export async function fetchModelsRegistry(): Promise<ModelsDevProvider[]> {
-  const response = await fetch(`${API_BASE_URL}/api/models/registry`);
-  if (!response.ok) throw new Error(`Failed to fetch models registry: ${response.statusText}`);
-  const data = await response.json();
-  return data.providers || [];
+  const response = await fetchApi(
+    `${API_BASE_URL}/api/models/registry`,
+    undefined,
+    ModelsRegistryResponseSchema
+  );
+  return response.providers || [];
 }
 
 // ============================================================================
@@ -31,23 +54,11 @@ export async function fetchModelsRegistry(): Promise<ModelsDevProvider[]> {
 
 export async function fetchModels(): Promise<ModelInfo[]> {
   try {
-    const response = await fetchApi<{ models: Array<{
-      id: string;
-      name: string;
-      provider: string;
-      description?: string;
-      input_price?: number;
-      output_price?: number;
-      context_window?: number;
-      max_output?: number;
-      tool_call?: boolean;
-      reasoning?: boolean;
-      attachment?: boolean;
-      family?: string;
-      cache_read_price?: number;
-      cache_write_price?: number;
-      modalities?: { input?: string[]; output?: string[] };
-    }> }>(`${API_BASE_URL}/api/models`);
+    const response = await fetchApi(
+      `${API_BASE_URL}/api/models`,
+      undefined,
+      ModelsListResponseSchema
+    );
     return (response.models || []).map(m => ({
       id: m.id,
       name: m.name || m.id,
@@ -73,7 +84,11 @@ export async function fetchModels(): Promise<ModelInfo[]> {
 
 export async function getAllProvidersStatus(): Promise<ProviderStatusItem[]> {
   try {
-    const response = await fetchApi<{ providers: Array<{ provider: string; configured: boolean; has_api_key: boolean; source?: string; details?: string }> }>(`${API_BASE_URL}/api/providers/status`);
+    const response = await fetchApi(
+      `${API_BASE_URL}/api/providers/status`,
+      undefined,
+      ProviderStatusResponseSchema
+    );
     return response.providers.map((p) => ({
       id: p.provider,
       configured: p.configured,
@@ -100,7 +115,7 @@ export async function setProviderAuth(
         body: JSON.stringify({
           api_key: apiKey,
           endpoint,
-          ...extra,
+          ...Object.fromEntries(Object.entries(extra || {}).filter(([, v]) => v !== undefined)),
         }),
       }
     );
@@ -140,7 +155,7 @@ export async function testProviderConnection(providerId: string): Promise<Provid
 }
 
 export async function removeProviderAuth(providerId: string): Promise<void> {
-  await fetchApi<void>(`${API_BASE_URL}/api/auth/${providerId}`, {
+  return fetchApiEmpty(`${API_BASE_URL}/api/auth/${providerId}`, {
     method: 'DELETE',
   });
 }

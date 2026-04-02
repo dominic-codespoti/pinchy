@@ -1,2 +1,7 @@
 'use client';
-export { SessionsPage as default } from '@/features/sessions';
+
+import { SessionsPage } from '@/features/sessions';
+
+export default function SessionsPageWrapper() {
+  return <SessionsPage />;
+}

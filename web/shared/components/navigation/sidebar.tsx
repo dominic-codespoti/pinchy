@@ -76,7 +76,7 @@ function NavLinks({ onNavigate }: NavLinksProps) {
               'w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-secondary data-[state=active]:shadow-none'
             )}
           >
-            <Link href={item.href} onClick={onNavigate}>
+            <Link href={item.href} prefetch={true} onClick={onNavigate}>
               <item.icon data-icon="inline-start" />
               {item.label}
             </Link>

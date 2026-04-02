@@ -1,6 +1,6 @@
 'use client';
 
-import { Plus } from 'lucide-react';
+import { Plus, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { ChatSession } from '../types';
@@ -34,6 +34,7 @@ export function SessionsSidebar({
         sessions={sessions}
         selectedId={selectedId}
         onSessionClick={onSessionClick}
+        isCreating={isCreating}
       />
     </div>
   );
@@ -45,8 +46,8 @@ interface SessionListProps {
   onSessionClick: (sessionId: string) => void;
 }
 
-function SessionList({ sessions, selectedId, onSessionClick }: SessionListProps) {
-  if (!sessions?.length) {
+function SessionList({ sessions, selectedId, onSessionClick, isCreating = false }: SessionListProps & { isCreating?: boolean }) {
+  if (!sessions?.length && !isCreating) {
     return (
       <div className="p-8 text-center text-sm text-muted-foreground">
         No sessions yet.
@@ -57,7 +58,13 @@ function SessionList({ sessions, selectedId, onSessionClick }: SessionListProps)
   return (
     <ScrollArea className="flex-1">
       <div className="flex flex-col gap-1 p-2">
-        {sessions.map((session) => (
+        {isCreating && (
+          <div className="w-full flex items-center gap-2 px-2 py-2 rounded-md bg-accent/50 text-accent-foreground">
+            <Loader2 className="size-4 animate-spin" />
+            <span className="text-sm font-medium">Creating new session...</span>
+          </div>
+        )}
+        {sessions?.map((session) => (
           <SessionItem
             key={session.id}
             session={session}

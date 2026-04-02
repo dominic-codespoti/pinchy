@@ -4,10 +4,12 @@ use axum::{
     response::IntoResponse,
 };
 
+use super::super::types::*;
+
 /// `GET /api/skills` — list all loaded skills.
 pub(crate) async fn api_skills_list() -> impl IntoResponse {
     let skills = crate::tools::list_skill_entries();
-    Json(serde_json::json!({ "skills": skills }))
+    Json(SkillListResponse { skills })
 }
 
 /// Request body for `POST /api/skills` — create a new skill.
@@ -24,7 +26,13 @@ pub(crate) async fn api_skills_get(Path(name): Path<String>) -> impl IntoRespons
     if let Err(e) = crate::skills::validate_skill_name(&name) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e })),
+            Json(ErrorResponse {
+                error: e,
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -35,7 +43,13 @@ pub(crate) async fn api_skills_get(Path(name): Path<String>) -> impl IntoRespons
         None => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "no agent configured" })),
+                Json(ErrorResponse {
+                    error: "no agent configured".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -49,7 +63,13 @@ pub(crate) async fn api_skills_get(Path(name): Path<String>) -> impl IntoRespons
     if !skill_md_path.exists() {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": format!("skill '{}' not found", name) })),
+            Json(ErrorResponse {
+                error: format!("skill '{}' not found", name),
+                id: Some(name),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -59,7 +79,13 @@ pub(crate) async fn api_skills_get(Path(name): Path<String>) -> impl IntoRespons
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("failed to read skill: {}", e) })),
+                Json(ErrorResponse {
+                    error: format!("failed to read skill: {}", e),
+                    id: Some(name),
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -70,7 +96,13 @@ pub(crate) async fn api_skills_get(Path(name): Path<String>) -> impl IntoRespons
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("failed to parse skill: {}", e) })),
+                Json(ErrorResponse {
+                    error: format!("failed to parse skill: {}", e),
+                    id: Some(name),
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -81,7 +113,13 @@ pub(crate) async fn api_skills_get(Path(name): Path<String>) -> impl IntoRespons
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("failed to parse frontmatter: {}", e) })),
+                Json(ErrorResponse {
+                    error: format!("failed to parse frontmatter: {}", e),
+                    id: Some(name),
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -99,14 +137,15 @@ pub(crate) async fn api_skills_get(Path(name): Path<String>) -> impl IntoRespons
         }
     }
 
-    let response = serde_json::json!({
-        "id": name,
-        "description": meta.description,
-        "instructions": instructions,
-        "operator_managed": meta.operator_managed.unwrap_or(false),
-        "allowed_tools": meta.allowed_tools,
-        "reference_files": reference_files,
-    });
+    let response = SkillGetResponse {
+        name: name.clone(),
+        description: meta.description.clone(),
+        instructions,
+        frontmatter: Some(yaml_frontmatter).filter(|s| !s.is_empty()),
+        operator_managed: meta.operator_managed,
+        allowed_tools: meta.allowed_tools.filter(|s| !s.is_empty()),
+        reference_files,
+    };
 
     (StatusCode::OK, Json(response)).into_response()
 }
@@ -117,7 +156,13 @@ pub(crate) async fn api_skills_create(Json(body): Json<CreateSkillRequest>) -> i
     if let Err(e) = crate::skills::validate_skill_name(&body.name) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e })),
+            Json(ErrorResponse {
+                error: e,
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -128,7 +173,13 @@ pub(crate) async fn api_skills_create(Json(body): Json<CreateSkillRequest>) -> i
         None => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "no agent configured" })),
+                Json(ErrorResponse {
+                    error: "no agent configured".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -143,9 +194,13 @@ pub(crate) async fn api_skills_create(Json(body): Json<CreateSkillRequest>) -> i
     if skill_md_path.exists() {
         return (
             StatusCode::CONFLICT,
-            Json(serde_json::json!({
-                "error": format!("skill '{}' already exists", body.name)
-            })),
+            Json(ErrorResponse {
+                error: format!("skill '{}' already exists", body.name),
+                id: Some(body.name.clone()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -154,7 +209,13 @@ pub(crate) async fn api_skills_create(Json(body): Json<CreateSkillRequest>) -> i
     if let Err(e) = tokio::fs::create_dir_all(&skill_dir).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("failed to create directory: {}", e) })),
+            Json(ErrorResponse {
+                error: format!("failed to create directory: {}", e),
+                id: Some(body.name.clone()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -168,7 +229,13 @@ pub(crate) async fn api_skills_create(Json(body): Json<CreateSkillRequest>) -> i
     if let Err(e) = tokio::fs::write(&skill_md_path, skill_md).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("failed to write skill: {}", e) })),
+            Json(ErrorResponse {
+                error: format!("failed to write skill: {}", e),
+                id: Some(body.name.clone()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -177,10 +244,10 @@ pub(crate) async fn api_skills_create(Json(body): Json<CreateSkillRequest>) -> i
 
     (
         StatusCode::CREATED,
-        Json(serde_json::json!({
-            "status": "created",
-            "name": body.name
-        })),
+        Json(SkillCreateResponse {
+            name: body.name,
+            created: true,
+        }),
     )
         .into_response()
 }
@@ -201,7 +268,13 @@ pub(crate) async fn api_skills_update(
     if let Err(e) = crate::skills::validate_skill_name(&name) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e })),
+            Json(ErrorResponse {
+                error: e,
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -210,7 +283,13 @@ pub(crate) async fn api_skills_update(
     if body.description.is_none() && body.instructions.is_none() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "at least one of 'description' or 'instructions' is required" })),
+            Json(ErrorResponse {
+                error: "at least one of 'description' or 'instructions' is required".to_string(),
+                id: Some(name.clone()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -221,7 +300,13 @@ pub(crate) async fn api_skills_update(
         None => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "no agent configured" })),
+                Json(ErrorResponse {
+                    error: "no agent configured".to_string(),
+                    id: Some(name.clone()),
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -235,7 +320,13 @@ pub(crate) async fn api_skills_update(
     if !skill_md_path.exists() {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": format!("skill '{}' not found", name) })),
+            Json(ErrorResponse {
+                error: format!("skill '{}' not found", name),
+                id: Some(name.clone()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -246,7 +337,13 @@ pub(crate) async fn api_skills_update(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("failed to read skill: {}", e) })),
+                Json(ErrorResponse {
+                    error: format!("failed to read skill: {}", e),
+                    id: Some(name.clone()),
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -278,17 +375,23 @@ pub(crate) async fn api_skills_update(
     if let Err(e) = tokio::fs::write(&skill_md_path, skill_md).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("failed to write skill: {}", e) })),
+            Json(ErrorResponse {
+                error: format!("failed to write skill: {}", e),
+                id: Some(name.clone()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
 
     crate::tools::reload_skills(None);
 
-    Json(serde_json::json!({
-        "status": "updated",
-        "name": name
-    }))
+    Json(SkillUpdateResponse {
+        name,
+        updated: true,
+    })
     .into_response()
 }
 
@@ -306,7 +409,13 @@ pub(crate) async fn api_skills_delete(Path(name): Path<String>) -> impl IntoResp
     {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "invalid skill name" })),
+            Json(ErrorResponse {
+                error: "invalid skill name".to_string(),
+                id: Some(name),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -317,7 +426,13 @@ pub(crate) async fn api_skills_delete(Path(name): Path<String>) -> impl IntoResp
         None => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "no agent configured" })),
+                Json(ErrorResponse {
+                    error: "no agent configured".to_string(),
+                    id: Some(name.clone()),
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -329,7 +444,13 @@ pub(crate) async fn api_skills_delete(Path(name): Path<String>) -> impl IntoResp
     if !skill_dir.exists() {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": format!("skill '{}' not found", name) })),
+            Json(ErrorResponse {
+                error: format!("skill '{}' not found", name),
+                id: Some(name.clone()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -337,12 +458,22 @@ pub(crate) async fn api_skills_delete(Path(name): Path<String>) -> impl IntoResp
     if let Err(e) = tokio::fs::remove_dir_all(&skill_dir).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("failed to delete skill: {}", e) })),
+            Json(ErrorResponse {
+                error: format!("failed to delete skill: {}", e),
+                id: Some(name.clone()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
 
     crate::tools::reload_skills(None);
 
-    Json(serde_json::json!({ "status": "deleted", "name": name })).into_response()
+    Json(SkillDeleteResponse {
+        name,
+        deleted: true,
+    })
+    .into_response()
 }

@@ -11,6 +11,7 @@ import {
   useUpdateCronJob,
   useDeleteCronJob,
   useToggleCronJob,
+  useTriggerCronJob,
 } from '../hooks';
 import { CronJob } from '../types';
 import { JobsTable } from './jobs-table';
@@ -28,6 +29,7 @@ export function CronPage() {
   const updateCronJob = useUpdateCronJob();
   const deleteCronJob = useDeleteCronJob();
   const toggleCronJob = useToggleCronJob();
+  const triggerCronJob = useTriggerCronJob();
 
   const handleNewJob = () => {
     setEditingJob(null);
@@ -60,6 +62,10 @@ export function CronPage() {
 
   const handleToggleStatus = async (job: CronJob) => {
     await toggleCronJob.mutateAsync({ id: job.id, enabled: !job.lastStatus });
+  };
+
+  const handleTrigger = async (job: CronJob) => {
+    await triggerCronJob.mutateAsync(job.id);
   };
 
   const handleDelete = async (job: CronJob) => {
@@ -96,6 +102,7 @@ export function CronPage() {
           onEdit={handleEditJob}
           onDelete={handleDelete}
           onToggleStatus={handleToggleStatus}
+          onTrigger={handleTrigger}
         />
       )}
 

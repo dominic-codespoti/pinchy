@@ -30,7 +30,7 @@ export interface ToolResult {
 }
 
 // ============================================================================
-// Log Types (used by logs, admin)
+// Log Types (used by logs feature)
 // ============================================================================
 
 export type LogLevel = 'info' | 'warn' | 'error';

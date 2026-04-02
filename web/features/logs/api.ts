@@ -16,13 +16,13 @@ function transformLogEntry(raw: RawLogEntry): LogEntry {
   };
 }
 
-// Backend does not have agent-specific logs endpoint
-// Using debug/model-requests as a fallback
+// Backend has agent-specific logs endpoint
 export async function getAgentLogs(agentId: string, limit?: number): Promise<LogEntry[]> {
   try {
-    // Backend doesn't have a dedicated agent logs endpoint
-    // Return empty array for now
-    return [];
+    const response = await fetchApi<{ logs: RawLogEntry[] }>(
+      `/api/agents/${encodeURIComponent(agentId)}/logs?limit=${limit || 100}`
+    );
+    return (response.logs || []).map(transformLogEntry);
   } catch (error) {
     if (isNotFoundError(error)) {
       return [];

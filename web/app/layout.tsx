@@ -80,6 +80,22 @@ export default function RootLayout({
       suppressHydrationWarning
       className={inter.variable}
     >
+      <head>
+        <script dangerouslySetInnerHTML={{
+          __html: `
+            try {
+              if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                document.documentElement.classList.add('dark')
+              } else {
+                document.documentElement.classList.remove('dark')
+              }
+            } catch (_) {}
+          `
+        }}/>
+
+        {/* Other Meta Tags, Links, Etc... */}
+      </head>
+
       <body className="min-h-screen bg-background font-sans antialiased lg:pb-0 pb-20">
         <Providers>
           <NotificationTriggers />

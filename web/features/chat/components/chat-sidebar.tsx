@@ -1,6 +1,6 @@
 'use client';
 
-import { Plus, Wifi, WifiOff } from 'lucide-react';
+import { Plus, Wifi, WifiOff, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Agent } from '@/features/agents/types';
@@ -19,6 +19,7 @@ interface ChatSidebarProps {
   onSessionClick: (sessionId: string) => void;
   onNewChat: () => void;
   isWsConnected: boolean;
+  isCreatingSession?: boolean;
 }
 
 export function ChatSidebar({
@@ -32,6 +33,7 @@ export function ChatSidebar({
   onSessionClick,
   onNewChat,
   isWsConnected,
+  isCreatingSession = false,
 }: ChatSidebarProps) {
   return (
     <div className="flex flex-col h-full">
@@ -68,16 +70,22 @@ export function ChatSidebar({
             Recent Sessions
           </h3>
           <div className="space-y-1">
+            {isCreatingSession && (
+              <div className="w-full flex items-center gap-2 px-2 py-2 rounded-md bg-accent/50 text-accent-foreground">
+                <Loader2 className="size-4 animate-spin" />
+                <span className="text-sm font-medium">Creating new session...</span>
+              </div>
+            )}
             {sessionsLoading ? (
               <div className="px-2 py-4 text-center text-sm text-muted-foreground">
                 Loading sessions...
               </div>
-            ) : !sessions?.length ? (
+            ) : !sessions?.length && !isCreatingSession ? (
               <div className="px-2 py-4 text-center text-sm text-muted-foreground">
                 No sessions yet. Start a new chat!
               </div>
             ) : (
-              sessions.map(session => (
+              sessions?.map(session => (
                 <SessionItem
                   key={session.id}
                   session={session}

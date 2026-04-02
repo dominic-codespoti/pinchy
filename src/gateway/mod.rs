@@ -7,10 +7,13 @@
 
 mod auth;
 mod handlers;
+pub(crate) mod types;
 mod ws;
 
 use async_trait::async_trait;
 use axum::{
+    body::Body,
+    extract::ws::{Message as WsMessage, WebSocketUpgrade},
     http::{header, StatusCode, Uri},
     middleware,
     response::{IntoResponse, Response},
@@ -62,6 +65,179 @@ pub fn publish_event_json(value: &serde_json::Value) {
     }
 }
 
+/// HTTP proxy handler: forwards non-API requests to Next.js dev server.
+/// Used when PINCHY_DEV_MODE=1 to enable hot reload during development.
+async fn dev_mode_http_proxy(path: String, query: Option<String>) -> Response {
+    // Proxy to Next.js dev server on localhost:3000
+    let target_url = format!(
+        "http://localhost:3000{}{}",
+        path,
+        query
+            .as_ref()
+            .map(|q| format!("?{}", q))
+            .unwrap_or_default()
+    );
+
+    // Use trace for static assets (very verbose), debug for everything else
+    if path.starts_with("/_next/static/") {
+        tracing::trace!(path = %path, "dev mode: proxying static asset");
+    } else {
+        tracing::debug!(path = %path, "dev mode: proxying to Next.js");
+    }
+
+    // Create a new client request to the dev server
+    match reqwest::get(&target_url).await {
+        Ok(response) => {
+            let status = StatusCode::from_u16(response.status().as_u16())
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+
+            // Extract Content-Type header BEFORE consuming the response
+            let content_type = response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.to_string())
+                .unwrap_or_else(|| "text/html; charset=utf-8".to_string());
+
+            // Build response body
+            match response.bytes().await {
+                Ok(body) => Response::builder()
+                    .status(status)
+                    .header(header::CONTENT_TYPE, content_type)
+                    .body(Body::from(body))
+                    .unwrap_or_else(|_| {
+                        (StatusCode::INTERNAL_SERVER_ERROR, "Proxy error").into_response()
+                    }),
+                Err(e) => {
+                    warn!(error = %e, "dev mode: failed to read response body");
+                    (
+                        StatusCode::BAD_GATEWAY,
+                        "Failed to read dev server response",
+                    )
+                        .into_response()
+                }
+            }
+        }
+        Err(e) => {
+            warn!(error = %e, url = %target_url, "dev mode: failed to proxy to Next.js");
+            // Return a helpful error page if Next.js is not running
+            Response::builder()
+                .status(StatusCode::SERVICE_UNAVAILABLE)
+                .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
+                .body(Body::from(format!(
+                    "<h1>Dev Mode Error</h1>
+                    <p>Failed to connect to Next.js dev server at http://localhost:3000</p>
+                    <p>Make sure Next.js is running: <code>cd web && npm run dev</code></p>
+                    <p>Error: {}</p>",
+                    e
+                )))
+                .unwrap_or_else(|_| {
+                    (StatusCode::SERVICE_UNAVAILABLE, "Dev server unavailable").into_response()
+                })
+        }
+    }
+}
+
+/// Proxy WebSocket connection to Next.js dev server.
+async fn dev_mode_ws_proxy(ws: WebSocketUpgrade, uri: Uri) -> Response {
+    use futures_util::{SinkExt, StreamExt};
+
+    let path = uri.path().to_string();
+    let query = uri.query().map(String::from);
+    let target = format!(
+        "ws://localhost:3000{}{}",
+        path,
+        query
+            .as_ref()
+            .map(|q| format!("?{}", q))
+            .unwrap_or_default()
+    );
+
+    tracing::debug!(path = %path, "dev mode: proxying WebSocket to Next.js");
+
+    ws.on_upgrade(move |client_socket| async move {
+        // Connect to Next.js dev server WebSocket
+        let nextjs_stream = match tokio_tungstenite::connect_async(&target).await {
+            Ok((stream, _)) => stream,
+            Err(e) => {
+                warn!(error = %e, url = %target, "dev mode: failed to connect to Next.js WebSocket");
+                return;
+            }
+        };
+
+        // Split both websockets for concurrent read/write
+        let (mut client_sender, mut client_receiver) = client_socket.split();
+        let (mut nextjs_sender, mut nextjs_receiver) = nextjs_stream.split();
+
+        // Forward client → Next.js
+        let client_to_nextjs = async {
+            while let Some(result) = client_receiver.next().await {
+                match result {
+                    Ok(msg) => {
+                        let tungstenite_msg = match msg {
+                            WsMessage::Text(text) => tokio_tungstenite::tungstenite::Message::Text(text),
+                            WsMessage::Binary(bin) => tokio_tungstenite::tungstenite::Message::Binary(bin),
+                            WsMessage::Close(frame) => {
+                                let frame = frame.map(|f| tokio_tungstenite::tungstenite::protocol::CloseFrame {
+                                    code: tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::from(f.code),
+                                    reason: f.reason,
+                                });
+                                tokio_tungstenite::tungstenite::Message::Close(frame)
+                            }
+                            WsMessage::Ping(data) => tokio_tungstenite::tungstenite::Message::Ping(data),
+                            WsMessage::Pong(data) => tokio_tungstenite::tungstenite::Message::Pong(data),
+                        };
+                        if nextjs_sender.send(tungstenite_msg).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        };
+
+        // Forward Next.js → client
+        let nextjs_to_client = async {
+            while let Some(result) = nextjs_receiver.next().await {
+                match result {
+                    Ok(msg) => {
+                        let axum_msg = match msg {
+                            tokio_tungstenite::tungstenite::Message::Text(text) => WsMessage::Text(text),
+                            tokio_tungstenite::tungstenite::Message::Binary(bin) => WsMessage::Binary(bin),
+                            tokio_tungstenite::tungstenite::Message::Close(frame) => {
+                                let frame = frame.map(|f| axum::extract::ws::CloseFrame {
+                                    code: f.code.into(),
+                                    reason: f.reason.to_string().into(),
+                                });
+                                WsMessage::Close(frame)
+                            }
+                            tokio_tungstenite::tungstenite::Message::Ping(data) => WsMessage::Ping(data),
+                            tokio_tungstenite::tungstenite::Message::Pong(data) => WsMessage::Pong(data),
+                            _ => continue,
+                        };
+                        if client_sender.send(axum_msg).await.is_err() {
+                            break;
+                        }
+                    }
+                    Err(_) => break,
+                }
+            }
+        };
+
+        // Run both directions concurrently
+        tokio::join!(client_to_nextjs, nextjs_to_client);
+    })
+}
+
+/// HTTP handler for dev mode fallback.
+/// Uses axum extractors for proper request handling.
+async fn dev_mode_http_handler(uri: Uri) -> Response {
+    let path = uri.path().to_string();
+    let query = uri.query().map(String::from);
+
+    dev_mode_http_proxy(path, query).await
+}
+
 // ---------------------------------------------------------------------------
 // ChannelConnector for gateway replies
 // ---------------------------------------------------------------------------
@@ -76,16 +252,11 @@ impl crate::comm::ChannelConnector for GatewayConnector {
     fn matches(&self, channel: &str) -> bool {
         channel.starts_with("gateway:")
     }
-    async fn send(&self, _channel: &str, text: &str) -> anyhow::Result<()> {
-        // Emit typing_stop so the UI clears any "Thinking…" spinner.
-        publish_event_json(&serde_json::json!({
-            "type": "typing_stop",
-        }));
-        // NOTE: We intentionally do NOT emit a session_message here.
-        // persist_exchange() already publishes session_message events
-        // with full agent/session metadata.  Publishing a second one
-        // from the connector would double-deliver and lack those fields.
-        let _ = text;
+    async fn send(&self, _channel: &str, _text: &str) -> anyhow::Result<()> {
+        // NOTE: We do NOT emit typing_stop or session_message here.
+        // The agent's turn completion already emits these events with
+        // proper agent/session metadata. This connector is just for
+        // message delivery; UI events are handled by the agent runtime.
         Ok(())
     }
     async fn send_rich(&self, _channel: &str, msg: crate::comm::RichMessage) -> anyhow::Result<()> {
@@ -233,6 +404,10 @@ pub async fn start_gateway_with_config(
             "/agents/:agent_id/clone",
             post(handlers::agents::api_agent_clone),
         )
+        .route(
+            "/agents/:agent_id/cron",
+            get(handlers::cron::api_agent_cron_jobs),
+        )
         // Agent files
         .route(
             "/agents/:agent_id/files/:filename",
@@ -337,6 +512,11 @@ pub async fn start_gateway_with_config(
             "/debug/model-requests/:request_id",
             get(handlers::debug::api_debug_model_request_get),
         )
+        // Logs
+        .route(
+            "/agents/:agent_id/logs",
+            get(handlers::debug::api_agent_logs),
+        )
         // Model discovery
         .route(
             "/models/registry",
@@ -409,19 +589,21 @@ pub async fn start_gateway_with_config(
     }
 
     // Build the authenticated portion with auth middleware
+    // WebSocket routes are moved OUTSIDE auth middleware for dev mode access
     let authed_app = Router::new()
         .nest("/api", api_router)
-        .route("/ws", get(ws::ws_handler))
-        .route("/ws/logs", get(ws::ws_logs_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::auth_middleware,
         ));
 
     // Merge public routes AFTER the auth layer so they're not affected
+    // WebSocket routes (/ws, /ws/logs) are public for dev mode WebSocket access
     let mut app = authed_app
         .nest("/api", public_auth_router)
         .nest("/api", webhook_router)
+        .route("/ws", get(ws::ws_handler))
+        .route("/ws/logs", get(ws::ws_logs_handler))
         .layer(
             CorsLayer::new()
                 .allow_origin(allowed_origins())
@@ -431,7 +613,19 @@ pub async fn start_gateway_with_config(
         .layer(RequestBodyLimitLayer::new(5 * 1024 * 1024)) // 5 MB
         .with_state(state);
 
-    if use_filesystem {
+    // Determine dev mode state
+    let dev_mode = std::env::var("PINCHY_DEV_MODE").as_deref() == Ok("1");
+    if dev_mode {
+        info!("dev mode: proxying UI to http://localhost:3000");
+    }
+
+    if dev_mode {
+        // Dev mode: proxy all non-API requests to Next.js dev server for HMR
+        // WebSocket routes need to be handled explicitly to use WebSocketUpgrade extractor
+        app = app
+            .route("/_next/webpack-hmr", get(dev_mode_ws_proxy))
+            .fallback(dev_mode_http_handler);
+    } else if use_filesystem {
         // Dev / deployed-with-files: serve from disk (supports HMR proxy, etc.)
         let static_service = ServeDir::new(static_root.clone())
             .not_found_service(ServeFile::new(index_file.clone()));

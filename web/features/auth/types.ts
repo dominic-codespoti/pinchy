@@ -36,6 +36,7 @@ export interface ChatGptAuthSession {
   login_id: string;
   status: 'pending' | 'complete' | 'error';
   auth_url: string;
+  interval?: number;
   error?: string;
 }
 

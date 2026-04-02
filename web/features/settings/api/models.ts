@@ -1,4 +1,6 @@
 import type { ModelsDevProvider, ModelsDevModel } from '../types';
+import { fetchApi } from '@/shared/api/client';
+import { z } from 'zod';
 
 export interface ModelInfo {
   id: string;
@@ -24,6 +26,23 @@ export interface ProviderConfig {
   enabled: boolean;
 }
 
+// Schema for models API response
+const ModelsApiResponseSchema = z.object({
+  models: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    provider_id: z.string(),
+    config_id: z.string(),
+    vendor: z.string().optional(),
+    supported_endpoints: z.array(z.string()).optional(),
+    is_default: z.boolean().optional(),
+    input_price: z.number().optional(),
+    output_price: z.number().optional(),
+    description: z.string().optional(),
+    max_tokens: z.number().optional(),
+  })),
+});
+
 export interface ModelsApiResponse {
   models: Array<{
     id: string;
@@ -41,12 +60,12 @@ export interface ModelsApiResponse {
 }
 
 export async function fetchModels(): Promise<ModelInfo[]> {
-  const response = await fetch('/api/models');
-  if (!response.ok) {
-    throw new Error(`Failed to fetch models: ${response.status}`);
-  }
-  const data: ModelsApiResponse = await response.json();
-  return data.models.map(m => ({
+  const response = await fetchApi(
+    '/api/models',
+    undefined,
+    ModelsApiResponseSchema
+  );
+  return response.models.map(m => ({
     id: m.id,
     name: m.name,
     provider: m.provider_id,

@@ -53,6 +53,7 @@ export interface CopilotAuthSession {
   status: 'pending' | 'complete' | 'error' | 'warning';
   verification_uri: string;
   user_code: string;
+  interval?: number;
   error?: string;
 }
 

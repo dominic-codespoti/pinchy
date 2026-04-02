@@ -9,7 +9,13 @@ import {
   CronAgent,
   CreateCronJobInput,
   UpdateCronJobInput,
+  JobRun,
 } from './types';
+import {
+  CronJobsListResponseSchema,
+  BackendCronJobSchema,
+  AgentsListResponseSchema,
+} from '@/lib/validation/schemas';
 
 function transformCronJob(raw: BackendCronJob): CronJob {
   return {
@@ -24,13 +30,21 @@ function transformCronJob(raw: BackendCronJob): CronJob {
 }
 
 export async function getCronJobs(): Promise<CronJob[]> {
-  const response = await fetchApi<{ jobs: BackendCronJob[] }>('/api/cron/jobs');
+  const response = await fetchApi(
+    '/api/cron/jobs',
+    undefined,
+    CronJobsListResponseSchema
+  );
   return response.jobs.map(transformCronJob);
 }
 
 export async function getCronAgents(): Promise<CronAgent[]> {
   // Minimal agent info for cron feature dropdown
-  const response = await fetchApi<{ agents: { id: string; model?: string }[] }>('/api/agents');
+  const response = await fetchApi(
+    '/api/agents',
+    undefined,
+    AgentsListResponseSchema
+  );
   return response.agents.map((a) => ({
     id: a.id,
     name: a.id, // Use id as name for now
@@ -65,10 +79,14 @@ export async function updateCronJob(
   id: string,
   data: UpdateCronJobInput
 ): Promise<CronJob> {
-  const response = await fetchApi<BackendCronJob>(`/api/cron/jobs/${id}/update`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  });
+  const response = await fetchApi(
+    `/api/cron/jobs/${id}/update`,
+    {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    },
+    BackendCronJobSchema
+  );
   return transformCronJob(response);
 }
 
@@ -79,9 +97,22 @@ export async function deleteCronJob(id: string): Promise<void> {
 }
 
 export async function toggleCronJob(id: string, enabled: boolean): Promise<CronJob> {
-  const response = await fetchApi<BackendCronJob>(`/api/cron/jobs/${id}/update`, {
-    method: 'PUT',
-    body: JSON.stringify({ enabled }),
-  });
+  const response = await fetchApi(
+    `/api/cron/jobs/${id}/update`,
+    {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
+    },
+    BackendCronJobSchema
+  );
   return transformCronJob(response);
+}
+
+export async function triggerJob(jobId: string): Promise<void> {
+  await fetchApi(`/api/cron/jobs/${jobId}/trigger`, { method: 'POST' });
+}
+
+export async function getJobRuns(jobId: string): Promise<JobRun[]> {
+  const response = await fetchApi<{ runs: JobRun[] }>(`/api/cron/jobs/${jobId}/runs`);
+  return response.runs;
 }

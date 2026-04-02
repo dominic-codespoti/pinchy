@@ -9,6 +9,7 @@ export interface Session {
 
 export interface RawSession {
   session_id: string;
+  agent_id: string;
   title?: string | null;
   file: string;
   created_at: number;

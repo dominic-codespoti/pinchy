@@ -45,7 +45,10 @@ export function SessionsTable({ sessions, loading }: SessionsTableProps) {
 
   const handleConfirmDelete = async () => {
     if (sessionToDelete) {
-      await deleteSession.mutateAsync(sessionToDelete.id);
+      await deleteSession.mutateAsync({
+        sessionId: sessionToDelete.id,
+        agentId: sessionToDelete.agentId,
+      });
       setSessionToDelete(null);
       setIsAlertOpen(false);
     }

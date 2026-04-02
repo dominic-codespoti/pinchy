@@ -59,9 +59,9 @@ export interface RawAgent {
   provider?: string;
   timezone?: string;
   has_heartbeat?: boolean;
-  last_heartbeat_at?: string;
   has_soul?: boolean;
   has_tools?: boolean;
+  last_heartbeat_at?: string;
   cron_jobs_count?: number;
   heartbeat_secs?: number | null;
   max_turns?: number | null;
@@ -72,7 +72,7 @@ export interface RawAgent {
   enabled_skills?: string[] | null;
   watch_paths?: string[];
   created_at?: string;
-  // Additional fields from api_agent_get (detail endpoint)
+  // Additional fields from detail endpoint (api_agent_get)
   soul?: string;
   tools?: string;
   heartbeat?: string;
@@ -122,7 +122,7 @@ export interface AgentFile {
 // ============================================================================
 
 export interface SendTestMessageResponse {
-  response: string;
+  response?: string;
   content?: string;
   usage?: {
     input_tokens?: number;

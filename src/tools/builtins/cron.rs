@@ -4,7 +4,7 @@
 //! Tools exposed:
 //! - `list_cron_jobs { agent_id? }` — list persisted cron jobs
 //! - `create_cron_job { agent_id, schedule, message, name? }` — create a new cron job
-//! - `update_cron_job { agent_id, name, schedule?, message? }` — update an existing job
+//! - `update_cron_job { agent_id, name, schedule?, message?, one_shot?, enabled? }` — update an existing job
 //! - `delete_cron_job { agent_id, name }` — remove a cron job
 //! - `run_cron_job { agent_id, name }` — manually trigger a cron job now
 //! - `cron_job_history { agent_id?, name?, limit? }` — view run history
@@ -117,6 +117,7 @@ pub async fn create_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
         condition: None,
         retry_count: 0,
         last_status: None,
+        enabled: true,
     };
 
     // Try to register via the global scheduler handle.
@@ -211,10 +212,14 @@ pub async fn update_cron_job(_workspace: &Path, args: Value) -> anyhow::Result<V
         };
         changed.push("kind");
     }
+    if let Some(new_enabled) = args.get("enabled").and_then(Value::as_bool) {
+        job.enabled = new_enabled;
+        changed.push("enabled");
+    }
 
     if changed.is_empty() {
         anyhow::bail!(
-            "update_cron_job: no fields to update (provide schedule, message, or one_shot)"
+            "update_cron_job: no fields to update (provide schedule, message, one_shot, or enabled)"
         );
     }
 

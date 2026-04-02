@@ -32,6 +32,7 @@ interface ChatMessageListProps {
   onNewChat: () => void;
   onSelectAgent?: (id: string) => void;
   agentsLoading?: boolean;
+  isCreatingSession?: boolean;
 }
 
 export function ChatMessageList({
@@ -49,6 +50,7 @@ export function ChatMessageList({
   onNewChat,
   onSelectAgent,
   agentsLoading,
+  isCreatingSession = false,
 }: ChatMessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -63,7 +65,9 @@ export function ChatMessageList({
     ? 'Select an agent to start chatting...'
     : !isWsConnected
       ? 'Waiting for connection...'
-      : 'Type a message...';
+      : isCreatingSession
+        ? 'Creating new session...'
+        : 'Type a message...';
 
   // Calculate streaming duration
   const streamingDuration = isStreaming
@@ -73,12 +77,12 @@ export function ChatMessageList({
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <ScrollArea className="flex-1 p-4">
-        {sessionsLoading ? (
+        {sessionsLoading || !currentSession ? (
           <div className="space-y-4">
-            <div className="h-20 bg-muted animate-pulse rounded" />
-            <div className="h-20 bg-muted animate-pulse rounded" />
+            <div key="skeleton-1" className="h-20 bg-muted animate-pulse rounded" />
+            <div key="skeleton-2" className="h-20 bg-muted animate-pulse rounded" />
           </div>
-        ) : messages.length === 0 && !currentSession ? (
+        ) : messages.length === 0 ? (
           <EmptyState
             agents={agents}
             selectedAgentId={selectedAgentId}
@@ -97,9 +101,9 @@ export function ChatMessageList({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <div className="flex gap-1">
-                <span className="animate-bounce">.</span>
-                <span className="animate-bounce delay-100">.</span>
-                <span className="animate-bounce delay-200">.</span>
+                <span key="dot-1" className="animate-bounce">.</span>
+                <span key="dot-2" className="animate-bounce delay-100">.</span>
+                <span key="dot-3" className="animate-bounce delay-200">.</span>
               </div>
               <span className="text-sm text-muted-foreground">Generating response</span>
               <span className="text-xs text-muted-foreground">({streamingDuration}s)</span>
@@ -116,7 +120,7 @@ export function ChatMessageList({
       <div className="p-4 bg-background">
         <MessageInput
           onSend={onSendMessage}
-          disabled={!isWsConnected || !selectedAgentId || isStreaming}
+          disabled={!isWsConnected || !selectedAgentId || isStreaming || isCreatingSession}
           placeholder={placeholder}
         />
 

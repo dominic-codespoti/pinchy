@@ -16,7 +16,7 @@ import { ProviderMethodList, ApiKeyForm } from './auth-forms';
 import { AuthFlow } from './auth-flow';
 import { AuthStatus } from './auth-status';
 import { useStartChatGptAuth, useStartCopilotAuth, useAuthenticateWithApiKey } from '../../hooks';
-import { pollCopilotAuth } from '../../api';
+import { pollCopilotAuth, pollChatGptAuthStatus } from '@/shared/api/auth';
 
 interface OAuthDialogProps {
   provider: string;
@@ -121,8 +121,7 @@ export function OAuthDialog({ provider, providerName, isOpen, onClose, onComplet
         }
 
         try {
-          const response = await fetch('/api/auth/chatgpt/status');
-          const statusData = await response.json();
+          const statusData = await pollChatGptAuthStatus();
 
           if (statusData.status === 'success') {
             clearPolling();
@@ -195,7 +194,7 @@ export function OAuthDialog({ provider, providerName, isOpen, onClose, onComplet
 
             // If the server explicitly says no flow exists, stop polling and show error
             const msg = error && typeof error === 'object' && 'message' in error
-              ? (error as any).message
+              ? (error as Error).message
               : '';
             if (msg.includes('no_flow') || msg.includes('no device flow')) {
               clearPolling();

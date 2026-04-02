@@ -5,14 +5,17 @@ import {
   CreateAgentInput,
   UpdateAgentInput,
 } from '../types';
+import {
+  AgentsListResponseSchema,
+  RawAgentSchema,
+} from '@/lib/validation/schemas';
 
 // Transform agent from raw API response to frontend format
 // The detail endpoint (/api/agents/:id) returns full text fields (heartbeat, soul, tools)
 // while the list endpoint (/api/agents) returns boolean flags (has_heartbeat, has_soul, has_tools)
 export function transformAgent(raw: RawAgent): Agent {
-  // Derive has_heartbeat from either the boolean flag (list) or presence of text (detail)
-  // Use Boolean() to handle both boolean and string cases properly
-  const hasHeartbeat = Boolean(raw.has_heartbeat ?? (raw as unknown as Record<string, unknown>).heartbeat);
+  // Derive has_heartbeat from the boolean flag
+  const hasHeartbeat = Boolean(raw.has_heartbeat);
 
   // Use backend-provided timestamp if available, otherwise fallback to current time
   const lastHeartbeatAt = raw.last_heartbeat_at ?? (hasHeartbeat ? new Date().toISOString() : undefined);
@@ -55,14 +58,22 @@ export function transformAgent(raw: RawAgent): Agent {
 }
 
 export async function getAgents(): Promise<Agent[]> {
-  const response = await fetchApi<{ agents: RawAgent[] }>('/api/agents');
-  return response.agents.map(transformAgent);
+  const response = await fetchApi(
+    '/api/agents',
+    undefined,
+    AgentsListResponseSchema
+  );
+  return response.agents.map(raw => transformAgent(raw as RawAgent));
 }
 
 export async function getAgent(id: string): Promise<Agent> {
   // The detail endpoint returns the agent object directly (not wrapped in { agent: ... })
-  const response = await fetchApi<RawAgent>(`/api/agents/${encodeURIComponent(id)}`);
-  return transformAgent(response);
+  const response = await fetchApi(
+    `/api/agents/${encodeURIComponent(id)}`,
+    undefined,
+    RawAgentSchema
+  );
+  return transformAgent(response as RawAgent);
 }
 
 export async function createAgent(data: CreateAgentInput): Promise<Agent> {

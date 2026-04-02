@@ -76,7 +76,7 @@ export function BottomNav() {
           aria-label={item.label}
           aria-current={isItemActive(item.href, pathname) ? 'page' : undefined}
         >
-          <Link href={item.href}>
+                  <Link href={item.href} prefetch={true}>
             <item.icon data-icon="default" />
             <span className="text-xs">{item.label}</span>
           </Link>
@@ -110,7 +110,7 @@ export function BottomNav() {
                     'h-12 w-full justify-start gap-3 data-[state=active]:bg-secondary data-[state=active]:shadow-none'
                   )}
                 >
-                  <Link href={item.href}>
+          <Link href={item.href} prefetch={true}>
                     <item.icon data-icon="default" />
                     {item.label}
                   </Link>

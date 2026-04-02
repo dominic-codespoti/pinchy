@@ -15,7 +15,7 @@ import {
   MobileCardRow,
   MobileCardTitle,
 } from '@/components/ui/mobile-card';
-import { ChevronDown, Clock, Play } from 'lucide-react';
+import { ChevronDown, Clock, Play, Zap } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
 import { CronJob } from '../types';
 import cronstrue from 'cronstrue';
@@ -27,6 +27,7 @@ interface JobMobileCardProps {
   onEdit: (job: CronJob) => void;
   onDelete: (job: CronJob) => void;
   onToggleStatus: (job: CronJob) => void;
+  onTrigger?: (job: CronJob) => void;
 }
 
 function getAgentName(agentId: string, agents?: { id: string; name: string }[]): string {
@@ -73,6 +74,7 @@ export function JobMobileCard({
   onEdit,
   onDelete,
   onToggleStatus,
+  onTrigger,
 }: JobMobileCardProps) {
   const [isOpen, setIsOpen] = React.useState(false);
 
@@ -166,12 +168,26 @@ export function JobMobileCard({
             {job.lastStatus ? 'Enabled' : 'Disabled'}
           </Label>
         </div>
-        <JobRowActions
-          job={job}
-          onEdit={() => onEdit(job)}
-          onDelete={() => onDelete(job)}
-          showLabels={false}
-        />
+        <div className="flex items-center gap-1">
+          {onTrigger && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => onTrigger(job)}
+              className="h-8 w-8"
+              title="Trigger now"
+            >
+              <Zap className="h-4 w-4" />
+              <span className="sr-only">Trigger job</span>
+            </Button>
+          )}
+          <JobRowActions
+            job={job}
+            onEdit={() => onEdit(job)}
+            onDelete={() => onDelete(job)}
+            showLabels={false}
+          />
+        </div>
       </div>
     </MobileCard>
   );

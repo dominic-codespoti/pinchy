@@ -18,6 +18,68 @@ Lightweight Rust agent daemon. HTTP/WebSocket gateway + scheduler + Discord conn
 - Never `unwrap()` in production paths — use `?` or explicit error handling.
 - Keep TypeScript (web/) and Rust (src/) type boundaries in sync.
 
+## Type Safety Guidelines
+
+All work must maintain strict type safety across the Rust backend and TypeScript frontend.
+
+### Backend (Rust)
+
+**Strongly Typed API Responses**
+- All HTTP API response types must be defined as structs in `src/gateway/types.rs`
+- **Never use `serde_json::json!()` for HTTP responses** - always use typed `Json(ResponseStruct)`
+- Use `ErrorResponse` struct for all error responses (consistent error format)
+- Use `#[serde(skip_serializing_if = "Option::is_none")]` for optional fields
+- Use `#[serde(skip_serializing_if = "Vec::is_empty")]` for optional vectors
+
+**Example Pattern:**
+```rust
+// ✅ Correct: Typed response
+Json(AgentListResponse { agents })
+
+// ❌ Wrong: Ad-hoc JSON
+Json(serde_json::json!({ "agents": agents }))
+```
+
+**API Request Bodies**
+- Define `#[derive(serde::Deserialize)]` structs for request bodies
+- Avoid `Json<serde_json::Value>` except for truly dynamic endpoints (webhooks)
+
+### Frontend (TypeScript)
+
+**Strict Mode Compliance**
+- **Never use `any` type** - use `unknown` for truly dynamic data
+- Enable `strict: true` in tsconfig.json (already configured)
+- All API responses must be validated with Zod schemas in `web/lib/validation/schemas.ts`
+- Export inferred types using `z.infer<typeof Schema>`
+
+**Appropriate `unknown` Usage:**
+- Tool call arguments (`ToolCall.arguments: Record<string, unknown>`)
+- Log metadata (`LogEntry.metadata?: Record<string, unknown>`)
+- Dynamic JSON from external APIs
+
+**Zod Schema Pattern:**
+```typescript
+export const AgentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  // Optional fields
+  description: z.string().optional(),
+  // Nullable fields from backend
+  max_turns: z.number().nullable().optional(),
+});
+
+export type Agent = z.infer<typeof AgentSchema>;
+```
+
+### Type Synchronization
+
+When modifying API responses:
+1. Update the Rust struct in `src/gateway/types.rs`
+2. Update the Zod schema in `web/lib/validation/schemas.ts`
+3. Run `cargo check --no-default-features` to verify Rust types
+4. Run `npx tsc --noEmit` in `web/` to verify TypeScript types
+5. Keep field naming consistent (Rust: snake_case, TS: camelCase where appropriate)
+
 ## Web UI Rules
 
 These rules apply to all work under `web/` and are mandatory.
@@ -75,6 +137,76 @@ These rules apply to all work under `web/` and are mandatory.
 - Require them to preserve behavior, API integration, and navigation, but not the previous design.
 - Require them to use only shadcn components and approved local wrappers for all visual UI.
 - Reject work that still contains custom card-like or button-like `div` structures, custom spinners, or heavy inline Tailwind styling.
+
+#### UI Work Subagent Instructions
+
+When delegating `web/` UI work to subagents, in addition to the above requirements:
+
+- **Require verification via agent-browser testing** — See the [UI Verification Requirements](#ui-verification-requirements) section for the full verification protocol. Subagents must perform browser automation testing before completing UI work.
+- **Require screenshots at key states** — Subagents must capture screenshots at: initial page load, after user interactions (clicks, form submissions), and error states. Use descriptive filenames.
+- **Require documentation of visual issues or UX problems found** — Any layout issues, accessibility problems, or UX concerns discovered during testing must be documented in the work summary.
+- **For bug fixes: Require before/after screenshots showing the fix** — Visual regression documentation is mandatory; the before/after comparison must clearly demonstrate the issue is resolved.
+
+## UI Verification Requirements
+
+**This is a mandatory step for all UI work. Do not skip.**
+
+Every feature that touches the UI must be verified via browser automation testing before being considered complete.
+
+### Required Verification Steps
+
+1. **Browser automation testing using agent-browser**
+   - Open the relevant page(s) with `agent-browser open <url>`
+   - Wait for full page load with `agent-browser wait --load networkidle`
+   - Interact with the UI as a user would (forms, buttons, navigation)
+
+2. **UI snapshots at key interaction points**
+   - Take interactive snapshots: `agent-browser snapshot -i`
+   - Capture DOM state, accessibility tree, and computed styles
+   - Verify elements are present, accessible, and properly labeled
+
+3. **Screenshots at critical states**
+   - Initial page load: `agent-browser screenshot <path>`
+   - After user interactions (clicks, form submissions)
+   - Error states and edge cases
+   - Use descriptive filenames: `page-load.png`, `after-submit.png`, `error-state.png`
+
+4. **Responsive behavior verification** (if applicable)
+   - Test multiple viewport sizes: `agent-browser set viewport <width> <height>`
+   - Common breakpoints: mobile (375x667), tablet (768x1024), desktop (1280x800)
+   - Verify layout doesn't break at any size
+
+5. **Visual regression documentation**
+   - For bug fixes: Take before/after screenshots to verify the fix
+   - For new features: Document the expected appearance
+   - Note any visual issues or UX problems found in testing
+
+### Reference Commands
+
+```bash
+# Open a page
+agent-browser open http://localhost:3131/agents
+
+# Wait for full load
+agent-browser wait --load networkidle
+
+# Take interactive snapshot (DOM + accessibility)
+agent-browser snapshot -i
+
+# Capture screenshot
+agent-browser screenshot /tmp/verification.png
+
+# Set viewport for responsive testing
+agent-browser set viewport 1280 800
+```
+
+### Success Criteria
+
+- Page loads without console errors
+- All interactive elements are accessible
+- Layout renders correctly at all tested viewport sizes
+- No visual regressions from baseline (for existing features)
+- Screenshots are attached to the work summary for review
 
 ## Architecture
 

@@ -10,6 +10,9 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ChevronDown, ChevronUp, Send, Sparkles, Trash2, Copy, Clock, AlertCircle } from 'lucide-react';
+import { sendTestMessage } from '../api/files-api';
+import { TestMessageResponseSchema } from '@/lib/validation/schemas';
+import { z } from 'zod';
 
 interface TestMessage {
   id: string;
@@ -19,6 +22,8 @@ interface TestMessage {
   error?: string;
   timestamp: Date;
 }
+
+type TestMessageResponse = z.infer<typeof TestMessageResponseSchema>;
 
 interface TestAgentPanelProps {
   agentId: string;
@@ -98,20 +103,7 @@ export function TestAgentPanel({ agentId, agentName, defaultOpen = false }: Test
 
     try {
       const startTime = Date.now();
-      const response = await fetch('/api/agents/test', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          agent_id: agentId,
-          content,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.statusText}`);
-      }
-
-      const data = await response.json();
+      const data: TestMessageResponse = await sendTestMessage(agentId, content);
 
       updateMessage(assistantMessage.id, {
         status: 'completed',

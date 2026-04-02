@@ -1,4 +1,4 @@
-.PHONY: dev dev-clean build web run update install release lint setup backup backup-list restore publish watch
+.PHONY: dev dev-clean build web run update install release lint web-lint web-type-check web-check check fix web-install web-dev setup backup backup-list restore publish watch
 
 # Start everything: Next.js HMR + Rust backend (auto-rebuild if cargo-watch installed)
 dev:
@@ -52,6 +52,43 @@ release: web
 lint:
 	cargo fmt -- --check
 	cargo clippy --no-default-features -- -D warnings
+
+# Run ESLint on web/ directory
+web-lint:
+	@echo "🔍 Running ESLint on web/..."
+	@cd web && npx eslint . --ext .ts,.tsx
+
+# Run TypeScript type check on web/
+web-type-check:
+	@echo "🔍 Running TypeScript type check on web/..."
+	@cd web && npx tsc --noEmit
+
+# Run both web lint and type-check
+web-check: web-lint web-type-check
+	@echo "✅ Web checks passed"
+
+# Run ALL checks: Rust (fmt + clippy) AND web (lint + type-check)
+check: lint web-check
+	@echo "✅ All checks passed (Rust + Web)"
+
+# Run auto-fixers: cargo fmt, eslint --fix
+fix:
+	@echo "🔧 Running auto-fixers..."
+	@echo "  → cargo fmt"
+	@cargo fmt
+	@echo "  → ESLint --fix"
+	@cd web && npx eslint . --ext .ts,.tsx --fix || true
+	@echo "✅ Auto-fix complete"
+
+# Install npm dependencies in web/
+web-install:
+	@echo "📦 Installing npm dependencies in web/..."
+	@cd web && npm install --legacy-peer-deps
+
+# Start just the web dev server (for when backend is already running)
+web-dev:
+	@echo "🚀 Starting web dev server only..."
+	@cd web && npm run dev
 
 # Install git pre-commit hook so lint errors are caught before push
 setup:

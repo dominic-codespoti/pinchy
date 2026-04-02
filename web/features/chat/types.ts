@@ -15,6 +15,7 @@ export interface ChatSession {
 
 export interface RawChatSession {
   session_id: string;
+  agent_id: string;
   title?: string | null;
   file: string;
   created_at: number;

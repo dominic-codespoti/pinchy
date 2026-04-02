@@ -1,6 +1,7 @@
 use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
 
 use super::super::auth::validate_path_segment;
+use super::super::types::*;
 
 /// `GET /api/agents/:id/sessions` — list session files for an agent.
 pub(crate) async fn api_sessions_list(Path(agent_id): Path<String>) -> impl IntoResponse {
@@ -15,34 +16,41 @@ pub(crate) async fn api_sessions_list(Path(agent_id): Path<String>) -> impl Into
             Err(e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": format!("{e}") })),
+                    Json(ErrorResponse {
+                        error: format!("{e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
         };
-        let sessions: Vec<serde_json::Value> = entries
+        let sessions: Vec<SessionItem> = entries
             .into_iter()
             .map(|e| {
                 // `created_at` is stored as epoch milliseconds; the frontend
                 // sidebar expects `modified` as epoch seconds.
-                let modified_secs = e.created_at / 1000;
+                let modified_secs = (e.created_at / 1000) as i64;
                 // Get the exchange count for this session (best effort)
                 let message_count = db.exchange_count(&e.session_id).unwrap_or(0);
-                serde_json::json!({
-                    "file": format!("{}.jsonl", e.session_id),
-                    "session_id": e.session_id,
-                    "created_at": e.created_at,
-                    "modified": modified_secs,
-                    "title": e.title,
-                    "message_count": message_count,
-                })
+                SessionItem {
+                    file: format!("{}.jsonl", e.session_id),
+                    session_id: e.session_id,
+                    agent_id: e.agent_id,
+                    created_at: e.created_at as i64,
+                    modified: modified_secs,
+                    title: e.title,
+                    message_count,
+                }
             })
             .collect();
-        return Json(serde_json::json!({ "sessions": sessions })).into_response();
+        return Json(SessionsListResponse { sessions }).into_response();
     }
 
     tracing::warn!("no database available — skipping api_sessions_list");
-    Json(serde_json::json!({ "sessions": [] })).into_response()
+    Json(SessionsListResponse { sessions: vec![] }).into_response()
 }
 
 /// `GET /api/agents/:id/sessions/:file` — read session content.
@@ -69,7 +77,13 @@ pub(crate) async fn api_session_get(
             Err(e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": format!("{e}") })),
+                    Json(ErrorResponse {
+                        error: format!("{e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -80,7 +94,13 @@ pub(crate) async fn api_session_get(
             if !sessions.iter().any(|s| s.session_id == session_id) {
                 return (
                     StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({ "error": "session not found", "file": filename })),
+                    Json(ErrorResponse {
+                        error: "session not found".to_string(),
+                        id: None,
+                        agent_id: None,
+                        filename: Some(filename),
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -91,7 +111,10 @@ pub(crate) async fn api_session_get(
             .collect();
         return (
             StatusCode::OK,
-            Json(serde_json::json!({ "file": filename, "messages": messages })),
+            Json(SessionGetResponse {
+                file: filename,
+                messages,
+            }),
         )
             .into_response();
     }
@@ -99,7 +122,13 @@ pub(crate) async fn api_session_get(
     tracing::warn!("no database available — skipping api_session_get");
     (
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(serde_json::json!({ "error": "no database available" })),
+        Json(ErrorResponse {
+            error: "no database available".to_string(),
+            id: None,
+            agent_id: None,
+            filename: None,
+            allowed: None,
+        }),
     )
         .into_response()
 }
@@ -134,18 +163,24 @@ pub(crate) async fn api_session_update(
             Ok(()) => {
                 return (
                     StatusCode::OK,
-                    Json(serde_json::json!({
-                        "session_id": session_id,
-                        "saved": true,
-                        "count": exchanges.len()
-                    })),
+                    Json(SessionUpdateResponse {
+                        session_id,
+                        saved: true,
+                        count: exchanges.len(),
+                    }),
                 )
                     .into_response();
             }
             Err(e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": format!("{e}") })),
+                    Json(ErrorResponse {
+                        error: format!("{e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -155,7 +190,13 @@ pub(crate) async fn api_session_update(
     tracing::warn!("no database available — skipping api_session_update");
     (
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(serde_json::json!({ "error": "no database available" })),
+        Json(ErrorResponse {
+            error: "no database available".to_string(),
+            id: None,
+            agent_id: None,
+            filename: None,
+            allowed: None,
+        }),
     )
         .into_response()
 }
@@ -177,11 +218,7 @@ pub(crate) async fn api_session_current(Path(agent_id): Path<String>) -> impl In
         None
     };
 
-    let sid_val = match sid {
-        Some(s) => serde_json::Value::String(s),
-        None => serde_json::Value::Null,
-    };
-    Json(serde_json::json!({ "session_id": sid_val })).into_response()
+    Json(SessionCurrentResponse { session_id: sid }).into_response()
 }
 
 /// `DELETE /api/agents/:id/sessions/:file` — delete a session.
@@ -208,21 +245,36 @@ pub(crate) async fn api_session_delete(
             Ok(true) => {
                 return (
                     StatusCode::OK,
-                    Json(serde_json::json!({ "session_id": session_id, "deleted": true })),
+                    Json(SessionDeleteResponse {
+                        session_id,
+                        deleted: true,
+                    }),
                 )
                     .into_response();
             }
             Ok(false) => {
                 return (
                     StatusCode::NOT_FOUND,
-                    Json(serde_json::json!({ "error": "session not found", "session_id": session_id })),
+                    Json(ErrorResponse {
+                        error: "session not found".to_string(),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
             Err(e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": format!("{e}") })),
+                    Json(ErrorResponse {
+                        error: format!("{e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -232,7 +284,13 @@ pub(crate) async fn api_session_delete(
     tracing::warn!("no database available — skipping api_session_delete");
     (
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(serde_json::json!({ "error": "no database available" })),
+        Json(ErrorResponse {
+            error: "no database available".to_string(),
+            id: None,
+            agent_id: None,
+            filename: None,
+            allowed: None,
+        }),
     )
         .into_response()
 }

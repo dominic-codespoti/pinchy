@@ -91,15 +91,15 @@ export interface ModelsApiResponse {
 
 export interface ProviderStatus {
   provider: string;
-  name?: string;
+  name: string;
   configured: boolean;
-  has_api_key?: boolean;
+  has_api_key: boolean;
   env_var?: string;
-  env_vars?: string[];
+  env_vars: string[];
   details?: string;
   source?: string;
   api?: string;
-  model_count?: number;
+  model_count: number;
 }
 
 export interface ProviderTestResult {

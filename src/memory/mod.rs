@@ -121,40 +121,41 @@ impl MemoryStore {
             Err(_) => return Ok(0),
         };
 
-        let conn = self
-            .inner
-            .lock()
-            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
-        let mut count = 0usize;
-
-        for line in content.lines() {
-            let line = line.trim();
-            if line.is_empty() {
-                continue;
+        let count = self.transaction_with_checkpoint(|tx| {
+            let mut count = 0usize;
+            for line in content.lines() {
+                let line = line.trim();
+                if line.is_empty() {
+                    continue;
+                }
+                #[derive(Deserialize)]
+                struct Legacy {
+                    key: String,
+                    value: String,
+                    #[serde(default)]
+                    tags: Vec<String>,
+                    timestamp: String,
+                }
+                if let Ok(entry) = serde_json::from_str::<Legacy>(line) {
+                    let tags_json = serde_json::to_string(&entry.tags).unwrap_or_else(|_| "[]".into());
+                    let inserted = tx.execute(
+                        "INSERT OR IGNORE INTO memories (key, value, tags, ts) VALUES (?1, ?2, ?3, ?4)",
+                        params![entry.key, entry.value, tags_json, entry.timestamp],
+                    )?;
+                    count += inserted;
+                }
             }
-            #[derive(Deserialize)]
-            struct Legacy {
-                key: String,
-                value: String,
-                #[serde(default)]
-                tags: Vec<String>,
-                timestamp: String,
-            }
-            if let Ok(entry) = serde_json::from_str::<Legacy>(line) {
-                let tags_json = serde_json::to_string(&entry.tags).unwrap_or_else(|_| "[]".into());
-                let inserted = conn.execute(
-                    "INSERT OR IGNORE INTO memories (key, value, tags, ts) VALUES (?1, ?2, ?3, ?4)",
-                    params![entry.key, entry.value, tags_json, entry.timestamp],
-                )?;
-                count += inserted;
-            }
-        }
+            Ok(count)
+        })?;
 
         if count > 0 {
             // Rename old file so we don't re-import.
             let bak = workspace.join("memory.jsonl.migrated");
             let _ = std::fs::rename(&jsonl_path, &bak);
-            tracing::info!(count, "migrated legacy memory.jsonl → memory.db");
+            tracing::info!(
+                count,
+                "migrated legacy memory.jsonl → memory.db and checkpointed"
+            );
         }
 
         Ok(count)
@@ -162,18 +163,15 @@ impl MemoryStore {
 
     /// Upsert a memory entry by key.
     pub fn save(&self, key: &str, value: &str, tags: &[String]) -> anyhow::Result<()> {
-        let conn = self
-            .inner
-            .lock()
-            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
         let tags_json = serde_json::to_string(tags)?;
         let ts = chrono::Utc::now().to_rfc3339();
-        conn.execute(
+        self.execute_with_checkpoint(
             "INSERT INTO memories (key, value, tags, ts)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(key) DO UPDATE SET value=?2, tags=?3, ts=?4",
             params![key, value, tags_json, ts],
         )?;
+        tracing::debug!(key, "memory saved and checkpointed");
         Ok(())
     }
 
@@ -186,29 +184,29 @@ impl MemoryStore {
         value: &str,
         tags: &[String],
     ) -> anyhow::Result<()> {
-        let conn = self
-            .inner
-            .lock()
-            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
         let tags_json = serde_json::to_string(tags)?;
         let ts = chrono::Utc::now().to_rfc3339();
-        conn.execute(
-            "INSERT INTO memories (key, value, tags, ts)
-             VALUES (?1, ?2, ?3, ?4)
-             ON CONFLICT(key) DO UPDATE SET value=?2, tags=?3, ts=?4",
-            params![key, value, tags_json, ts],
-        )?;
-        conn.execute("DELETE FROM memory_embeddings WHERE key = ?1", params![key])?;
+        self.transaction_with_checkpoint(|tx| {
+            tx.execute(
+                "INSERT INTO memories (key, value, tags, ts)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(key) DO UPDATE SET value=?2, tags=?3, ts=?4",
+                params![key, value, tags_json, ts],
+            )?;
+            tx.execute("DELETE FROM memory_embeddings WHERE key = ?1", params![key])?;
+            Ok(())
+        })?;
+        tracing::debug!(key, "memory saved, embedding invalidated, and checkpointed");
         Ok(())
     }
 
     /// Delete a memory entry by key. Returns true if a row was deleted.
     pub fn forget(&self, key: &str) -> anyhow::Result<bool> {
-        let conn = self
-            .inner
-            .lock()
-            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
-        let deleted = conn.execute("DELETE FROM memories WHERE key = ?1", params![key])?;
+        let deleted =
+            self.execute_with_checkpoint("DELETE FROM memories WHERE key = ?1", params![key])?;
+        if deleted > 0 {
+            tracing::debug!(key, "memory forgotten and checkpointed");
+        }
         Ok(deleted > 0)
     }
 
@@ -358,27 +356,21 @@ impl MemoryStore {
         embedding: &[f32],
         model: &str,
     ) -> anyhow::Result<()> {
-        let conn = self
-            .inner
-            .lock()
-            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
         let blob = embedding_to_blob(embedding);
-        conn.execute(
+        self.execute_with_checkpoint(
             "INSERT INTO memory_embeddings (key, embedding, dim, model)
              VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT(key) DO UPDATE SET embedding=?2, dim=?3, model=?4",
             params![key, blob, embedding.len() as i64, model],
         )?;
+        tracing::debug!(key, model, "embedding saved and checkpointed");
         Ok(())
     }
 
     /// Delete a cached embedding for a key.
     pub fn delete_embedding(&self, key: &str) -> anyhow::Result<()> {
-        let conn = self
-            .inner
-            .lock()
-            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
-        conn.execute("DELETE FROM memory_embeddings WHERE key = ?1", params![key])?;
+        self.execute_with_checkpoint("DELETE FROM memory_embeddings WHERE key = ?1", params![key])?;
+        tracing::debug!(key, "embedding deleted and checkpointed");
         Ok(())
     }
 
@@ -539,6 +531,53 @@ impl MemoryStore {
                 e
             })
             .collect())
+    }
+
+    /// Force a WAL checkpoint to ensure all data is persisted to the main database file.
+    pub fn checkpoint(&self) -> anyhow::Result<()> {
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
+        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)", [])?;
+        Ok(())
+    }
+
+    /// Execute SQL and immediately checkpoint WAL
+    pub fn execute_with_checkpoint(
+        &self,
+        sql: &str,
+        params: &[&dyn rusqlite::ToSql],
+    ) -> anyhow::Result<usize> {
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
+        let rows = conn.execute(sql, params)?;
+        // Force WAL checkpoint to ensure durability (use query_row since PRAGMA returns results)
+        let _: (i32, i32, i32) = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        Ok(rows)
+    }
+
+    /// Execute a transaction with automatic checkpoint on commit
+    pub fn transaction_with_checkpoint<F, R>(&self, f: F) -> anyhow::Result<R>
+    where
+        F: FnOnce(&rusqlite::Transaction) -> anyhow::Result<R>,
+    {
+        let mut conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
+        let tx = conn.transaction()?;
+        let result = f(&tx)?;
+        tx.commit()?;
+        // Checkpoint after successful commit (use query_row since PRAGMA returns results)
+        let _: (i32, i32, i32) = conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+            Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+        })?;
+        Ok(result)
     }
 }
 

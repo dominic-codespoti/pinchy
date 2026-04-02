@@ -6,7 +6,7 @@ import { useNotifications } from '@/features/notifications/hooks/use-notificatio
 import type { LogEntry } from '@/shared/types/common';
 
 export function useNotificationTriggers() {
-  const { lastMessage } = useWebSocket();
+  const { lastMessages } = useWebSocket();
   const { addNotification, settings } = useNotifications();
 
   const handleWebSocketMessage = useCallback((message: unknown) => {
@@ -106,10 +106,15 @@ export function useNotificationTriggers() {
   }, [addNotification, settings.notifyOnAgentStatusChange]);
 
   useEffect(() => {
-    if (lastMessage) {
-      handleWebSocketMessage(lastMessage);
+    if (!lastMessages || lastMessages.length === 0) return;
+    
+    // Process ALL messages in the batch
+    for (const lastMessage of lastMessages) {
+      if (lastMessage) {
+        handleWebSocketMessage(lastMessage);
+      }
     }
-  }, [lastMessage, handleWebSocketMessage]);
+  }, [lastMessages, handleWebSocketMessage]);
 
   // Hook to trigger notifications from log entries
   const notifyFromLog = useCallback((log: LogEntry) => {

@@ -109,6 +109,12 @@ pub struct PersistedCronJob {
     pub retry_count: u32,
     #[serde(default)]
     pub last_status: Option<String>,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Resolve the effective timezone for an agent from config.
@@ -333,6 +339,7 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
                         condition: None,
                         retry_count: 0,
                         last_status: None,
+                        enabled: true,
                     };
                     if let Err(e) = db.upsert_cron_job(&entry) {
                         warn!(agent = %agent.id, job = %job_cfg.name,
@@ -420,6 +427,31 @@ static SCHEDULER_HANDLE: tokio::sync::OnceCell<SchedulerHandle> =
 /// and the gateway.
 pub async fn set_scheduler_handle(handle: SchedulerHandle) {
     let _ = SCHEDULER_HANDLE.set(handle);
+}
+
+/// Ensure the scheduler is running. If not already started, attempts to start it
+/// by loading the config and initializing the scheduler.
+///
+/// Returns `Ok(())` if the scheduler is running (or was successfully started),
+/// or an error if it couldn't be started.
+pub async fn ensure_scheduler_running() -> anyhow::Result<()> {
+    // Check if already running
+    if scheduler_handle_ref().is_some() {
+        return Ok(());
+    }
+
+    // Load config and start the scheduler
+    let config_path = crate::pinchy_home().join("config.yaml");
+    let config = Config::load(&config_path)
+        .await
+        .context("failed to load config for scheduler startup")?;
+
+    let handle = start(&config).await.context("failed to start scheduler")?;
+
+    set_scheduler_handle(handle).await;
+
+    info!("scheduler: started on-demand via API request");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

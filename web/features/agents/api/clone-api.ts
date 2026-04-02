@@ -118,6 +118,7 @@ export async function cloneAgent(
     if (options.cloneFiles) {
       try {
         const files = await getAgentFiles(sourceId);
+        const fileErrors: string[] = [];
 
         for (const file of files) {
           if (file.isDirectory) continue;
@@ -135,12 +136,18 @@ export async function cloneAgent(
             throw new Error('File upload not supported by backend');
           } catch (fileError) {
             const fileErrorMessage = fileError instanceof Error ? fileError.message : 'Unknown error';
-            errors.push(`Failed to clone file "${file.name}": ${fileErrorMessage}`);
+            fileErrors.push(`Failed to clone file "${file.name}": ${fileErrorMessage}`);
             // Continue with other files - don't fail entire clone
           }
         }
 
-        result.clonedFiles = true;
+        // Only mark as success if ALL files succeeded
+        if (fileErrors.length === 0) {
+          result.clonedFiles = true;
+        } else {
+          // Add file errors to result errors
+          errors.push(...fileErrors);
+        }
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error';
         errors.push(`Failed to clone files: ${errorMessage}`);

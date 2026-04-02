@@ -1,25 +1,22 @@
-/** @type {import('next').NextConfig} */
+import type { NextConfig } from 'next';
+
 const isProd = process.env.NODE_ENV === 'production';
 
-/** @type {import('next').NextConfig} */
-const prodConfig = {
+const prodConfig: NextConfig = {
+  reactStrictMode: false,
   output: 'export',
   distDir: '../static/react',
   trailingSlash: true,
-  typescript: {
-    ignoreBuildErrors: true,
-  },
-  experimental: {
-    turbo: false,
+  turbopack: {
+    root: __dirname,
   },
 };
 
-/** @type {import('next').NextConfig} */
-const devConfig = {
-  typescript: {
-    ignoreBuildErrors: true,
+const devConfig: NextConfig = {
+  reactStrictMode: false,
+  turbopack: {
+    root: __dirname,
   },
-  // Proxy API calls to Rust backend in dev mode
   async rewrites() {
     return [
       {

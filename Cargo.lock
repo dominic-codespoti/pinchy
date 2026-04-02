@@ -1443,6 +1443,7 @@ dependencies = [
  "flate2",
  "futures-core",
  "futures-util",
+ "http",
  "keyring",
  "libc",
  "notify-debouncer-mini",

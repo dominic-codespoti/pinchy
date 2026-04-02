@@ -34,7 +34,6 @@ export {
   // Memories
   getAgentMemories,
   searchMemories,
-  addMemory,
   updateMemory,
   deleteMemory,
   // Files
@@ -68,7 +67,6 @@ export {
   useUpdateAgent,
   useDeleteAgent,
   useCloneAgent,
-  useAddMemory,
   useUpdateMemory,
   useDeleteMemory,
   useSendTestMessage,

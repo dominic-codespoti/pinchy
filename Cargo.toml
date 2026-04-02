@@ -35,6 +35,9 @@ futures-core = "0.3"
 axum = { version = "0.7", features = ["ws", "json"] }
 tower-http = { version = "0.6", features = ["fs", "cors", "limit"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+http = "1"
+futures-util = "0.3"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }

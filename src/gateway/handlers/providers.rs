@@ -9,6 +9,7 @@ use axum::{
 use tokio::sync::Mutex;
 use tracing::{debug, error, info, warn};
 
+use super::super::types::*;
 use super::super::AppState;
 
 /// In-flight device flow state shared between start and poll handlers.
@@ -54,18 +55,6 @@ pub struct ProviderStatus {
 #[derive(Debug, serde::Deserialize)]
 pub struct SaveApiKeyRequest {
     pub api_key: String,
-}
-
-#[derive(Debug, serde::Serialize)]
-pub struct MaskedKeyResponse {
-    pub provider: String,
-    pub has_key: bool,
-    pub masked_key: Option<String>,
-}
-
-#[derive(Debug, serde::Serialize)]
-pub struct ProviderStatusResponse {
-    pub providers: Vec<ProviderStatus>,
 }
 
 /// Return the primary environment variable name for a provider.
@@ -354,7 +343,13 @@ pub(crate) async fn api_providers_status(State(state): State<AppState>) -> impl 
         Err(_) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": "failed to load config" })),
+                Json(ErrorResponse {
+                    error: "failed to load config".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -420,7 +415,30 @@ pub(crate) async fn api_providers_status(State(state): State<AppState>) -> impl 
         }
     }
 
-    (StatusCode::OK, Json(ProviderStatusResponse { providers })).into_response()
+    // Map internal ProviderStatus to ProviderStatusItem for the response
+    let provider_items: Vec<ProviderStatusItem> = providers
+        .into_iter()
+        .map(|p| ProviderStatusItem {
+            provider: p.provider,
+            name: p.name,
+            configured: p.configured,
+            has_api_key: p.has_api_key,
+            env_var: p.env_var,
+            env_vars: p.env_vars,
+            details: p.details,
+            source: p.source,
+            api: p.api,
+            model_count: p.model_count,
+        })
+        .collect();
+
+    (
+        StatusCode::OK,
+        Json(ProviderStatusListResponse {
+            providers: provider_items,
+        }),
+    )
+        .into_response()
 }
 
 /// Response format for provider test result.
@@ -854,10 +872,13 @@ pub(crate) async fn api_auth_copilot_start() -> impl IntoResponse {
             error!(error = %e, "GitHub device code request failed");
             return (
                 StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({
-                    "error": format!("GitHub request failed: {e}"),
-                    "details": "Could not reach https://github.com/login/device/code. Check network connectivity."
-                })),
+                Json(DeviceFlowStartResponse {
+                    device_code: String::new(),
+                    user_code: String::new(),
+                    verification_uri: String::new(),
+                    interval: 0,
+                    expires_in: None,
+                }),
             );
         }
     };
@@ -869,10 +890,13 @@ pub(crate) async fn api_auth_copilot_start() -> impl IntoResponse {
             error!(error = %e, status = %status, "Failed to parse GitHub device code response");
             return (
                 StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({
-                    "error": format!("bad GitHub response: {e}"),
-                    "details": "GitHub returned an invalid response. Please try again."
-                })),
+                Json(DeviceFlowStartResponse {
+                    device_code: String::new(),
+                    user_code: String::new(),
+                    verification_uri: String::new(),
+                    interval: 0,
+                    expires_in: None,
+                }),
             );
         }
     };
@@ -882,10 +906,13 @@ pub(crate) async fn api_auth_copilot_start() -> impl IntoResponse {
         error!(github_error = %err_msg, description = %body["error_description"].as_str().unwrap_or("unknown"), "GitHub returned error");
         return (
             StatusCode::BAD_GATEWAY,
-            Json(serde_json::json!({
-                "error": format!("GitHub error: {err_msg}"),
-                "details": body["error_description"].as_str().unwrap_or("Unknown error from GitHub")
-            })),
+            Json(DeviceFlowStartResponse {
+                device_code: String::new(),
+                user_code: String::new(),
+                verification_uri: String::new(),
+                interval: 0,
+                expires_in: None,
+            }),
         );
     }
 
@@ -895,10 +922,13 @@ pub(crate) async fn api_auth_copilot_start() -> impl IntoResponse {
             error!(response = %body, "Missing device_code in GitHub response");
             return (
                 StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({
-                    "error": "missing device_code in GitHub response",
-                    "details": "GitHub did not return a device code. The OAuth app may be invalid or rate-limited."
-                })),
+                Json(DeviceFlowStartResponse {
+                    device_code: String::new(),
+                    user_code: String::new(),
+                    verification_uri: String::new(),
+                    interval: 0,
+                    expires_in: None,
+                }),
             );
         }
     };
@@ -909,6 +939,7 @@ pub(crate) async fn api_auth_copilot_start() -> impl IntoResponse {
         .unwrap_or("https://github.com/login/device")
         .to_string();
     let interval = body["interval"].as_u64().unwrap_or(5);
+    let expires_in = body["expires_in"].as_u64();
 
     info!("GitHub device flow initiated successfully");
 
@@ -926,12 +957,13 @@ pub(crate) async fn api_auth_copilot_start() -> impl IntoResponse {
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({
-            "user_code": user_code,
-            "verification_uri": verification_uri,
-            "interval": interval,
-            "device_code": device_code,
-        })),
+        Json(DeviceFlowStartResponse {
+            device_code,
+            user_code,
+            verification_uri,
+            interval,
+            expires_in,
+        }),
     )
 }
 
@@ -950,10 +982,15 @@ pub(crate) async fn api_auth_copilot_poll() -> impl IntoResponse {
                     warn!("Device flow state is stale, treating as no_flow");
                     return (
                         StatusCode::BAD_REQUEST,
-                        Json(serde_json::json!({
-                            "status": "no_flow",
-                            "error": "Device flow expired. Please start a new authentication flow."
-                        })),
+                        Json(DeviceFlowPollResponse {
+                            status: "no_flow".to_string(),
+                            token: None,
+                            error: Some(
+                                "Device flow expired. Please start a new authentication flow."
+                                    .to_string(),
+                            ),
+                            interval: None,
+                        }),
                     );
                 }
                 (f.device_code.clone(), f.client_id.clone(), f.interval)
@@ -961,10 +998,15 @@ pub(crate) async fn api_auth_copilot_poll() -> impl IntoResponse {
             None => {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "status": "no_flow",
-                        "error": "no device flow in progress — call /api/auth/copilot/start first"
-                    })),
+                    Json(DeviceFlowPollResponse {
+                        status: "no_flow".to_string(),
+                        token: None,
+                        error: Some(
+                            "no device flow in progress — call /api/auth/copilot/start first"
+                                .to_string(),
+                        ),
+                        interval: None,
+                    }),
                 );
             }
         }
@@ -978,19 +1020,23 @@ pub(crate) async fn api_auth_copilot_poll() -> impl IntoResponse {
                 DeviceFlowStatus::Complete(_) => {
                     return (
                         StatusCode::OK,
-                        Json(serde_json::json!({
-                            "status": "complete",
-                            "has_token": true,
-                        })),
+                        Json(DeviceFlowPollResponse {
+                            status: "complete".to_string(),
+                            token: None,
+                            error: None,
+                            interval: None,
+                        }),
                     );
                 }
                 DeviceFlowStatus::Failed(err) => {
                     return (
                         StatusCode::OK,
-                        Json(serde_json::json!({
-                            "status": "failed",
-                            "error": err,
-                        })),
+                        Json(DeviceFlowPollResponse {
+                            status: "failed".to_string(),
+                            token: None,
+                            error: Some(err.clone()),
+                            interval: None,
+                        }),
                     );
                 }
                 DeviceFlowStatus::Waiting => {}
@@ -1005,10 +1051,12 @@ pub(crate) async fn api_auth_copilot_poll() -> impl IntoResponse {
             if f.started_at.elapsed().as_secs() > DEVICE_FLOW_TIMEOUT_SECS {
                 return (
                     StatusCode::OK,
-                    Json(serde_json::json!({
-                        "status": "timeout",
-                        "error": "device flow timed out — please start again"
-                    })),
+                    Json(DeviceFlowPollResponse {
+                        status: "timeout".to_string(),
+                        token: None,
+                        error: Some("device flow timed out — please start again".to_string()),
+                        interval: None,
+                    }),
                 );
             }
         }
@@ -1033,10 +1081,12 @@ pub(crate) async fn api_auth_copilot_poll() -> impl IntoResponse {
                 error!(error = %e, "Failed to parse GitHub poll response");
                 return (
                     StatusCode::BAD_GATEWAY,
-                    Json(serde_json::json!({
-                        "error": format!("bad poll response: {e}"),
-                        "details": "GitHub returned an invalid response during polling."
-                    })),
+                    Json(DeviceFlowPollResponse {
+                        status: "error".to_string(),
+                        token: None,
+                        error: Some(format!("bad poll response: {e}")),
+                        interval: None,
+                    }),
                 );
             }
         },
@@ -1044,10 +1094,12 @@ pub(crate) async fn api_auth_copilot_poll() -> impl IntoResponse {
             error!(error = %e, "GitHub poll request failed");
             return (
                 StatusCode::BAD_GATEWAY,
-                Json(serde_json::json!({
-                    "error": format!("poll request failed: {e}"),
-                    "details": "Could not reach GitHub during polling. Check network connectivity."
-                })),
+                Json(DeviceFlowPollResponse {
+                    status: "error".to_string(),
+                    token: None,
+                    error: Some(format!("poll request failed: {e}")),
+                    interval: None,
+                }),
             );
         }
     };
@@ -1085,10 +1137,12 @@ pub(crate) async fn api_auth_copilot_poll() -> impl IntoResponse {
 
                 (
                     StatusCode::OK,
-                    Json(serde_json::json!({
-                        "status": "complete",
-                        "token_cached": true
-                    })),
+                    Json(DeviceFlowPollResponse {
+                        status: "complete".to_string(),
+                        token: Some(copilot.token),
+                        error: None,
+                        interval: None,
+                    }),
                 )
             }
             Err(e) => {
@@ -1102,7 +1156,12 @@ pub(crate) async fn api_auth_copilot_poll() -> impl IntoResponse {
                 }
                 (
                     StatusCode::BAD_GATEWAY,
-                    Json(serde_json::json!({ "status": "failed", "error": msg })),
+                    Json(DeviceFlowPollResponse {
+                        status: "failed".to_string(),
+                        token: None,
+                        error: Some(msg),
+                        interval: None,
+                    }),
                 )
             }
         }
@@ -1110,17 +1169,24 @@ pub(crate) async fn api_auth_copilot_poll() -> impl IntoResponse {
         match err {
             "authorization_pending" => (
                 StatusCode::OK,
-                Json(serde_json::json!({ "status": "pending", "interval": interval })),
+                Json(DeviceFlowPollResponse {
+                    status: "pending".to_string(),
+                    token: None,
+                    error: None,
+                    interval: Some(interval),
+                }),
             ),
             "slow_down" => {
                 let new_interval = interval + 5;
                 debug!(new_interval, "GitHub requested slow_down");
                 (
                     StatusCode::OK,
-                    Json(serde_json::json!({
-                        "status": "pending",
-                        "interval": new_interval,
-                    })),
+                    Json(DeviceFlowPollResponse {
+                        status: "pending".to_string(),
+                        token: None,
+                        error: None,
+                        interval: Some(new_interval),
+                    }),
                 )
             }
             "expired_token" | "access_denied" => {
@@ -1134,14 +1200,24 @@ pub(crate) async fn api_auth_copilot_poll() -> impl IntoResponse {
                 }
                 (
                     StatusCode::OK,
-                    Json(serde_json::json!({ "status": "failed", "error": msg })),
+                    Json(DeviceFlowPollResponse {
+                        status: "failed".to_string(),
+                        token: None,
+                        error: Some(msg),
+                        interval: None,
+                    }),
                 )
             }
             _ => {
                 warn!(github_error = %err, "Unexpected GitHub device flow error");
                 (
                     StatusCode::OK,
-                    Json(serde_json::json!({ "status": "pending", "interval": interval })),
+                    Json(DeviceFlowPollResponse {
+                        status: "pending".to_string(),
+                        token: None,
+                        error: None,
+                        interval: Some(interval),
+                    }),
                 )
             }
         }
@@ -1149,7 +1225,12 @@ pub(crate) async fn api_auth_copilot_poll() -> impl IntoResponse {
         warn!(response = %poll, "Unexpected GitHub poll response");
         (
             StatusCode::OK,
-            Json(serde_json::json!({ "status": "pending", "interval": interval })),
+            Json(DeviceFlowPollResponse {
+                status: "pending".to_string(),
+                token: None,
+                error: None,
+                interval: Some(interval),
+            }),
         )
     }
 }
@@ -1182,15 +1263,16 @@ pub(crate) async fn api_auth_clear(Path(provider): Path<String>) -> impl IntoRes
         tracing::warn!(provider = %provider, error = %e, "failed to remove auth entry");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": format!("failed to remove auth for {provider}: {e}")
-            })),
+            Json(ProviderSetKeyResponse {
+                ok: false,
+                provider,
+            }),
         );
     }
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "ok": true, "provider": provider })),
+        Json(ProviderSetKeyResponse { ok: true, provider }),
     )
 }
 
@@ -1208,7 +1290,10 @@ pub(crate) async fn api_auth_save_key(
     if key.is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "success": false, "message": "api_key must not be empty" })),
+            Json(ProviderAuthResponse {
+                success: false,
+                message: "api_key must not be empty".to_string(),
+            }),
         );
     }
 
@@ -1217,18 +1302,19 @@ pub(crate) async fn api_auth_save_key(
         tracing::error!(provider = %provider, error = %e, "failed to save API key");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "success": false,
-                "message": format!("failed to save key for {provider}: {e}")
-            })),
+            Json(ProviderAuthResponse {
+                success: false,
+                message: format!("failed to save key for {provider}: {e}"),
+            }),
         );
     }
 
     (
         StatusCode::OK,
-        Json(
-            serde_json::json!({ "success": true, "message": format!("API key saved for {provider}") }),
-        ),
+        Json(ProviderAuthResponse {
+            success: true,
+            message: format!("API key saved for {provider}"),
+        }),
     )
 }
 
@@ -1262,11 +1348,12 @@ pub(crate) async fn api_auth_masked_key(
             if !key.is_empty() {
                 return (
                     StatusCode::OK,
-                    Json(serde_json::json!(MaskedKeyResponse {
+                    Json(MaskedKeyResponse {
                         provider: provider.clone(),
                         has_key: true,
                         masked_key: Some(mask_key(key)),
-                    })),
+                        env_var: None,
+                    }),
                 );
             }
         }
@@ -1274,11 +1361,12 @@ pub(crate) async fn api_auth_masked_key(
             if !token.is_empty() {
                 return (
                     StatusCode::OK,
-                    Json(serde_json::json!(MaskedKeyResponse {
+                    Json(MaskedKeyResponse {
                         provider: provider.clone(),
                         has_key: true,
                         masked_key: Some(mask_key(token)),
-                    })),
+                        env_var: None,
+                    }),
                 );
             }
         }
@@ -1292,11 +1380,12 @@ pub(crate) async fn api_auth_masked_key(
                     if !key.is_empty() && !key.starts_with('$') {
                         return (
                             StatusCode::OK,
-                            Json(serde_json::json!(MaskedKeyResponse {
+                            Json(MaskedKeyResponse {
                                 provider: provider.clone(),
                                 has_key: true,
                                 masked_key: Some(mask_key(key)),
-                            })),
+                                env_var: None,
+                            }),
                         );
                     }
                 }
@@ -1306,10 +1395,11 @@ pub(crate) async fn api_auth_masked_key(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!(MaskedKeyResponse {
+        Json(MaskedKeyResponse {
             provider: provider.clone(),
             has_key: false,
             masked_key: None,
-        })),
+            env_var: None,
+        }),
     )
 }

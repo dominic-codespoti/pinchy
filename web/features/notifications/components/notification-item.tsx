@@ -1,6 +1,7 @@
 'use client';
 
 import { Bell, CheckCircle, AlertTriangle, XCircle, X } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/shared/lib/utils';
 import type { Notification, NotificationType } from '@/features/notifications/types';
@@ -37,12 +38,14 @@ function formatRelativeTime(timestamp: string): string {
 }
 
 export function NotificationItem({ notification, onMarkAsRead, onRemove }: NotificationItemProps) {
+  const router = useRouter();
+
   const handleClick = () => {
     if (!notification.read) {
       onMarkAsRead(notification.id);
     }
     if (notification.link) {
-      window.location.href = notification.link;
+      router.push(notification.link);
     }
   };
 

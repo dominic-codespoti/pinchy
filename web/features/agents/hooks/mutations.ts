@@ -4,7 +4,6 @@ import {
   createAgent,
   updateAgent,
   deleteAgent,
-  addMemory,
   updateMemory,
   deleteMemory,
   sendTestMessage,
@@ -98,24 +97,6 @@ export function useCloneAgent(options?: MutationOptions<CloneAgentResult, Error>
     },
     onError: (error) => {
       const message = `Failed to clone agent: ${error.message}`;
-      toast.error(message);
-      options?.onError?.(error);
-    },
-  });
-}
-
-export function useAddMemory(agentId: string, options?: MutationOptions<Memory, Error>) {
-  const queryClient = useQueryClient();
-
-  return useMutation<Memory, Error, { content: string; category?: string }>({
-    mutationFn: ({ content, category }) => addMemory(agentId, content, category),
-    onSuccess: (data) => {
-      toast.success('Memory added successfully');
-      queryClient.invalidateQueries({ queryKey: ['agents', agentId, 'memories'] });
-      options?.onSuccess?.(data);
-    },
-    onError: (error) => {
-      const message = `Failed to add memory: ${error.message}`;
       toast.error(message);
       options?.onError?.(error);
     },

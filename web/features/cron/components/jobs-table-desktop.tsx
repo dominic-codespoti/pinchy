@@ -17,7 +17,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import { ChevronDown, ChevronRight, Pencil, Trash2, Play, Clock } from 'lucide-react';
+import { ChevronDown, ChevronRight, Pencil, Trash2, Play, Clock, Zap } from 'lucide-react';
 import { CronJob } from '../types';
 import cronstrue from 'cronstrue';
 import { JobRowActions } from './job-row-actions';
@@ -29,6 +29,7 @@ interface DesktopJobsTableProps {
   onEdit: (job: CronJob) => void;
   onDelete: (job: CronJob) => void;
   onToggleStatus: (job: CronJob) => void;
+  onTrigger?: (job: CronJob) => void;
 }
 
 function getAgentName(agentId: string, agents?: { id: string; name: string }[]): string {
@@ -62,6 +63,7 @@ export function DesktopJobsTable({
   onEdit,
   onDelete,
   onToggleStatus,
+  onTrigger,
 }: DesktopJobsTableProps) {
   const [expandedJobs, setExpandedJobs] = React.useState<Set<string>>(new Set());
 
@@ -143,11 +145,25 @@ export function DesktopJobsTable({
                 </div>
               </TableCell>
               <TableCell className="text-right">
-                <JobRowActions
-                  job={job}
-                  onEdit={() => onEdit(job)}
-                  onDelete={() => onDelete(job)}
-                />
+                <div className="flex items-center justify-end gap-1">
+                  {onTrigger && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => onTrigger(job)}
+                      className="h-8 w-8"
+                      title="Trigger now"
+                    >
+                      <Zap className="h-4 w-4" />
+                      <span className="sr-only">Trigger job</span>
+                    </Button>
+                  )}
+                  <JobRowActions
+                    job={job}
+                    onEdit={() => onEdit(job)}
+                    onDelete={() => onDelete(job)}
+                  />
+                </div>
               </TableCell>
             </TableRow>
             <Collapsible open={expandedJobs.has(job.id)}>

@@ -29,6 +29,13 @@ pub(crate) async fn ws_logs_handler(ws: WebSocketUpgrade) -> impl IntoResponse {
 
 /// Per-connection WebSocket logic for log streaming.
 async fn handle_ws_logs(mut socket: WebSocket) {
+    // Send recent log history first so the client isn't staring at an empty screen
+    for line in crate::logs::recent_lines() {
+        if socket.send(Message::Text(line)).await.is_err() {
+            return; // client disconnected during history replay
+        }
+    }
+
     let mut rx = match crate::logs::subscribe() {
         Some(rx) => rx,
         None => {

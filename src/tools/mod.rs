@@ -609,7 +609,8 @@ pub fn get_skill_instructions(name: &str) -> Option<String> {
 }
 
 /// Return skill metadata for API responses (e.g. `GET /api/skills`).
-pub fn list_skill_entries() -> Vec<serde_json::Value> {
+pub fn list_skill_entries() -> Vec<crate::gateway::types::SkillItem> {
+    use crate::gateway::types::SkillItem;
     let reg = REGISTRY.lock().expect("tool registry poisoned");
     let mut entries = Vec::new();
     let mut seen = HashSet::new();
@@ -618,11 +619,11 @@ pub fn list_skill_entries() -> Vec<serde_json::Value> {
             if !seen.insert(&entry.meta.name) {
                 continue;
             }
-            entries.push(serde_json::json!({
-                "id": entry.meta.name,
-                "description": skill.description,
-                "operator_managed": skill.operator_managed,
-            }));
+            entries.push(SkillItem {
+                name: entry.meta.name.clone(),
+                description: Some(skill.description.clone()),
+                has_skill: skill.operator_managed.unwrap_or(false),
+            });
         }
     }
     entries

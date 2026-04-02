@@ -173,6 +173,7 @@ impl PinchyDb {
                 condition       TEXT,
                 retry_count     INTEGER NOT NULL DEFAULT 0,
                 last_status     TEXT,
+                enabled         INTEGER NOT NULL DEFAULT 1,
                 PRIMARY KEY (agent_id, name)
             );
 
@@ -266,38 +267,34 @@ impl PinchyDb {
 
     /// Clear the current session for an agent.
     pub fn clear_current_session(&self, agent_id: &str) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        conn.execute(
+        self.execute(
             "UPDATE sessions SET is_current = 0 WHERE agent_id = ?1",
             params![agent_id],
         )?;
+        debug!(agent = %agent_id, "current session cleared");
         Ok(())
     }
 
     /// Delete a session and all its exchanges and receipts.
     pub fn delete_session(&self, session_id: &str) -> Result<bool> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        // Delete exchanges first (child rows).
-        conn.execute(
-            "DELETE FROM exchanges WHERE session_id = ?1",
-            params![session_id],
-        )?;
-        // Delete receipts.
-        conn.execute(
-            "DELETE FROM receipts WHERE session_id = ?1",
-            params![session_id],
-        )?;
-        // Delete session row.
-        let changed = conn.execute(
-            "DELETE FROM sessions WHERE session_id = ?1",
-            params![session_id],
-        )?;
+        let changed = self.transaction(|tx| {
+            // Delete exchanges first (child rows).
+            tx.execute(
+                "DELETE FROM exchanges WHERE session_id = ?1",
+                params![session_id],
+            )?;
+            // Delete receipts.
+            tx.execute(
+                "DELETE FROM receipts WHERE session_id = ?1",
+                params![session_id],
+            )?;
+            // Delete session row.
+            let changed = tx.execute(
+                "DELETE FROM sessions WHERE session_id = ?1",
+                params![session_id],
+            )?;
+            Ok(changed)
+        })?;
         if changed > 0 {
             debug!(session_id, "session deleted from db");
         }
@@ -354,14 +351,11 @@ impl PinchyDb {
 
     /// Update session title.
     pub fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        conn.execute(
+        self.execute(
             "UPDATE sessions SET title = ?1 WHERE session_id = ?2",
             params![title, session_id],
         )?;
+        debug!(session_id, "session title updated");
         Ok(())
     }
 
@@ -379,12 +373,7 @@ impl PinchyDb {
         if exchanges.is_empty() {
             return Ok(());
         }
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        let tx = conn.unchecked_transaction()?;
-        {
+        self.transaction(|tx| {
             let mut stmt = tx.prepare_cached(
                 "INSERT INTO exchanges (session_id, timestamp, role, content, metadata, tool_calls, tool_call_id, images)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -414,44 +403,45 @@ impl PinchyDb {
                     images,
                 ])?;
             }
-        }
-        tx.commit()?;
+            Ok(())
+        })?;
+        debug!(session_id, count = exchanges.len(), "exchanges appended");
         Ok(())
     }
 
     /// Replace all exchanges in a session with the given list.
     /// Used by the PUT session API to overwrite session content.
     pub fn replace_exchanges(&self, session_id: &str, exchanges: &[Exchange]) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        conn.execute(
-            "DELETE FROM exchanges WHERE session_id = ?1",
-            params![session_id],
-        )?;
-        let mut stmt = conn.prepare(
-            "INSERT INTO exchanges (session_id, timestamp, role, content, metadata, tool_calls, tool_call_id, images)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        )?;
-        for ex in exchanges {
-            let metadata = ex.metadata.as_ref().map(|v| v.to_string());
-            let tool_calls = ex
-                .tool_calls
-                .as_ref()
-                .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "[]".into()));
-            let images = serde_json::to_string(&ex.images).unwrap_or_else(|_| "[]".into());
-            stmt.execute(params![
-                session_id,
-                ex.timestamp as i64,
-                ex.role,
-                ex.content,
-                metadata,
-                tool_calls,
-                ex.tool_call_id,
-                images,
-            ])?;
-        }
+        self.transaction(|tx| {
+            tx.execute(
+                "DELETE FROM exchanges WHERE session_id = ?1",
+                params![session_id],
+            )?;
+            let mut stmt = tx.prepare(
+                "INSERT INTO exchanges (session_id, timestamp, role, content, metadata, tool_calls, tool_call_id, images)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            )?;
+            for ex in exchanges {
+                let metadata = ex.metadata.as_ref().map(|v| v.to_string());
+                let tool_calls = ex
+                    .tool_calls
+                    .as_ref()
+                    .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "[]".into()));
+                let images = serde_json::to_string(&ex.images).unwrap_or_else(|_| "[]".into());
+                stmt.execute(params![
+                    session_id,
+                    ex.timestamp as i64,
+                    ex.role,
+                    ex.content,
+                    metadata,
+                    tool_calls,
+                    ex.tool_call_id,
+                    images,
+                ])?;
+            }
+            Ok(())
+        })?;
+        debug!(session_id, count = exchanges.len(), "exchanges replaced");
         Ok(())
     }
 
@@ -542,15 +532,11 @@ impl PinchyDb {
 
     /// Persist a turn receipt.
     pub fn insert_receipt(&self, receipt: &TurnReceipt) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let tool_calls_json =
             serde_json::to_string(&receipt.tool_calls).unwrap_or_else(|_| "[]".into());
         let call_details_json =
             serde_json::to_string(&receipt.call_details).unwrap_or_else(|_| "[]".into());
-        conn.execute(
+        self.execute(
             "INSERT INTO receipts (
                 session_id, agent_id, started_at, duration_ms, user_prompt,
                 tool_calls_json, prompt_tokens, completion_tokens, total_tokens,
@@ -733,24 +719,22 @@ impl PinchyDb {
 
     /// Upsert a cron job.
     pub fn upsert_cron_job(&self, job: &PersistedCronJob) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let depends_on = job
             .depends_on
             .as_ref()
             .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "null".into()));
         let kind_str = serde_json::to_string(&job.kind).unwrap_or_else(|_| "\"Message\"".into());
         let retry_delay_secs = job.retry_delay_secs.map(|v| v as i64);
-        conn.execute(
-            "INSERT INTO cron_jobs (agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+        let enabled = if job.enabled { 1i64 } else { 0i64 };
+        self.execute(
+            "INSERT INTO cron_jobs (agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status, enabled)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
              ON CONFLICT(agent_id, name) DO UPDATE SET
                 schedule=excluded.schedule, message=excluded.message, kind=excluded.kind,
                 depends_on=excluded.depends_on, max_retries=excluded.max_retries,
                 retry_delay_secs=excluded.retry_delay_secs, condition=excluded.condition,
-                retry_count=excluded.retry_count, last_status=excluded.last_status",
+                retry_count=excluded.retry_count, last_status=excluded.last_status,
+                enabled=excluded.enabled",
             params![
                 job.agent_id,
                 job.name,
@@ -763,6 +747,7 @@ impl PinchyDb {
                 job.condition,
                 job.retry_count,
                 job.last_status,
+                enabled,
             ],
         )?;
         debug!(agent = %job.agent_id, name = %job.name, "cron job upserted");
@@ -771,14 +756,13 @@ impl PinchyDb {
 
     /// Remove a cron job by agent + name.
     pub fn remove_cron_job(&self, agent_id: &str, name: &str) -> Result<bool> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        let changed = conn.execute(
+        let changed = self.execute(
             "DELETE FROM cron_jobs WHERE agent_id = ?1 AND name = ?2",
             params![agent_id, name],
         )?;
+        if changed > 0 {
+            debug!(agent = %agent_id, name = %name, "cron job removed");
+        }
         Ok(changed > 0)
     }
 
@@ -789,12 +773,13 @@ impl PinchyDb {
             .lock()
             .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status
+            "SELECT agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status, enabled
              FROM cron_jobs WHERE agent_id = ?1",
         )?;
         let rows = stmt.query_map(params![agent_id], |row| {
             let kind_str: String = row.get(4)?;
             let depends_on_str: Option<String> = row.get(5)?;
+            let enabled_i64: i64 = row.get(11)?;
             Ok(PersistedCronJob {
                 agent_id: row.get(0)?,
                 name: row.get(1)?,
@@ -807,6 +792,7 @@ impl PinchyDb {
                 condition: row.get(8)?,
                 retry_count: row.get(9)?,
                 last_status: row.get(10)?,
+                enabled: enabled_i64 != 0,
             })
         })?;
         let mut out = Vec::new();
@@ -823,12 +809,13 @@ impl PinchyDb {
             .lock()
             .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status
+            "SELECT agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status, enabled
              FROM cron_jobs",
         )?;
         let rows = stmt.query_map([], |row| {
             let kind_str: String = row.get(4)?;
             let depends_on_str: Option<String> = row.get(5)?;
+            let enabled_i64: i64 = row.get(11)?;
             Ok(PersistedCronJob {
                 agent_id: row.get(0)?,
                 name: row.get(1)?,
@@ -841,6 +828,7 @@ impl PinchyDb {
                 condition: row.get(8)?,
                 retry_count: row.get(9)?,
                 last_status: row.get(10)?,
+                enabled: enabled_i64 != 0,
             })
         })?;
         let mut out = Vec::new();
@@ -858,14 +846,10 @@ impl PinchyDb {
     pub fn insert_cron_event(&self, event: &JobRun) -> Result<()> {
         let status_str =
             serde_json::to_string(&event.status).unwrap_or_else(|_| "\"Pending\"".into());
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let executed_at = event.executed_at.map(|v| v as i64);
         let completed_at = event.completed_at.map(|v| v as i64);
         let duration_ms = event.duration_ms.map(|v| v as i64);
-        conn.execute(
+        self.execute(
             "INSERT OR REPLACE INTO cron_events (id, job_id, scheduled_at, executed_at, completed_at, status, output_preview, error, duration_ms)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             params![
@@ -880,6 +864,7 @@ impl PinchyDb {
                 duration_ms,
             ],
         )?;
+        debug!(event_id = %event.id, "cron event inserted");
         Ok(())
     }
 
@@ -917,11 +902,7 @@ impl PinchyDb {
 
     /// Cleanup old cron events, keeping the most recent `keep` per job.
     pub fn cleanup_cron_events(&self, keep: usize) -> Result<usize> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        let deleted = conn.execute(
+        let deleted = self.execute(
             "DELETE FROM cron_events WHERE id NOT IN (
                 SELECT id FROM (
                     SELECT id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY scheduled_at DESC) AS rn
@@ -931,7 +912,7 @@ impl PinchyDb {
             params![keep as i64],
         )?;
         if deleted > 0 {
-            debug!(deleted, keep, "cleaned up old cron events");
+            debug!(deleted, keep, "old cron events cleaned up");
         }
         Ok(deleted)
     }
@@ -979,14 +960,13 @@ impl PinchyDb {
             Some(pair) => pair,
             None => return Ok(false),
         };
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        let changed = conn.execute(
+        let changed = self.execute(
             "UPDATE cron_jobs SET last_status = ?1 WHERE agent_id = ?2 AND name = ?3",
             params![status, agent_id, name],
         )?;
+        if changed > 0 {
+            debug!(job_id, status, "cron job status updated");
+        }
         Ok(changed > 0)
     }
 
@@ -997,14 +977,10 @@ impl PinchyDb {
     /// Upsert heartbeat status for an agent.
     pub fn upsert_heartbeat_status(&self, status: &HeartbeatStatus) -> Result<()> {
         let health_str = serde_json::to_string(&status.health).unwrap_or_else(|_| "\"OK\"".into());
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let last_tick = status.last_tick.map(|v| v as i64);
         let next_tick = status.next_tick.map(|v| v as i64);
         let interval_secs = status.interval_secs.map(|v| v as i64);
-        conn.execute(
+        self.execute(
             "INSERT INTO heartbeat_status (agent_id, enabled, health, last_tick, next_tick, interval_secs, message_preview, latest_session)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
              ON CONFLICT(agent_id) DO UPDATE SET
@@ -1023,6 +999,7 @@ impl PinchyDb {
                 status.latest_session,
             ],
         )?;
+        debug!(agent = %status.agent_id, "heartbeat status upserted");
         Ok(())
     }
 
@@ -1052,6 +1029,71 @@ impl PinchyDb {
         )
         .optional()
         .map_err(Into::into)
+    }
+
+    /// Force a WAL checkpoint to ensure all data is persisted to the main database file.
+    /// Call this during graceful shutdown or after critical writes.
+    pub fn checkpoint(&self) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+        let _: (i32, i32, i32) = conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .context("WAL checkpoint")?;
+        debug!("WAL checkpoint completed");
+        Ok(())
+    }
+
+    /// Execute SQL without checkpointing (checkpoints handled automatically by SQLite or during shutdown)
+    pub fn execute(&self, sql: &str, params: &[&dyn rusqlite::ToSql]) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+        let rows = conn.execute(sql, params)?;
+        Ok(rows)
+    }
+
+    /// Execute a transaction without automatic checkpoint (checkpoints handled automatically by SQLite or during shutdown)
+    pub fn transaction<F, R>(&self, f: F) -> Result<R>
+    where
+        F: FnOnce(&rusqlite::Transaction) -> Result<R>,
+    {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+        let tx = conn.transaction()?;
+        let result = f(&tx)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
+    /// Execute SQL and immediately checkpoint WAL (for critical writes only)
+    #[deprecated(
+        note = "Use execute() instead and let SQLite handle checkpointing, or call checkpoint() explicitly during shutdown"
+    )]
+    pub fn execute_with_checkpoint(
+        &self,
+        sql: &str,
+        params: &[&dyn rusqlite::ToSql],
+    ) -> Result<usize> {
+        let rows = self.execute(sql, params)?;
+        Ok(rows)
+    }
+
+    /// Execute a transaction with automatic checkpoint on commit (for critical writes only)
+    #[deprecated(
+        note = "Use transaction() instead and let SQLite handle checkpointing, or call checkpoint() explicitly during shutdown"
+    )]
+    pub fn transaction_with_checkpoint<F, R>(&self, f: F) -> Result<R>
+    where
+        F: FnOnce(&rusqlite::Transaction) -> Result<R>,
+    {
+        self.transaction(f)
     }
 }
 
@@ -1153,6 +1195,7 @@ mod tests {
             condition: None,
             retry_count: 0,
             last_status: None,
+            enabled: true,
         };
         db.upsert_cron_job(&job).unwrap();
 

@@ -11,6 +11,7 @@ import {
   updateCronJob,
   deleteCronJob,
   toggleCronJob,
+  triggerJob,
 } from './api';
 import { CronJob, CreateCronJobInput, UpdateCronJobInput } from './types';
 
@@ -98,6 +99,23 @@ export function useToggleCronJob(options?: MutationOptions<CronJob, Error>) {
     },
     onError: (error) => {
       toast.error(`Failed to toggle cron job: ${error.message}`);
+      options?.onError?.(error);
+    },
+  });
+}
+
+export function useTriggerCronJob(options?: MutationOptions<void, Error>) {
+  const queryClient = useQueryClient();
+
+  return useMutation<void, Error, string>({
+    mutationFn: (jobId) => triggerJob(jobId),
+    onSuccess: () => {
+      toast.success('Cron job triggered successfully');
+      queryClient.invalidateQueries({ queryKey: ['cron'] });
+      options?.onSuccess?.();
+    },
+    onError: (error) => {
+      toast.error(`Failed to trigger cron job: ${error.message}`);
       options?.onError?.(error);
     },
   });

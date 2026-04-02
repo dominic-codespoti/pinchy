@@ -7,8 +7,8 @@ export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'err
 
 interface WebSocketContextType {
   status: WebSocketStatus;
-  send: (message: unknown) => void;
-  lastMessage: unknown | null;
+  send: (message: unknown) => boolean;
+  lastMessages: unknown[];
   reconnectAttempts: number;
   connect: () => void;
   disconnect: () => void;
@@ -37,7 +37,7 @@ interface WebSocketProviderProps {
 
 export function WebSocketProvider({ children, autoConnect = true }: WebSocketProviderProps) {
   const [status, setStatus] = useState<WebSocketStatus>('disconnected');
-  const [lastMessage, setLastMessage] = useState<unknown | null>(null);
+  const [lastMessages, setLastMessages] = useState<unknown[]>([]);
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -86,10 +86,9 @@ export function WebSocketProvider({ children, autoConnect = true }: WebSocketPro
 
     if (messages.length === 0) return;
 
-    // Only keep the latest message of each type for state update
-    // (reduces re-renders)
-    const lastMsg = messages[messages.length - 1];
-    setLastMessage(lastMsg);
+    // Update state with ALL messages (not just the last one)
+    // This ensures all event types are received by the hook
+    setLastMessages(messages);
 
     // Process all messages for invalidation logic
     const processedTypes = new Set<string>();
@@ -134,9 +133,12 @@ export function WebSocketProvider({ children, autoConnect = true }: WebSocketPro
     // In development, connect directly to Rust backend
     // In production, use same-origin (backend serves the static files)
     const isDev = process.env.NODE_ENV === 'development';
-    const wsUrl = isDev
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const wsUrl = isDev && isLocalhost
       ? 'ws://127.0.0.1:3131/ws'
-      : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+      : isDev
+        ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:3131/ws`
+        : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
 
     if (process.env.NODE_ENV === 'development') {
       console.debug('[WebSocket] Connecting to:', wsUrl, 'attempt:', reconnectAttemptsRef.current + 1);
@@ -238,11 +240,13 @@ export function WebSocketProvider({ children, autoConnect = true }: WebSocketPro
     setReconnectAttempts(0);
   }, []);
 
-  const send = useCallback((message: unknown) => {
+  const send = useCallback((message: unknown): boolean => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify(message));
+      return true;
     } else {
-      console.warn('[WebSocket] Cannot send message, WebSocket is not open');
+      console.warn('[WebSocket] Cannot send message, WebSocket is not open. readyState:', wsRef.current?.readyState);
+      return false;
     }
   }, []);
 
@@ -285,7 +289,7 @@ export function WebSocketProvider({ children, autoConnect = true }: WebSocketPro
     <WebSocketContext.Provider value={{
       status,
       send,
-      lastMessage,
+      lastMessages,
       reconnectAttempts,
       connect: manualReconnect,
       disconnect

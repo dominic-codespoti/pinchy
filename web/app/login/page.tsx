@@ -1,3 +1,7 @@
 'use client';
 
-export { LoginPage as default } from '@/features/auth';
+import { LoginPage } from '@/features/auth';
+
+export default function LoginPageWrapper() {
+  return <LoginPage />;
+}

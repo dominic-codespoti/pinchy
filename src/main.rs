@@ -616,6 +616,15 @@ async fn async_main() -> anyhow::Result<()> {
     // 5. Shutdown MCP connections.
     mini_claw::mcp::shutdown().await;
 
+    // 6. Checkpoint database to ensure all WAL data is persisted.
+    if let Some(db) = mini_claw::store::global_db() {
+        if let Err(e) = db.checkpoint() {
+            tracing::warn!(error = %e, "failed to checkpoint database during shutdown");
+        } else {
+            info!("database checkpointed");
+        }
+    }
+
     info!("shutdown complete");
 
     Ok(())

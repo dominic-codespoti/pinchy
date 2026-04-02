@@ -1,2 +1,7 @@
 'use client';
-export { MemoryQueryPage as default } from '@/features/memories';
+
+import { MemoryQueryPage } from '@/features/memories';
+
+export default function MemoryQueryPageWrapper() {
+  return <MemoryQueryPage />;
+}

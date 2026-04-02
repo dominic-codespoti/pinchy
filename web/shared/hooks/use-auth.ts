@@ -48,7 +48,7 @@ export function useStartCopilotAuth() {
 export function useLogoutChatGpt() {
   const queryClient = useQueryClient();
 
-  return useMutation<{ status: string }, Error, void>({
+  return useMutation<void, Error, void>({
     mutationFn: logoutChatGpt,
     onSuccess: () => {
       toast.success('Logged out from ChatGPT');

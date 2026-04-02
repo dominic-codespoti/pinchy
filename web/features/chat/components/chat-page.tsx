@@ -27,6 +27,7 @@ export function ChatPage({ agents = [], agentsLoading = false }: ChatPageProps) 
     sessionIdFromUrl,
     mobileSidebarOpen,
     setMobileSidebarOpen,
+    isCreatingSession,
     handleSendMessage,
     handleNewChat,
     handleStopStreaming,
@@ -49,6 +50,7 @@ export function ChatPage({ agents = [], agentsLoading = false }: ChatPageProps) 
           onSessionClick={navigateToSession}
           onNewChat={handleNewChat}
           isWsConnected={isWsConnected}
+          isCreatingSession={isCreatingSession}
         />
       </aside>
 
@@ -71,6 +73,7 @@ export function ChatPage({ agents = [], agentsLoading = false }: ChatPageProps) 
             navigateToAgent(id);
           }}
           onNewChat={handleNewChat}
+          isCreatingSession={isCreatingSession}
         />
 
         <ChatMessageList
@@ -91,6 +94,7 @@ export function ChatPage({ agents = [], agentsLoading = false }: ChatPageProps) 
             navigateToAgent(id);
           }}
           agentsLoading={agentsLoading}
+          isCreatingSession={isCreatingSession}
         />
       </main>
     </div>

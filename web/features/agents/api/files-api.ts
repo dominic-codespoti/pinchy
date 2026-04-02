@@ -1,5 +1,6 @@
 import { fetchApi } from '@/shared/api/client';
 import { AgentFile, SendTestMessageResponse } from '../types';
+import { TestMessageResponseSchema } from '@/lib/validation/schemas';
 
 // Agent files - backend only supports specific files via /api/agents/:id/files/:filename
 // Allowed files: SOUL.md, TOOLS.md, HEARTBEAT.md
@@ -51,6 +52,7 @@ export async function deleteAgentFile(agentId: string, filename: string): Promis
   throw new Error('File deletion not supported by backend. Use write_file with empty content instead.');
 }
 
+// Fetch binary data (for file downloads)
 async function fetchApiBinary(endpoint: string, options?: RequestInit): Promise<Response> {
   const url = `${endpoint}`;
   const response = await fetch(url, options);
@@ -67,8 +69,12 @@ export async function downloadAgentFile(agentId: string, filename: string): Prom
 }
 
 export async function sendTestMessage(agentId: string, content: string): Promise<SendTestMessageResponse> {
-  return fetchApi<SendTestMessageResponse>('/api/agents/test', {
-    method: 'POST',
-    body: JSON.stringify({ agent_id: agentId, content }),
-  });
+  return fetchApi<SendTestMessageResponse>(
+    '/api/agents/test',
+    {
+      method: 'POST',
+      body: JSON.stringify({ agent_id: agentId, content }),
+    },
+    TestMessageResponseSchema
+  );
 }

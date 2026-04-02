@@ -11,11 +11,11 @@ import { useAuth } from './auth-provider';
 import { OAuthButton } from './oauth-button';
 import { OAuthProvider } from '../types';
 
-interface LoginPageProps {
+interface LoginProps {
   onSuccessRedirect?: string;
 }
 
-export function LoginPage({ onSuccessRedirect = '/' }: LoginPageProps) {
+export function LoginPage({ onSuccessRedirect = '/' }: LoginProps) {
   const router = useRouter();
   const { loginWithOAuth, loginWithApiKey, isLoading, error, clearError, isAuthenticated } = useAuth();
   const [apiKey, setApiKey] = useState('');

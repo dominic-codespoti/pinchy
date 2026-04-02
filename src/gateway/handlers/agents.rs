@@ -1,6 +1,7 @@
 use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
 
 use super::super::auth::validate_path_segment;
+use super::super::types::*;
 
 use serde::Deserialize;
 
@@ -41,67 +42,47 @@ pub(crate) async fn api_agents_list() -> impl IntoResponse {
             let has_tools = base.join("TOOLS.md").exists();
             let has_heartbeat = base.join("HEARTBEAT.md").exists();
 
-            let mut entry_json = serde_json::json!({
-                "id": id,
-                "has_soul": has_soul,
-                "has_tools": has_tools,
-                "has_heartbeat": has_heartbeat,
-            });
+            let mut item = AgentListItem {
+                id,
+                has_soul,
+                has_tools,
+                has_heartbeat,
+                model: None,
+                heartbeat_secs: None,
+                max_tool_iterations: None,
+                enabled_skills: None,
+                cron_jobs_count: None,
+                history_messages: None,
+                max_turns: None,
+                compact_keep_recent_turns: None,
+                timezone: None,
+                reasoning_effort: None,
+            };
 
             // Merge config fields if available.
             if let Some(ref cfg) = cfg {
-                if let Some(ac) = cfg.agents.iter().find(|a| a.id == id) {
-                    let m = entry_json.as_object_mut().unwrap();
-                    m.insert("model".into(), serde_json::json!(ac.model));
-                    m.insert(
-                        "heartbeat_secs".into(),
-                        serde_json::json!(ac.heartbeat_secs),
-                    );
-                    m.insert(
-                        "max_tool_iterations".into(),
-                        serde_json::json!(ac.max_tool_iterations),
-                    );
-                    m.insert(
-                        "enabled_skills".into(),
-                        serde_json::json!(ac.enabled_skills),
-                    );
-                    m.insert(
-                        "cron_jobs_count".into(),
-                        serde_json::json!(crate::store::global_db()
-                            .and_then(|db| db.list_cron_jobs(&id).ok())
-                            .map(|j| j.len())
-                            .unwrap_or(0)),
-                    );
-                    m.insert(
-                        "history_messages".into(),
-                        serde_json::json!(ac.history_messages),
-                    );
-                    m.insert("max_turns".into(), serde_json::json!(ac.max_turns));
-                    m.insert(
-                        "compact_keep_recent_turns".into(),
-                        serde_json::json!(ac.compact_keep_recent_turns),
-                    );
-                    m.insert(
-                        "timezone".into(),
-                        serde_json::json!(cfg.resolve_timezone(&id).to_string()),
-                    );
-                    m.insert(
-                        "reasoning_effort".into(),
-                        serde_json::json!(ac.reasoning_effort),
-                    );
+                if let Some(ac) = cfg.agents.iter().find(|a| a.id == item.id) {
+                    item.model = ac.model.clone();
+                    item.heartbeat_secs = ac.heartbeat_secs;
+                    item.max_tool_iterations = ac.max_tool_iterations;
+                    item.enabled_skills = ac.enabled_skills.clone();
+                    item.cron_jobs_count = crate::store::global_db()
+                        .and_then(|db| db.list_cron_jobs(&item.id).ok())
+                        .map(|j| j.len());
+                    item.history_messages = ac.history_messages;
+                    item.max_turns = ac.max_turns;
+                    item.compact_keep_recent_turns = ac.compact_keep_recent_turns;
+                    item.timezone = Some(cfg.resolve_timezone(&item.id).to_string());
+                    item.reasoning_effort = ac.reasoning_effort.clone();
                 }
             }
 
-            agents.push(entry_json);
+            agents.push(item);
         }
     }
 
-    agents.sort_by(|a, b| {
-        a.get("id")
-            .and_then(|v| v.as_str())
-            .cmp(&b.get("id").and_then(|v| v.as_str()))
-    });
-    Json(serde_json::json!({ "agents": agents }))
+    agents.sort_by(|a, b| a.id.cmp(&b.id));
+    Json(AgentsListResponse { agents })
 }
 
 #[derive(serde::Deserialize)]
@@ -127,23 +108,44 @@ pub(crate) async fn api_agent_clone(
     if !src_base.exists() {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "source agent not found" })),
+            Json(ErrorResponse {
+                error: "source agent not found".to_string(),
+                id: Some(agent_id),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
     if dst_base.exists() {
         return (
             StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": "target agent already exists" })),
+            Json(ErrorResponse {
+                error: "target agent already exists".to_string(),
+                id: Some(body.new_id),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
 
+    let mut files_cloned = 0i64;
+    let mut errors = Vec::new();
+
     // 1. Create directory structure (fresh workspace, no sessions)
     if let Err(e) = tokio::fs::create_dir_all(dst_base.join("workspace").join("sessions")).await {
+        errors.push(format!("create dirs: {e}"));
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("create dirs: {e}") })),
+            Json(AgentCloneResponse {
+                id: body.new_id.clone(),
+                created: false,
+                files_cloned,
+                errors,
+            }),
         )
             .into_response();
     }
@@ -153,13 +155,31 @@ pub(crate) async fn api_agent_clone(
         let src = src_base.join(name);
         if src.exists() {
             if let Err(e) = tokio::fs::copy(&src, dst_base.join(name)).await {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": format!("copy {name}: {e}") })),
-                )
-                    .into_response();
+                errors.push(format!("copy {name}: {e}"));
+            } else {
+                files_cloned += 1i64;
             }
         }
+    }
+
+    // Return 500 if critical file copies failed (at least one required file failed)
+    let critical_files = ["SOUL.md", "TOOLS.md"];
+    let has_critical_error = critical_files.iter().any(|name| {
+        let src = src_base.join(name);
+        src.exists() && errors.iter().any(|e| e.contains(&format!("copy {name}:")))
+    });
+
+    if has_critical_error && !errors.is_empty() {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(AgentCloneResponse {
+                id: body.new_id.clone(),
+                created: false,
+                files_cloned,
+                errors,
+            }),
+        )
+            .into_response();
     }
 
     // 3. Clone config entry
@@ -177,23 +197,37 @@ pub(crate) async fn api_agent_clone(
 
                     cfg.agents.push(new_ac);
                     if let Err(e) = cfg.save(&config_path).await {
+                        errors.push(format!("save config: {e}"));
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(serde_json::json!({ "error": format!("save config: {e}") })),
+                            Json(AgentCloneResponse {
+                                id: body.new_id.clone(),
+                                created: false,
+                                files_cloned,
+                                errors,
+                            }),
                         )
                             .into_response();
                     }
                 }
             }
             Err(e) => {
+                let err_msg = format!("failed to load config for agent creation: {e}");
                 tracing::warn!(error = %e, "failed to load config for agent creation");
+                errors.push(err_msg);
+                // Don't fail for config load errors, just warn
             }
         }
     }
 
     (
         StatusCode::CREATED,
-        Json(serde_json::json!({ "id": body.new_id })),
+        Json(AgentCloneResponse {
+            id: body.new_id,
+            created: true,
+            files_cloned,
+            errors,
+        }),
     )
         .into_response()
 }
@@ -207,7 +241,13 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
     if !base.exists() {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "agent not found", "id": agent_id })),
+            Json(ErrorResponse {
+                error: "agent not found".to_string(),
+                id: Some(agent_id),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -223,56 +263,42 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
         .and_then(|db| db.session_count_for_agent(&agent_id).ok())
         .unwrap_or(0);
 
-    let mut result = serde_json::json!({
-        "id": agent_id,
-        "soul": soul,
-        "tools": tools,
-        "heartbeat": heartbeat,
-        "session_count": session_count,
-    });
+    let mut detail = AgentDetail {
+        id: agent_id.clone(),
+        soul,
+        tools,
+        heartbeat,
+        session_count,
+        model: None,
+        heartbeat_secs: None,
+        max_tool_iterations: None,
+        enabled_skills: None,
+        history_messages: None,
+        max_turns: None,
+        compact_keep_recent_turns: None,
+        timezone: None,
+        reasoning_effort: None,
+        watch_paths: Vec::new(),
+    };
 
     // Merge config fields if available.
     let config_path = crate::pinchy_home().join("config.yaml");
     if let Ok(cfg) = crate::config::Config::load(&config_path).await {
         if let Some(ac) = cfg.agents.iter().find(|a| a.id == agent_id) {
-            let m = result.as_object_mut().unwrap();
-            m.insert("model".into(), serde_json::json!(ac.model));
-            m.insert(
-                "heartbeat_secs".into(),
-                serde_json::json!(ac.heartbeat_secs),
-            );
-            m.insert(
-                "max_tool_iterations".into(),
-                serde_json::json!(ac.max_tool_iterations),
-            );
-            m.insert(
-                "enabled_skills".into(),
-                serde_json::json!(ac.enabled_skills),
-            );
-            m.insert(
-                "history_messages".into(),
-                serde_json::json!(ac.history_messages),
-            );
-            m.insert("max_turns".into(), serde_json::json!(ac.max_turns));
-            m.insert(
-                "compact_keep_recent_turns".into(),
-                serde_json::json!(ac.compact_keep_recent_turns),
-            );
-            m.insert(
-                "timezone".into(),
-                serde_json::json!(cfg.resolve_timezone(&agent_id).to_string()),
-            );
-            m.insert(
-                "reasoning_effort".into(),
-                serde_json::json!(ac.reasoning_effort),
-            );
-            if !ac.watch_paths.is_empty() {
-                m.insert("watch_paths".into(), serde_json::json!(ac.watch_paths));
-            }
+            detail.model = ac.model.clone();
+            detail.heartbeat_secs = ac.heartbeat_secs;
+            detail.max_tool_iterations = ac.max_tool_iterations;
+            detail.enabled_skills = ac.enabled_skills.clone();
+            detail.history_messages = ac.history_messages;
+            detail.max_turns = ac.max_turns;
+            detail.compact_keep_recent_turns = ac.compact_keep_recent_turns;
+            detail.timezone = Some(cfg.resolve_timezone(&agent_id).to_string());
+            detail.reasoning_effort = ac.reasoning_effort.clone();
+            detail.watch_paths = ac.watch_paths.clone();
         }
     }
 
-    (StatusCode::OK, Json(result)).into_response()
+    (StatusCode::OK, Json(detail)).into_response()
 }
 
 /// Request body for POST /api/agents
@@ -302,7 +328,13 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
     {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "invalid agent id: must be alphanumeric/hyphen/underscore" })),
+            Json(ErrorResponse {
+                error: "invalid agent id: must be alphanumeric/hyphen/underscore".to_string(),
+                id: Some(body.id),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -311,7 +343,13 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
     if base.exists() {
         return (
             StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": "agent already exists", "id": body.id })),
+            Json(ErrorResponse {
+                error: "agent already exists".to_string(),
+                id: Some(body.id.clone()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -320,7 +358,13 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
     if let Err(e) = tokio::fs::create_dir_all(base.join("workspace").join("sessions")).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("create dirs: {e}") })),
+            Json(ErrorResponse {
+                error: format!("create dirs: {e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -348,7 +392,13 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
         if let Err(e) = tokio::fs::write(base.join(name), content).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("write {name}: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("write {name}: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -397,7 +447,10 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
 
     (
         StatusCode::CREATED,
-        Json(serde_json::json!({ "id": body.id, "created": true })),
+        Json(AgentCreateResponse {
+            id: body.id,
+            created: true,
+        }),
     )
         .into_response()
 }
@@ -442,7 +495,13 @@ pub(crate) async fn api_agent_update(
     if !base.exists() {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "agent not found", "id": agent_id })),
+            Json(ErrorResponse {
+                error: "agent not found".to_string(),
+                id: Some(agent_id.clone()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -458,9 +517,13 @@ pub(crate) async fn api_agent_update(
             if !unknown.is_empty() {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "error": format!("unknown skill IDs: {}", unknown.join(", ")),
-                    })),
+                    Json(ErrorResponse {
+                        error: format!("unknown skill IDs: {}", unknown.join(", ")),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -473,33 +536,51 @@ pub(crate) async fn api_agent_update(
         if let Err(e) = tokio::fs::write(base.join("SOUL.md"), soul).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("write SOUL.md: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("write SOUL.md: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
-        updated.push("SOUL.md");
+        updated.push("SOUL.md".to_string());
     }
 
     if let Some(tools) = &body.tools {
         if let Err(e) = tokio::fs::write(base.join("TOOLS.md"), tools).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("write TOOLS.md: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("write TOOLS.md: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
-        updated.push("TOOLS.md");
+        updated.push("TOOLS.md".to_string());
     }
 
     if let Some(heartbeat) = &body.heartbeat {
         if let Err(e) = tokio::fs::write(base.join("HEARTBEAT.md"), heartbeat).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("write HEARTBEAT.md: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("write HEARTBEAT.md: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
-        updated.push("HEARTBEAT.md");
+        updated.push("HEARTBEAT.md".to_string());
     }
 
     // Update config fields if any were provided.
@@ -519,16 +600,16 @@ pub(crate) async fn api_agent_update(
                 if let Some(ac) = cfg.agents.iter_mut().find(|a| a.id == agent_id) {
                     if let Some(model) = body.model {
                         ac.model = Some(model);
-                        updated.push("model");
+                        updated.push("model".to_string());
                     }
                     if let Some(hs_opt) = body.heartbeat_secs {
                         // Some(Some(n)) → set interval, Some(None) → disable heartbeat
                         ac.heartbeat_secs = hs_opt;
-                        updated.push("heartbeat_secs");
+                        updated.push("heartbeat_secs".to_string());
                     }
                     if let Some(mti) = body.max_tool_iterations {
                         ac.max_tool_iterations = Some(mti);
-                        updated.push("max_tool_iterations");
+                        updated.push("max_tool_iterations".to_string());
                     }
                     if let Some(skills) = body.enabled_skills {
                         ac.enabled_skills = if skills.is_empty() {
@@ -536,28 +617,34 @@ pub(crate) async fn api_agent_update(
                         } else {
                             Some(skills)
                         };
-                        updated.push("enabled_skills");
+                        updated.push("enabled_skills".to_string());
                     }
                     if let Some(mt) = body.max_turns {
                         ac.max_turns = Some(mt);
-                        updated.push("max_turns");
+                        updated.push("max_turns".to_string());
                     }
                     if let Some(ckrt) = body.compact_keep_recent_turns {
                         ac.compact_keep_recent_turns = Some(ckrt);
-                        updated.push("compact_keep_recent_turns");
+                        updated.push("compact_keep_recent_turns".to_string());
                     }
                     if let Some(hm) = body.history_messages {
                         ac.history_messages = Some(hm);
-                        updated.push("history_messages");
+                        updated.push("history_messages".to_string());
                     }
                     if let Some(re) = body.reasoning_effort {
                         ac.reasoning_effort = if re.is_empty() { None } else { Some(re) };
-                        updated.push("reasoning_effort");
+                        updated.push("reasoning_effort".to_string());
                     }
                     if let Err(e) = cfg.save(&config_path).await {
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(serde_json::json!({ "error": format!("save config: {e}") })),
+                            Json(ErrorResponse {
+                                error: format!("save config: {e}"),
+                                id: None,
+                                agent_id: None,
+                                filename: None,
+                                allowed: None,
+                            }),
                         )
                             .into_response();
                     }
@@ -566,7 +653,13 @@ pub(crate) async fn api_agent_update(
             Err(e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": format!("load config: {e}") })),
+                    Json(ErrorResponse {
+                        error: format!("load config: {e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -575,7 +668,10 @@ pub(crate) async fn api_agent_update(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "id": agent_id, "updated": updated })),
+        Json(AgentUpdateResponse {
+            id: agent_id,
+            updated,
+        }),
     )
         .into_response()
 }
@@ -589,7 +685,13 @@ pub(crate) async fn api_agent_delete(Path(agent_id): Path<String>) -> impl IntoR
     if !base.exists() {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "agent not found", "id": agent_id })),
+            Json(ErrorResponse {
+                error: "agent not found".to_string(),
+                id: Some(agent_id.clone()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -607,13 +709,22 @@ pub(crate) async fn api_agent_delete(Path(agent_id): Path<String>) -> impl IntoR
 
             (
                 StatusCode::OK,
-                Json(serde_json::json!({ "id": agent_id, "deleted": true })),
+                Json(AgentDeleteResponse {
+                    id: agent_id,
+                    deleted: true,
+                }),
             )
                 .into_response()
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("delete: {e}") })),
+            Json(ErrorResponse {
+                error: format!("delete: {e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }
@@ -636,9 +747,13 @@ pub(crate) async fn api_agent_file_get(
     if !ALLOWED_AGENT_FILES.contains(&filename.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(
-                serde_json::json!({ "error": "file not allowed", "allowed": ALLOWED_AGENT_FILES }),
-            ),
+            Json(ErrorResponse {
+                error: "file not allowed".to_string(),
+                id: None,
+                agent_id: None,
+                filename: Some(filename),
+                allowed: Some(ALLOWED_AGENT_FILES.iter().map(|s| s.to_string()).collect()),
+            }),
         )
             .into_response();
     }
@@ -647,17 +762,32 @@ pub(crate) async fn api_agent_file_get(
     match tokio::fs::read_to_string(&path).await {
         Ok(content) => (
             StatusCode::OK,
-            Json(serde_json::json!({ "filename": filename, "content": content })),
+            Json(AgentFileGetResponse {
+                filename: filename.clone(),
+                content,
+            }),
         )
             .into_response(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "file not found", "filename": filename })),
+            Json(ErrorResponse {
+                error: "file not found".to_string(),
+                id: None,
+                agent_id: None,
+                filename: Some(filename),
+                allowed: None,
+            }),
         )
             .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("{e}") })),
+            Json(ErrorResponse {
+                error: format!("{e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }
@@ -680,9 +810,13 @@ pub(crate) async fn api_agent_file_put(
     if !ALLOWED_AGENT_FILES.contains(&filename.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(
-                serde_json::json!({ "error": "file not allowed", "allowed": ALLOWED_AGENT_FILES }),
-            ),
+            Json(ErrorResponse {
+                error: "file not allowed".to_string(),
+                id: None,
+                agent_id: None,
+                filename: Some(filename),
+                allowed: Some(ALLOWED_AGENT_FILES.iter().map(|s| s.to_string()).collect()),
+            }),
         )
             .into_response();
     }
@@ -691,7 +825,13 @@ pub(crate) async fn api_agent_file_put(
     if !base.exists() {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "agent not found", "id": agent_id })),
+            Json(ErrorResponse {
+                error: "agent not found".to_string(),
+                id: Some(agent_id),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -700,12 +840,21 @@ pub(crate) async fn api_agent_file_put(
     match tokio::fs::write(&path, &body.content).await {
         Ok(()) => (
             StatusCode::OK,
-            Json(serde_json::json!({ "filename": filename, "saved": true })),
+            Json(AgentFilePutResponse {
+                filename: filename.clone(),
+                saved: true,
+            }),
         )
             .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("{e}") })),
+            Json(ErrorResponse {
+                error: format!("{e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }

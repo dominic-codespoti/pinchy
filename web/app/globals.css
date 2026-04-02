@@ -67,3 +67,13 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Prevent flash of unstyled theme during page transitions */
+html {
+  transition: background-color 0s;
+}
+
+/* Ensure body inherits theme immediately */
+html.dark body {
+  background-color: hsl(var(--background));
+}

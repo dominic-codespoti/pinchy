@@ -6,10 +6,10 @@ interface SessionsListResponse {
   sessions: RawSession[];
 }
 
-function transformSession(raw: RawSession, agentId: string): Session {
+function transformSession(raw: RawSession): Session {
   return {
     id: raw.session_id,
-    agentId,
+    agentId: raw.agent_id,
     title: raw.title ?? undefined,
     messageCount: raw.message_count ?? 0,
     createdAt: new Date(raw.created_at).toISOString(),
@@ -21,7 +21,7 @@ export async function getAgentSessions(agentId: string): Promise<Session[]> {
   try {
     const response = await fetchApi<SessionsListResponse>(`/api/agents/${agentId}/sessions`);
     const rawSessions = response.sessions ?? [];
-    return rawSessions.map((raw) => transformSession(raw, agentId));
+    return rawSessions.map((raw) => transformSession(raw));
   } catch (error) {
     if (isNotFoundError(error)) {
       return [];
@@ -48,13 +48,8 @@ export async function getAllSessions(agents: Agent[]): Promise<Session[]> {
   );
 }
 
-export async function deleteSession(id: string): Promise<void> {
-  const parts = id.split('-');
-  if (parts.length < 2) {
-    throw new Error('Invalid session ID format');
-  }
-  const agentId = parts.slice(0, -1).join('-');
-  const sessionFile = `${id}.jsonl`;
+export async function deleteSession(sessionId: string, agentId: string): Promise<void> {
+  const sessionFile = `${sessionId}.jsonl`;
   await fetchApi<{ session_id: string; deleted: boolean }>(`/api/agents/${agentId}/sessions/${sessionFile}`, {
     method: 'DELETE',
   });

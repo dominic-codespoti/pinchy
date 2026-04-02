@@ -14,16 +14,17 @@ export function useAgentSessions(agentId: string) {
     queryKey: ['agents', agentId, 'sessions'],
     queryFn: () => getAgentSessions(agentId),
     staleTime: 5000,
+    refetchOnWindowFocus: false,
     enabled: !!agentId,
   });
 }
 
-export function useSessionMessages(sessionId: string) {
+export function useSessionMessages(sessionId: string, agentId: string) {
   return useQuery<Message[], Error>({
     queryKey: ['sessions', sessionId, 'messages'],
-    queryFn: () => getSessionMessages(sessionId),
+    queryFn: () => getSessionMessages(sessionId, agentId),
     staleTime: 1000,
-    enabled: !!sessionId,
+    enabled: !!sessionId && !!agentId,
   });
 }
 
@@ -44,19 +45,19 @@ export function useCreateSession(options?: MutationOptions<ChatSession, Error>) 
   });
 }
 
+interface DeleteSessionVariables {
+  sessionId: string;
+  agentId: string;
+}
+
 export function useDeleteSession(options?: MutationOptions<void, Error>) {
   const queryClient = useQueryClient();
 
-  return useMutation<void, Error, string>({
-    mutationFn: deleteSession,
-    onSuccess: (_, sessionId) => {
+  return useMutation<void, Error, DeleteSessionVariables>({
+    mutationFn: (vars) => deleteSession(vars.sessionId, vars.agentId),
+    onSuccess: (_, variables) => {
       toast.success('Session deleted successfully');
-      // Extract agentId from sessionId to invalidate the correct query
-      const parts = sessionId.split('-');
-      if (parts.length >= 2) {
-        const agentId = parts.slice(0, -1).join('-');
-        queryClient.invalidateQueries({ queryKey: ['agents', agentId, 'sessions'] });
-      }
+      queryClient.invalidateQueries({ queryKey: ['agents', variables.agentId, 'sessions'] });
       options?.onSuccess?.();
     },
     onError: (error) => {

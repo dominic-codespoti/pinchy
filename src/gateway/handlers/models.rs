@@ -12,6 +12,7 @@ use axum::{
     Json,
 };
 
+use super::super::types::*;
 use super::super::AppState;
 
 /// `GET /api/models/:config_model_id`
@@ -28,7 +29,13 @@ pub(crate) async fn api_models_list(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("config load: {e:#}") })),
+                Json(ErrorResponse {
+                    error: format!("config load: {e:#}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -40,7 +47,13 @@ pub(crate) async fn api_models_list(
         None => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(serde_json::json!({ "error": format!("model config '{config_model_id}' not found") })),
+                Json(ErrorResponse {
+                    error: format!("model config '{config_model_id}' not found"),
+                    id: Some(config_model_id),
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -61,44 +74,56 @@ pub(crate) async fn api_models_list(
 
     // Call list_models.
     match provider.list_models().await {
-        Ok(Some(models)) => (StatusCode::OK, Json(serde_json::json!({ "models": models }))).into_response(),
+        Ok(Some(models)) => {
+            let model_infos: Vec<ModelInfo> = models
+                .into_iter()
+                .map(|m| ModelInfo {
+                    id: m.id,
+                    name: m.name,
+                    provider: model_cfg.provider.clone(),
+                    description: m.vendor,
+                    input_price: None,
+                    output_price: None,
+                    context_window: None,
+                    max_output: None,
+                    tool_call: false,
+                    reasoning: false,
+                    attachment: false,
+                    family: None,
+                    cache_read_price: None,
+                    cache_write_price: None,
+                    modalities: None,
+                })
+                .collect();
+            (
+                StatusCode::OK,
+                Json(ModelsListResponse {
+                    models: Some(model_infos),
+                    message: None,
+                }),
+            )
+                .into_response()
+        }
         Ok(None) => (
             StatusCode::OK,
-            Json(serde_json::json!({ "models": null, "message": "provider does not support model discovery" })),
+            Json(ModelsListResponse {
+                models: None,
+                message: Some("provider does not support model discovery".to_string()),
+            }),
         )
             .into_response(),
         Err(e) => (
             StatusCode::BAD_GATEWAY,
-            Json(serde_json::json!({ "error": format!("model discovery failed: {e:#}") })),
+            Json(ErrorResponse {
+                error: format!("model discovery failed: {e:#}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }
-}
-
-/// Response format for aggregated model info.
-#[derive(Debug, serde::Serialize)]
-struct AggregatedModelInfo {
-    id: String,
-    name: String,
-    provider: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    input_price: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    output_price: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    context_window: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    max_output: Option<u64>,
-    #[serde(default)]
-    tool_call: bool,
-    #[serde(default)]
-    reasoning: bool,
-    #[serde(default)]
-    attachment: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    family: Option<String>,
 }
 
 /// `GET /api/models`
@@ -114,13 +139,19 @@ pub(crate) async fn api_all_models(State(state): State<AppState>) -> impl IntoRe
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("config load: {e:#}") })),
+                Json(ErrorResponse {
+                    error: format!("config load: {e:#}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
     };
 
-    let mut all_models: Vec<AggregatedModelInfo> = Vec::new();
+    let mut all_models: Vec<ModelInfo> = Vec::new();
     let timeout_duration = std::time::Duration::from_secs(5);
 
     // Try to load models.dev registry as primary source
@@ -186,7 +217,22 @@ pub(crate) async fn api_all_models(State(state): State<AppState>) -> impl IntoRe
                 if has_auth || has_auth_store || has_config_key || has_special_auth {
                     // Add all models from this provider
                     for model in &provider.models {
-                        all_models.push(AggregatedModelInfo {
+                        // Convert modalities from ModelsDevModalities to Vec<String>
+                        let modalities = model.modalities.as_ref().map(|m| {
+                            let mut mods = Vec::new();
+                            if let Some(ref inputs) = m.input {
+                                for input in inputs {
+                                    mods.push(format!("input:{}", input));
+                                }
+                            }
+                            if let Some(ref outputs) = m.output {
+                                for output in outputs {
+                                    mods.push(format!("output:{}", output));
+                                }
+                            }
+                            mods
+                        });
+                        all_models.push(ModelInfo {
                             id: model.id.clone(),
                             name: model.name.clone(),
                             provider: provider.id.clone(),
@@ -199,6 +245,9 @@ pub(crate) async fn api_all_models(State(state): State<AppState>) -> impl IntoRe
                             reasoning: model.reasoning.unwrap_or(false),
                             attachment: model.attachment.unwrap_or(false),
                             family: model.family.clone(),
+                            cache_read_price: model.cost.as_ref().and_then(|c| c.cache_read),
+                            cache_write_price: model.cost.as_ref().and_then(|c| c.cache_write),
+                            modalities,
                         });
                     }
                     tracing::debug!(
@@ -227,14 +276,17 @@ pub(crate) async fn api_all_models(State(state): State<AppState>) -> impl IntoRe
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "models": all_models })),
+        Json(ModelsListResponse {
+            models: Some(all_models),
+            message: None,
+        }),
     )
         .into_response()
 }
 
 /// Try to list models from local providers that may not be in models.dev.
 async fn try_local_providers(
-    all_models: &mut Vec<AggregatedModelInfo>,
+    all_models: &mut Vec<ModelInfo>,
     already_checked: &[String],
     cfg: &crate::config::Config,
     timeout_duration: std::time::Duration,
@@ -294,7 +346,7 @@ async fn try_local_providers(
                         .iter()
                         .any(|m| m.id == model.id && m.provider == provider_name)
                     {
-                        all_models.push(AggregatedModelInfo {
+                        all_models.push(ModelInfo {
                             id: model.id.clone(),
                             name: model.name.clone(),
                             provider: provider_name.to_string(),
@@ -307,6 +359,9 @@ async fn try_local_providers(
                             reasoning: false,
                             attachment: false,
                             family: None,
+                            cache_read_price: None,
+                            cache_write_price: None,
+                            modalities: None,
                         });
                     }
                 }
@@ -330,15 +385,22 @@ async fn try_local_providers(
 pub(crate) async fn api_models_registry() -> impl IntoResponse {
     match crate::models_dev::get_or_load_registry().await {
         Ok(registry) => {
+            // Convert providers to serde_json::Value
+            let providers: Vec<serde_json::Value> = registry
+                .providers()
+                .iter()
+                .filter_map(|p| serde_json::to_value(p).ok())
+                .collect();
+
             // Return the full registry
             (
                 StatusCode::OK,
-                Json(serde_json::json!({
-                    "providers": registry.providers(),
-                    "cached_at": registry.cached_at,
-                    "total_providers": registry.providers().len(),
-                    "total_models": registry.total_models(),
-                })),
+                Json(ModelsRegistryResponse {
+                    providers,
+                    cached_at: registry.cached_at.timestamp() as u64,
+                    total_providers: registry.providers().len(),
+                    total_models: registry.total_models(),
+                }),
             )
                 .into_response()
         }
@@ -346,9 +408,13 @@ pub(crate) async fn api_models_registry() -> impl IntoResponse {
             tracing::warn!(error = %e, "failed to load models.dev registry");
             (
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": format!("failed to load models.dev registry: {e:#}")
-                })),
+                Json(ErrorResponse {
+                    error: format!("failed to load models.dev registry: {e:#}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response()
         }

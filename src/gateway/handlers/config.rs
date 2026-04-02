@@ -1,5 +1,6 @@
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 
+use super::super::types::*;
 use super::super::AppState;
 
 /// `GET /api/config/schema` — return the JSON Schema for the config struct.
@@ -15,13 +16,25 @@ pub(crate) async fn api_config_get(State(state): State<AppState>) -> impl IntoRe
             Ok(v) => (StatusCode::OK, Json(v)).into_response(),
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("serialize: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("serialize: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response(),
         },
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("{e:#}") })),
+            Json(ErrorResponse {
+                error: format!("{e:#}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }
@@ -42,7 +55,13 @@ pub(crate) async fn api_config_put(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": format!("validation: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("validation: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -61,10 +80,16 @@ pub(crate) async fn api_config_put(
     }
 
     match cfg.save(&state.config_path).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "saved": true }))).into_response(),
+        Ok(()) => (StatusCode::OK, Json(ConfigSaveResponse { saved: true })).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("{e:#}") })),
+            Json(ErrorResponse {
+                error: format!("{e:#}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }

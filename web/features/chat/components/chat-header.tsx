@@ -24,6 +24,7 @@ interface ChatHeaderProps {
   onSessionClick: (sessionId: string) => void;
   onAgentSelect: (id: string) => void;
   onNewChat: () => void;
+  isCreatingSession?: boolean;
 }
 
 export function ChatHeader({
@@ -40,6 +41,7 @@ export function ChatHeader({
   onSessionClick,
   onAgentSelect,
   onNewChat,
+  isCreatingSession = false,
 }: ChatHeaderProps) {
   const selectedAgentName = useMemo(() => {
     return agents?.find(a => a.id === selectedAgentId)?.name;
@@ -82,7 +84,7 @@ export function ChatHeader({
                 selectedId={currentSessionId}
                 onNewChat={() => { onNewChat(); setMobileSidebarOpen(false); }}
                 onSessionClick={(id) => { onSessionClick(id); setMobileSidebarOpen(false); }}
-                isCreating={false}
+                isCreating={isCreatingSession}
               />
             </div>
           </SheetContent>

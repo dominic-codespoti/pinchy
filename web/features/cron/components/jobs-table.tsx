@@ -27,6 +27,7 @@ interface JobsTableProps {
   onEdit: (job: CronJob) => void;
   onDelete: (job: CronJob) => void;
   onToggleStatus: (job: CronJob) => void;
+  onTrigger?: (job: CronJob) => void;
 }
 
 export function JobsTable({
@@ -36,6 +37,7 @@ export function JobsTable({
   onEdit,
   onDelete,
   onToggleStatus,
+  onTrigger,
 }: JobsTableProps) {
   if (loading) {
     return (
@@ -66,6 +68,7 @@ export function JobsTable({
             onEdit={onEdit}
             onDelete={onDelete}
             onToggleStatus={onToggleStatus}
+            onTrigger={onTrigger}
           />
         </div>
 
@@ -79,6 +82,7 @@ export function JobsTable({
               onEdit={onEdit}
               onDelete={onDelete}
               onToggleStatus={onToggleStatus}
+              onTrigger={onTrigger}
             />
           ))}
         </div>

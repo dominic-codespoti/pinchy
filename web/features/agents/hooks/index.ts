@@ -13,7 +13,6 @@ export {
   useUpdateAgent,
   useDeleteAgent,
   useCloneAgent,
-  useAddMemory,
   useUpdateMemory,
   useDeleteMemory,
   useSendTestMessage,

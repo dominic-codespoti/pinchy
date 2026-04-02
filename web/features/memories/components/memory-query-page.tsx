@@ -12,11 +12,11 @@ import { MemoryQueryBuilder } from './query/memory-query-builder';
 import { useAgentMemories } from '../hooks';
 import { Memory } from '../types';
 
-interface MemoryQueryPageProps {
+interface MemoryQueryProps {
   agents?: Agent[];
 }
 
-export function MemoryQueryPage({ agents = [] }: MemoryQueryPageProps) {
+export function MemoryQueryPage({ agents = [] }: MemoryQueryProps) {
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
   const { data: memories, isLoading } = useAgentMemories(selectedAgentId);
 

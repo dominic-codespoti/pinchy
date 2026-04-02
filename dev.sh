@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 WEB="$ROOT/web"
 
+# Clean static build to force regeneration and enable dev mode proxy
+echo "🧹 Cleaning static/react for dev mode..."
+rm -rf "$ROOT/static/react"
+
 echo "🧹 Cleaning up stale processes…"
 # Kill any existing pinchy processes
 pkill -f "target/debug/pinchy" 2>/dev/null || true
@@ -14,10 +18,10 @@ rm -f "$WEB/.next/dev/types/validator.ts" 2>/dev/null || true
 
 # Wait for ports to be free
 for port in 3131 3132; do
-  while lsof -i :$port 2>/dev/null | grep -q LISTEN; do
-    echo "  Waiting for port $port to be free…"
-    sleep 0.5
-  done
+	while lsof -i :$port 2>/dev/null | grep -q LISTEN; do
+		echo "  Waiting for port $port to be free…"
+		sleep 0.5
+	done
 done
 
 echo "🔨 Ensuring fresh Rust build…"
@@ -27,20 +31,20 @@ touch "$ROOT/src/models_dev/mod.rs"
 touch "$ROOT/src/gateway/mod.rs"
 
 # Do an initial build to ensure binary exists and is fresh
-if ! cargo build; then
-  echo "❌ Build failed"
-  exit 1
+if ! PINCHY_DEV_MODE=1 cargo build; then
+	echo "❌ Build failed"
+	exit 1
 fi
 echo "✅ Build complete"
 
 cleanup() {
-  trap - EXIT INT TERM
-  echo ""
-  echo "🦀 Shutting down…"
-  # Kill the entire process group
-  kill -- -$$ 2>/dev/null || true
-  wait 2>/dev/null || true
-  exit 0
+	trap - EXIT INT TERM
+	echo ""
+	echo "🦀 Shutting down…"
+	# Kill the entire process group
+	kill -- -$$ 2>/dev/null || true
+	wait 2>/dev/null || true
+	exit 0
 }
 trap cleanup EXIT INT TERM
 
@@ -50,12 +54,12 @@ echo "🔥 Starting Next.js dev server (http://localhost:3000)…"
 
 # ── 2. Start Rust backend with cargo-watch (auto-rebuild on changes) ──
 if command -v cargo-watch &>/dev/null; then
-  echo "👀 Starting cargo watch (auto-rebuild on Rust changes)…"
-  echo "   Tip: Install cargo-watch with 'cargo install cargo-watch'"
-  (cd "$ROOT" && cargo watch -x run -w src -w Cargo.toml --delay 0.5) &
+	echo "👀 Starting cargo watch (auto-rebuild on Rust changes)…"
+	echo "   Tip: Install cargo-watch with 'cargo install cargo-watch'"
+	(cd "$ROOT" && PINCHY_DEV_MODE=1 cargo watch -x run -w src -w Cargo.toml --delay 0.5) &
 else
-  echo "🦀 Starting cargo run (install cargo-watch for auto-rebuild: cargo install cargo-watch)…"
-  (cd "$ROOT" && cargo run) &
+	echo "🦀 Starting cargo run (install cargo-watch for auto-rebuild: cargo install cargo-watch)…"
+	(cd "$ROOT" && PINCHY_DEV_MODE=1 cargo run) &
 fi
 
 echo ""

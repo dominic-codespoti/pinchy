@@ -18,7 +18,8 @@ import { EditSkillDialog } from "./edit-skill-dialog";
 import { useDeleteSkill } from "../hooks";
 import { Lightbulb, Eye, Shield, Wrench, Trash2, Pencil } from "lucide-react";
 
-function formatSkillName(id: string): string {
+function formatSkillName(id: string | null | undefined): string {
+  if (!id) return 'Unknown';
   return id.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
@@ -80,7 +81,7 @@ export function SkillsList({ skills, loading, onRefetch }: SkillsListProps) {
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between gap-2">
                 <CardTitle className="text-base">
-                  {formatSkillName(skill.id)}
+                  {formatSkillName(skill?.id)}
                 </CardTitle>
                 {skill.operatorManaged ? (
                   <Badge variant="secondary" className="shrink-0 text-xs">

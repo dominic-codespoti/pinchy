@@ -5,11 +5,11 @@ import { SessionsTable } from './sessions-table';
 import { useAllSessions } from '../hooks';
 import { Agent } from '@/features/agents/types';
 
-interface SessionsPageProps {
+interface SessionsProps {
   agents?: Agent[];
 }
 
-export function SessionsPage({ agents = [] }: SessionsPageProps) {
+export function SessionsPage({ agents = [] }: SessionsProps) {
   const { data: sessions, isLoading } = useAllSessions(agents);
 
   return (
