@@ -763,6 +763,7 @@ pub async fn call_skill(name: &str, args: Value, workspace: &Path) -> anyhow::Re
         "save_memory" => builtins::memory::save_memory(workspace, args).await,
         "recall_memory" => builtins::memory::recall_memory(workspace, args).await,
         "forget_memory" => builtins::memory::forget_memory(workspace, args).await,
+        "curated_memory" => builtins::memory::curated_memory(workspace, args).await,
         "create_skill" => builtins::skill_author::create_skill(workspace, args).await,
         "list_skills" => builtins::skill_author::list_skills(workspace, args).await,
         "delete_skill" => builtins::skill_author::delete_skill(workspace, args).await,

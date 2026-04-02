@@ -141,10 +141,7 @@ export const ModelInfoSchema = z.object({
   family: z.string().optional(),
   cache_read_price: z.number().optional(),
   cache_write_price: z.number().optional(),
-  modalities: z.object({
-    input: z.array(z.string()).optional(),
-    output: z.array(z.string()).optional(),
-  }).optional(),
+  modalities: z.array(z.string()).optional(),
 });
 
 export const ModelsListResponseSchema = z.object({

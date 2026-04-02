@@ -362,7 +362,9 @@ mod tests {
         });
 
         // Three messages total: 1 system + 2 user.
-        let arr = body["messages"].as_array().unwrap();
+        let arr = body["messages"]
+            .as_array()
+            .expect("Expected messages to be an array");
         assert_eq!(arr.len(), 3);
         assert_eq!(arr[0]["role"], "system");
         assert_eq!(arr[1]["role"], "user");

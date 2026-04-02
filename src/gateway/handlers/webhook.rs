@@ -7,6 +7,7 @@ use axum::{
 use tracing::warn;
 
 use super::super::auth::validate_path_segment;
+use super::super::types::{ErrorResponse, WebhookIngestResponse};
 use super::super::{publish_event_json, AppState};
 
 /// Query params for webhook endpoint.
@@ -33,7 +34,13 @@ pub(crate) async fn api_webhook_ingest(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("config load: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("config load: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response()
         }
@@ -48,7 +55,13 @@ pub(crate) async fn api_webhook_ingest(
             if provided != expected_secret {
                 return (
                     StatusCode::UNAUTHORIZED,
-                    Json(serde_json::json!({ "error": "invalid or missing webhook secret" })),
+                    Json(ErrorResponse {
+                        error: "invalid or missing webhook secret".to_string(),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -56,7 +69,13 @@ pub(crate) async fn api_webhook_ingest(
     } else {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "agent not found", "agent_id": agent_id })),
+            Json(ErrorResponse {
+                error: "agent not found".to_string(),
+                id: None,
+                agent_id: Some(agent_id),
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -87,7 +106,10 @@ pub(crate) async fn api_webhook_ingest(
 
     (
         StatusCode::ACCEPTED,
-        Json(serde_json::json!({ "status": "accepted" })),
+        Json(WebhookIngestResponse {
+            success: true,
+            message: "accepted".to_string(),
+        }),
     )
         .into_response()
 }

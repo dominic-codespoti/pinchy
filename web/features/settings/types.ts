@@ -25,10 +25,7 @@ export interface ModelsDevModel {
     context?: number;
     output?: number;
   };
-  modalities?: {
-    input?: string[];
-    output?: string[];
-  };
+  modalities?: string[];
 }
 
 export interface ModelsDevProvider {
@@ -59,10 +56,7 @@ export interface ModelInfo {
   family?: string;
   cache_read_price?: number;
   cache_write_price?: number;
-  modalities?: {
-    input?: string[];
-    output?: string[];
-  };
+  modalities?: string[];
 }
 
 export interface ProviderConfig {

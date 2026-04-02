@@ -145,9 +145,12 @@ instructions are loaded on demand via `activate_skill`.
 
 ## Memory
 
-SQLite-backed persistent memory with FTS5 full-text search (BM25 ranking).
-Stored at `agents/<id>/workspace/memory.db`. Tools: `save_memory`,
-`recall_memory`, `forget_memory`.
+Unified memory tools: `save_memory`, `recall_memory`, `forget_memory`.
+Default `storage_mode` is persistent SQLite memory (`agents/<id>/workspace/memory.db`).
+Use `storage_mode: "curated"` with `target: "memory" | "user"` to manage
+curated `MEMORY.md` / `USER.md` entries through the same tool surface.
+For backward compatibility, the deprecated `curated_memory` alias still maps to
+the same curated behavior, but new callers should use the unified memory tools.
 
 ## Gateway API
 

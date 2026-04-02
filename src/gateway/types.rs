@@ -502,3 +502,106 @@ pub(crate) struct CronEnhanceResponse {
     pub original: String,
     pub enhanced: String,
 }
+
+/// Usage row for usage endpoint (from store::UsageBucket)
+#[derive(Serialize)]
+pub(crate) struct UsageRow {
+    pub day: String,
+    pub agent: String,
+    pub model: String,
+    pub turns: u64,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub cached_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub total_tokens: u64,
+    pub estimated_cost_usd: f64,
+}
+
+/// Response for usage endpoint
+#[derive(Serialize)]
+pub(crate) struct UsageResponse {
+    pub usage: Vec<UsageRow>,
+    pub total_cost_usd: f64,
+    pub total_turns: u64,
+}
+
+/// Memory item for list response
+#[derive(Serialize)]
+pub(crate) struct MemoryItem {
+    pub key: String,
+    pub value: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
+    pub timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub score: Option<f64>,
+}
+
+/// Response for memory list endpoint
+#[derive(Serialize)]
+pub(crate) struct MemoryListResponse {
+    pub entries: Vec<MemoryItem>,
+}
+
+/// Response for memory delete endpoint
+#[derive(Serialize)]
+pub(crate) struct MemoryDeleteResponse {
+    pub deleted: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+}
+
+/// Individual heartbeat status item
+#[derive(Serialize)]
+pub(crate) struct HeartbeatStatusItem {
+    pub agent_id: String,
+    pub enabled: bool,
+    pub health: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_tick: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_tick: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub interval_secs: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_preview: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_session: Option<String>,
+}
+
+/// Response for heartbeat status endpoint
+#[derive(Serialize)]
+pub(crate) struct HeartbeatStatusResponse {
+    pub agents: Vec<HeartbeatStatusItem>,
+}
+
+/// Response for health endpoint
+#[derive(Serialize)]
+pub(crate) struct HealthResponse {
+    pub status: String,
+    pub version: String,
+    pub uptime_secs: u64,
+    pub agents: usize,
+}
+
+/// Response for webhook ingest endpoint
+#[derive(Serialize)]
+pub(crate) struct WebhookIngestResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// Individual command info for slash commands
+#[derive(Serialize)]
+pub(crate) struct CommandInfo {
+    pub name: String,
+    pub description: String,
+    pub usage: String,
+}
+
+/// Response for slash commands endpoint
+#[derive(Serialize)]
+pub(crate) struct SlashCommandsResponse {
+    pub commands: Vec<CommandInfo>,
+}

@@ -169,6 +169,8 @@ impl CohereProvider {
                 .collect();
 
             if items.len() == 1 {
+                // Safe: we just verified items.len() == 1
+                #[allow(clippy::unwrap_used)]
                 let item = items.into_iter().next().unwrap();
                 return Some(ProviderResponse::FunctionCall {
                     id: item.id,

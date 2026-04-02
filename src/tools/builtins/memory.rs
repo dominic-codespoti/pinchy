@@ -1,38 +1,118 @@
-//! Persistent memory tool — cross-session knowledge store.
+//! Unified memory tools — persistent SQLite memory + curated prompt memory.
 //!
 //! Storage: `agents/<id>/workspace/memory.db` (SQLite + FTS5)
 //!
 //! Tools exposed to the agent:
-//! - `save_memory { key, value, tags? }` — upsert a memory entry
-//! - `recall_memory { query?, tag?, limit? }` — ranked full-text search
-//! - `forget_memory { key }` — delete a memory entry
+//! - `save_memory { key?, value, tags?, storage_mode?, target? }`
+//! - `recall_memory { query?, tag?, limit?, storage_mode?, target? }`
+//! - `forget_memory { key, storage_mode?, target? }`
 
 use std::path::Path;
 use std::sync::Arc;
 
+use serde::Deserialize;
 use serde_json::Value;
 
 use crate::tools::register_tool;
 use crate::tools::ToolMeta;
 
+#[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+enum StorageMode {
+    #[default]
+    Persistent,
+    Curated,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct SaveMemoryArgs {
+    key: Option<String>,
+    value: Option<String>,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    storage_mode: StorageMode,
+    #[serde(default)]
+    target: crate::memory::curated::CuratedTarget,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct RecallMemoryArgs {
+    query: Option<String>,
+    tag: Option<String>,
+    limit: Option<usize>,
+    mode: Option<String>,
+    #[serde(default)]
+    storage_mode: StorageMode,
+    #[serde(default)]
+    target: crate::memory::curated::CuratedTarget,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ForgetMemoryArgs {
+    key: Option<String>,
+    #[serde(default)]
+    storage_mode: StorageMode,
+    #[serde(default)]
+    target: crate::memory::curated::CuratedTarget,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct CuratedMemoryCompatArgs {
+    operation: Option<String>,
+    action: Option<String>,
+    key: Option<String>,
+    value: Option<String>,
+    target: Option<crate::memory::curated::CuratedTarget>,
+}
+
+fn normalize_non_empty_value(value: Option<String>) -> anyhow::Result<String> {
+    let value = value.ok_or_else(|| anyhow::anyhow!("save_memory requires a 'value' string"))?;
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("save_memory requires a non-empty 'value' string");
+    }
+    Ok(trimmed.to_string())
+}
+
+fn normalize_optional_key(key: Option<String>, field: &str) -> anyhow::Result<Option<String>> {
+    match key {
+        Some(key) => {
+            let trimmed = key.trim();
+            if trimmed.is_empty() {
+                anyhow::bail!("{field} requires a non-empty '{field}' string");
+            }
+            Ok(Some(trimmed.to_string()))
+        }
+        None => Ok(None),
+    }
+}
+
 /// `save_memory` tool — upsert a memory entry by key.
 pub async fn save_memory(workspace: &Path, args: Value) -> anyhow::Result<Value> {
-    let key = args["key"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("save_memory requires a 'key' string"))?
-        .to_string();
-    let value = args["value"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("save_memory requires a 'value' string"))?
-        .to_string();
-    let tags: Vec<String> = args["tags"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
+    let args: SaveMemoryArgs = serde_json::from_value(args)?;
+    let value = normalize_non_empty_value(args.value)?;
+    let key = normalize_optional_key(args.key, "key")?;
+
+    if args.storage_mode == StorageMode::Curated {
+        let store = crate::memory::curated::CuratedStore::open(workspace)?;
+        store.save(args.target, key.as_deref(), &value)?;
+
+        return Ok(serde_json::json!({
+            "status": "saved",
+            "storage_mode": "curated",
+            "target": args.target.as_str(),
+            "key": key,
+        }));
+    }
+
+    let key = key.ok_or_else(|| anyhow::anyhow!("save_memory requires a 'key' string"))?;
+    let tags: Vec<String> = args
+        .tags
+        .into_iter()
+        .map(|tag| tag.trim().to_string())
+        .filter(|tag| !tag.is_empty())
+        .collect();
 
     let store = Arc::new(crate::memory::MemoryStore::open(workspace)?);
     let store2 = Arc::clone(&store);
@@ -57,10 +137,41 @@ pub async fn save_memory(workspace: &Path, args: Value) -> anyhow::Result<Value>
 /// When mode is unspecified (the default), this auto-detects whether an
 /// embedding provider is available and prefers semantic search if so.
 pub async fn recall_memory(workspace: &Path, args: Value) -> anyhow::Result<Value> {
-    let query = args["query"].as_str().unwrap_or("").to_string();
-    let tag = args["tag"].as_str().map(String::from);
-    let limit = args["limit"].as_u64().unwrap_or(10) as usize;
-    let explicit_mode = args["mode"].as_str().map(String::from);
+    let args: RecallMemoryArgs = serde_json::from_value(args)?;
+
+    if args.storage_mode == StorageMode::Curated {
+        let store = crate::memory::curated::CuratedStore::open(workspace)?;
+        let entries = store.list(args.target)?;
+        let rendered = store.render(args.target)?;
+        let items: Vec<Value> = entries
+            .iter()
+            .map(|entry| {
+                serde_json::json!({
+                    "key": entry.key,
+                    "value": entry.value,
+                })
+            })
+            .collect();
+
+        return Ok(serde_json::json!({
+            "storage_mode": "curated",
+            "target": args.target.as_str(),
+            "memories": items,
+            "content": rendered,
+        }));
+    }
+
+    let query = args.query.unwrap_or_default().trim().to_string();
+    let tag = args.tag.and_then(|tag| {
+        let trimmed = tag.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    });
+    let limit = args.limit.unwrap_or(10);
+    let explicit_mode = args.mode;
 
     let store = Arc::new(crate::memory::MemoryStore::open(workspace)?);
 
@@ -251,10 +362,21 @@ async fn backfill_embeddings(
 
 /// `forget_memory` tool — delete a memory entry by key.
 pub async fn forget_memory(workspace: &Path, args: Value) -> anyhow::Result<Value> {
-    let key = args["key"]
-        .as_str()
-        .ok_or_else(|| anyhow::anyhow!("forget_memory requires a 'key' string"))?
-        .to_string();
+    let args: ForgetMemoryArgs = serde_json::from_value(args)?;
+    let key = normalize_optional_key(args.key, "key")?
+        .ok_or_else(|| anyhow::anyhow!("forget_memory requires a 'key' string"))?;
+
+    if args.storage_mode == StorageMode::Curated {
+        let store = crate::memory::curated::CuratedStore::open(workspace)?;
+        let deleted = store.forget(args.target, &key)?;
+
+        return Ok(serde_json::json!({
+            "status": if deleted { "deleted" } else { "not_found" },
+            "storage_mode": "curated",
+            "target": args.target.as_str(),
+            "key": key,
+        }));
+    }
 
     let store = Arc::new(crate::memory::MemoryStore::open(workspace)?);
     let key2 = key.clone();
@@ -271,18 +393,65 @@ pub async fn forget_memory(workspace: &Path, args: Value) -> anyhow::Result<Valu
     }))
 }
 
+pub async fn curated_memory(workspace: &Path, args: Value) -> anyhow::Result<Value> {
+    let args: CuratedMemoryCompatArgs = serde_json::from_value(args)?;
+    let operation = args
+        .operation
+        .or(args.action)
+        .unwrap_or_else(|| "save".to_string())
+        .trim()
+        .to_ascii_lowercase();
+    let target = args.target.unwrap_or_default();
+
+    match operation.as_str() {
+        "save" | "set" | "add" => {
+            save_memory(
+                workspace,
+                serde_json::json!({
+                    "storage_mode": "curated",
+                    "target": target,
+                    "key": args.key,
+                    "value": args.value,
+                }),
+            )
+            .await
+        }
+        "recall" | "list" | "get" | "read" => {
+            recall_memory(
+                workspace,
+                serde_json::json!({
+                    "storage_mode": "curated",
+                    "target": target,
+                }),
+            )
+            .await
+        }
+        "forget" | "delete" | "remove" => {
+            forget_memory(
+                workspace,
+                serde_json::json!({
+                    "storage_mode": "curated",
+                    "target": target,
+                    "key": args.key,
+                }),
+            )
+            .await
+        }
+        other => anyhow::bail!("curated_memory: unsupported operation '{other}'"),
+    }
+}
+
 /// Register memory tools in the global tool registry.
 pub fn register() {
     register_tool(ToolMeta {
         name: "save_memory".into(),
-        description: "Save a piece of information to persistent memory. Survives across sessions."
-            .into(),
+        description: "Save memory. Default storage_mode is persistent SQLite memory; use storage_mode='curated' for always-in-prompt curated MEMORY.md / USER.md entries.".into(),
         args_schema: serde_json::json!({
             "type": "object",
             "properties": {
                 "key": {
                     "type": "string",
-                    "description": "Short identifier for this memory (e.g. 'user_timezone', 'project_goal')"
+                    "description": "Short identifier for this memory. Required for persistent storage; optional metadata for curated storage."
                 },
                 "value": {
                     "type": "string",
@@ -291,16 +460,27 @@ pub fn register() {
                 "tags": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "Optional tags for categorisation"
+                    "description": "Optional tags for categorisation in persistent storage"
+                },
+                "storage_mode": {
+                    "type": "string",
+                    "enum": ["persistent", "curated"],
+                    "description": "Storage backend. Defaults to 'persistent'. Use 'curated' to write to MEMORY.md or USER.md instead of memory.db."
+                },
+                "target": {
+                    "type": "string",
+                    "enum": ["memory", "user"],
+                    "description": "Curated target file. Defaults to 'memory'. Ignored for persistent storage."
                 }
             },
-            "required": ["key", "value"]
+            "required": ["value"],
+            "additionalProperties": false
         }),
     });
 
     register_tool(ToolMeta {
         name: "recall_memory".into(),
-        description: "Search persistent memory. Auto-detects embedding support: uses semantic (meaning-based) search when available, falls back to keyword search (FTS5/BM25). Override with mode parameter.".into(),
+        description: "Recall memory. Default storage_mode is persistent SQLite memory with text/semantic recall; use storage_mode='curated' to read curated MEMORY.md / USER.md entries.".into(),
         args_schema: serde_json::json!({
             "type": "object",
             "properties": {
@@ -320,23 +500,45 @@ pub fn register() {
                     "type": "string",
                     "enum": ["text", "semantic", "hybrid"],
                     "description": "Search mode: 'hybrid' (default, BM25 + vector fusion), 'semantic' (embedding only), or 'text' (keyword only)"
+                },
+                "storage_mode": {
+                    "type": "string",
+                    "enum": ["persistent", "curated"],
+                    "description": "Storage backend. Defaults to 'persistent'. Use 'curated' to read curated MEMORY.md or USER.md entries."
+                },
+                "target": {
+                    "type": "string",
+                    "enum": ["memory", "user"],
+                    "description": "Curated target file. Defaults to 'memory'. Ignored for persistent storage."
                 }
-            }
+            },
+            "additionalProperties": false
         }),
     });
 
     register_tool(ToolMeta {
         name: "forget_memory".into(),
-        description: "Delete a specific memory entry by key.".into(),
+        description: "Delete memory. Default storage_mode is persistent SQLite memory by key; use storage_mode='curated' to remove a curated MEMORY.md / USER.md entry.".into(),
         args_schema: serde_json::json!({
             "type": "object",
             "properties": {
                 "key": {
                     "type": "string",
                     "description": "The key of the memory entry to delete"
+                },
+                "storage_mode": {
+                    "type": "string",
+                    "enum": ["persistent", "curated"],
+                    "description": "Storage backend. Defaults to 'persistent'. Use 'curated' to remove from MEMORY.md or USER.md."
+                },
+                "target": {
+                    "type": "string",
+                    "enum": ["memory", "user"],
+                    "description": "Curated target file. Defaults to 'memory'. Ignored for persistent storage."
                 }
             },
-            "required": ["key"]
+            "required": ["key"],
+            "additionalProperties": false
         }),
     });
 }

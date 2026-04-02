@@ -387,6 +387,8 @@ impl CopilotProvider {
                         && f.get("function").is_some()
                     {
                         // Already in tools format — extract the inner function object.
+                        // Safe: we just verified f.get("function").is_some() above
+                        #[allow(clippy::unwrap_used)]
                         f.get("function").unwrap().clone()
                     } else {
                         // Bare format: {"name": .., "description": .., "parameters": ..}
@@ -676,6 +678,8 @@ impl CopilotProvider {
                     let func_obj = if f.get("type").and_then(|t| t.as_str()) == Some("function")
                         && f.get("function").is_some()
                     {
+                        // Safe: we just verified f.get("function").is_some() above
+                        #[allow(clippy::unwrap_used)]
                         f.get("function").unwrap().clone()
                     } else {
                         f.clone()
@@ -783,6 +787,8 @@ impl CopilotProvider {
                     // Prefer function calls over text.
                     if !func_calls.is_empty() {
                         if func_calls.len() == 1 {
+                            // Safe: we just verified func_calls.len() == 1
+                            #[allow(clippy::unwrap_used)]
                             let fc = func_calls.into_iter().next().unwrap();
                             debug!(name = %fc.name, "CopilotProvider/responses: got function_call");
                             return Ok((
@@ -1396,7 +1402,7 @@ fn to_anthropic_tool(f: &Value) -> Option<Value> {
     let func_obj = if f.get("type").and_then(|t| t.as_str()) == Some("function")
         && f.get("function").is_some()
     {
-        f.get("function").unwrap()
+        f.get("function")?
     } else {
         f
     };
