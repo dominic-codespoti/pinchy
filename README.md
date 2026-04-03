@@ -5,6 +5,78 @@ Connects to Discord, exposes a WebSocket + REST gateway, calls LLMs through
 pluggable providers, runs 30 built-in tools, and supports heartbeat, cron,
 skills, and persistent memory.
 
+## Installation
+
+### Quick Install (Recommended)
+
+Install the latest version with the official installer:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dominic-codespoti/pinchy/main/install.sh | bash
+```
+
+Or with wget:
+
+```bash
+wget -qO- https://raw.githubusercontent.com/dominic-codespoti/pinchy/main/install.sh | bash
+```
+
+The installer will:
+- Detect your platform (Linux/macOS, x86_64/ARM64)
+- Download the appropriate binary
+- Verify the SHA256 checksum
+- Install to `~/.local/bin` (creating the directory if needed)
+- Add `~/.local/bin` to your PATH if not present
+
+### Manual Installation
+
+Download the binary for your platform from the [latest release](https://github.com/dominic-codespoti/pinchy/releases/latest):
+
+| Platform | Binary | Checksum |
+|----------|--------|----------|
+| Linux x86_64 | [pinchy-linux-x86_64](https://github.com/dominic-codespoti/pinchy/releases/latest/download/pinchy-linux-x86_64) | [SHA256](https://github.com/dominic-codespoti/pinchy/releases/latest/download/pinchy-linux-x86_64.sha256) |
+| Linux ARM64 | [pinchy-linux-aarch64](https://github.com/dominic-codespoti/pinchy/releases/latest/download/pinchy-linux-aarch64) | [SHA256](https://github.com/dominic-codespoti/pinchy/releases/latest/download/pinchy-linux-aarch64.sha256) |
+| macOS Intel | [pinchy-macos-x86_64](https://github.com/dominic-codespoti/pinchy/releases/latest/download/pinchy-macos-x86_64) | [SHA256](https://github.com/dominic-codespoti/pinchy/releases/latest/download/pinchy-macos-x86_64.sha256) |
+| macOS Apple Silicon | [pinchy-macos-aarch64](https://github.com/dominic-codespoti/pinchy/releases/latest/download/pinchy-macos-aarch64) | [SHA256](https://github.com/dominic-codespoti/pinchy/releases/latest/download/pinchy-macos-aarch64.sha256) |
+
+**Manual installation steps:**
+
+```bash
+# 1. Download the binary (example for Linux x86_64)
+curl -LO https://github.com/dominic-codespoti/pinchy/releases/latest/download/pinchy-linux-x86_64
+
+# 2. Download the checksum
+curl -LO https://github.com/dominic-codespoti/pinchy/releases/latest/download/pinchy-linux-x86_64.sha256
+
+# 3. Verify the checksum
+sha256sum -c pinchy-linux-x86_64.sha256
+
+# 4. Make executable
+chmod +x pinchy-linux-x86_64
+
+# 5. Move to a directory in your PATH
+sudo mv pinchy-linux-x86_64 /usr/local/bin/pinchy
+
+# 6. Test
+pinchy --version
+```
+
+### Build from Source
+
+Requires [Rust](https://rustup.rs/) 1.70+:
+
+```bash
+# Clone the repository
+git clone https://github.com/dominic-codespoti/pinchy.git
+cd pinchy
+
+# Build release binary
+cargo build --release
+
+# The binary will be at target/release/pinchy
+cp target/release/pinchy ~/.local/bin/
+```
+
 ## Quick Start
 
 ```bash
@@ -230,14 +302,25 @@ cargo clippy          # Lint
 cargo test            # Run tests (21 integration test files)
 ```
 
-## CI
+## CI/CD
 
-GitHub Actions on every push/PR to `main`:
+Three workflows run on GitHub Actions:
 
-1. **Check** — `cargo fmt --check` + `cargo clippy`
-2. **Test** — `cargo test --lib`
-3. **Build** — Cross-platform release builds (x86_64 + aarch64 Linux, x86_64 + aarch64 macOS)
-4. **Release** — Auto-tag, GitHub Release with binaries, crates.io publish
+1. **CI** (`.github/workflows/ci.yml`) — On every push/PR to `main`:
+   - `cargo fmt --check` + `cargo clippy --no-default-features`
+   - `cargo test --no-default-features --lib`
+   - Auto-tag on main (patches version, creates git tag)
+
+2. **Build Binaries** (`.github/workflows/build-binaries.yml`) — On every push/PR to `main`:
+   - Cross-platform release builds (x86_64 + aarch64 Linux, x86_64 + aarch64 macOS)
+   - Artifacts uploaded for testing (not released)
+
+3. **Release** (`.github/workflows/release.yml`) — On version tags (`v*`):
+   - Creates optimized release binaries for all platforms
+   - Generates SHA256 checksums for all binaries
+   - Creates GitHub Release with auto-generated notes
+   - Uploads binaries as release assets
+   - Publishes to crates.io
 
 ## Systemd Service
 

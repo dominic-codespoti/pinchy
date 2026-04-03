@@ -1,0 +1,303 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+  PLAYWRIGHT_SKIP_INSTALL: 1
+
+permissions:
+  contents: write
+
+jobs:
+  # Extract version from tag for use in job names and outputs
+  version:
+    name: Extract Version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.version }}
+    steps:
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building release for version: $VERSION"
+
+  # Build optimized release binaries for all platforms
+  build:
+    name: Build ${{ matrix.name }} (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: Linux x86_64
+            binary_name: pinchy-linux-x86_64
+            cross: false
+          # Linux aarch64 (ARM64)
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            name: Linux ARM64
+            binary_name: pinchy-linux-aarch64
+            cross: true
+          # macOS x86_64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: macOS x86_64
+            binary_name: pinchy-macos-x86_64
+            cross: false
+          # macOS aarch64 (Apple Silicon)
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: macOS Apple Silicon
+            binary_name: pinchy-macos-aarch64
+            cross: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (for cross-compilation)
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Build release binary (cross)
+        if: matrix.cross
+        run: |
+          cross build --release --no-default-features --features vendored-openssl --target ${{ matrix.target }}
+          echo "Binary size before stripping:"
+          ls -lh target/${{ matrix.target }}/release/pinchy
+
+      - name: Build release binary (native)
+        if: ${{ !matrix.cross }}
+        run: |
+          cargo build --release --no-default-features --target ${{ matrix.target }}
+          echo "Binary size before stripping:"
+          ls -lh target/${{ matrix.target }}/release/pinchy
+
+      - name: Strip debug symbols (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          # strip is already configured in Cargo.toml release profile
+          # but we can run it again for extra safety on cross-compiled binaries
+          if command -v aarch64-linux-gnu-strip &> /dev/null && [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            aarch64-linux-gnu-strip target/${{ matrix.target }}/release/pinchy || true
+          elif command -v strip &> /dev/null && [ "${{ matrix.target }}" = "x86_64-unknown-linux-gnu" ]; then
+            strip target/${{ matrix.target }}/release/pinchy || true
+          fi
+          echo "Binary size after stripping:"
+          ls -lh target/${{ matrix.target }}/release/pinchy
+
+      - name: Strip debug symbols (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          # strip is already configured in Cargo.toml release profile
+          echo "Binary size after stripping:"
+          ls -lh target/${{ matrix.target }}/release/pinchy
+
+      - name: Rename binary for distribution
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/pinchy dist/${{ matrix.binary_name }}
+          chmod +x dist/${{ matrix.binary_name }}
+          echo "Created: dist/${{ matrix.binary_name }}"
+          ls -lh dist/
+
+      - name: Generate SHA256 checksum
+        run: |
+          cd dist
+          if command -v sha256sum &> /dev/null; then
+            sha256sum ${{ matrix.binary_name }} > ${{ matrix.binary_name }}.sha256
+          else
+            shasum -a 256 ${{ matrix.binary_name }} > ${{ matrix.binary_name }}.sha256
+          fi
+          echo "Checksum:"
+          cat ${{ matrix.binary_name }}.sha256
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary_name }}
+          path: dist/${{ matrix.binary_name }}
+          if-no-files-found: error
+
+      - name: Upload checksum artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary_name }}-sha256
+          path: dist/${{ matrix.binary_name }}.sha256
+          if-no-files-found: error
+
+  # Create GitHub Release and upload all assets
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [version, build]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for release notes
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: pinchy-*
+
+      - name: Organize artifacts
+        run: |
+          mkdir -p dist
+          for dir in artifacts/pinchy-*; do
+            if [ -d "$dir" ]; then
+              for file in "$dir"/*; do
+                if [ -f "$file" ]; then
+                  cp "$file" dist/
+                fi
+              done
+            fi
+          done
+          echo "Artifacts in dist/:"
+          ls -la dist/
+
+      - name: Generate combined checksums file
+        run: |
+          cd dist
+          cat *.sha256 > SHA256SUMS
+          echo ""
+          echo "All checksums:"
+          cat SHA256SUMS
+
+      - name: Build release notes
+        id: release_notes
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          
+          # Start with version header
+          echo "## Pinchy v${VERSION}" > release_notes.md
+          echo "" >> release_notes.md
+          
+          # Add binary checksums section
+          echo "## Binary Checksums (SHA256)" >> release_notes.md
+          echo '```' >> release_notes.md
+          cat dist/SHA256SUMS >> release_notes.md
+          echo '```' >> release_notes.md
+          echo "" >> release_notes.md
+          
+          # Add installation instructions
+          echo "## Installation" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "### Quick Install (Linux/macOS)" >> release_notes.md
+          echo '```bash' >> release_notes.md
+          echo "curl -fsSL https://get.pinchy.dev | bash" >> release_notes.md
+          echo '```' >> release_notes.md
+          echo "" >> release_notes.md
+          echo "### Manual Download" >> release_notes.md
+          echo "1. Download the appropriate binary for your platform" >> release_notes.md
+          echo "2. Verify the SHA256 checksum: \`sha256sum -c <binary>.sha256\`" >> release_notes.md
+          echo "3. Make executable: \`chmod +x pinchy-<platform>\`" >> release_notes.md
+          echo "4. Move to PATH: \`mv pinchy-<platform> /usr/local/bin/pinchy\`" >> release_notes.md
+          echo "" >> release_notes.md
+          
+          # Add changelog section
+          echo "## Changelog" >> release_notes.md
+          echo "" >> release_notes.md
+          
+          # Get commits since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            echo "Changes since $LAST_TAG:" >> release_notes.md
+            git log --pretty=format:"- %s (%h)" "$LAST_TAG"..HEAD >> release_notes.md || true
+          else
+            echo "Changes in this release:" >> release_notes.md
+            git log --pretty=format:"- %s (%h)" >> release_notes.md || true
+          fi
+          
+          echo "" >> release_notes.md
+          echo "## Artifacts" >> release_notes.md
+          echo "" >> release_notes.md
+          echo "| Platform | Binary | Checksum |" >> release_notes.md
+          echo "|---|---|---|" >> release_notes.md
+          
+          for binary in dist/pinchy-linux-x86_64 dist/pinchy-linux-aarch64 dist/pinchy-macos-x86_64 dist/pinchy-macos-aarch64; do
+            if [ -f "$binary" ]; then
+              name=$(basename "$binary")
+              echo "| ${{ needs.version.outputs.version }} | [$name](https://github.com/${{ github.repository }}/releases/download/v${{ needs.version.outputs.version }}/$name) | [$name.sha256](https://github.com/${{ github.repository }}/releases/download/v${{ needs.version.outputs.version }}/$name.sha256) |" >> release_notes.md
+            fi
+          done
+          
+          echo ""
+          echo "Generated release notes:"
+          cat release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          name: Pinchy v${{ needs.version.outputs.version }}
+          body_path: release_notes.md
+          generate_release_notes: true  # Also include auto-generated notes
+          files: |
+            dist/pinchy-linux-x86_64
+            dist/pinchy-linux-x86_64.sha256
+            dist/pinchy-linux-aarch64
+            dist/pinchy-linux-aarch64.sha256
+            dist/pinchy-macos-x86_64
+            dist/pinchy-macos-x86_64.sha256
+            dist/pinchy-macos-aarch64
+            dist/pinchy-macos-aarch64.sha256
+            dist/SHA256SUMS
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Publish to crates.io
+  publish:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: [version, release]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: Publish to crates.io
+        run: cargo publish --no-default-features --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          PLAYWRIGHT_SKIP_INSTALL: "1"

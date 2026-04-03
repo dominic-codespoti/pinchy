@@ -398,6 +398,36 @@ const AUTO_PLUCK_RULES: &[(&[&str], &[&str])] = &[
         &["delegate", "list_agents"],
     ),
     (&["update", "upgrade", "version"], &["self_update"]),
+    // Browser automation: surface browser tools when web/research keywords detected
+    (
+        &[
+            "browser",
+            "web",
+            "website",
+            "browse",
+            "url",
+            "http",
+            "page",
+            "screenshot",
+            "scrape",
+            "crawl",
+            "extract",
+            "form",
+            "fill",
+            "login",
+            "research",
+            "search",
+            "navigate",
+            "click",
+            "playwright",
+        ],
+        &[
+            "browser_research",
+            "browser_fill_form",
+            "browser_screenshot",
+            "browser_extract",
+        ],
+    ),
     (
         &[
             "message",
@@ -863,6 +893,10 @@ pub fn builtin_skill_names() -> &'static [&'static str] {
         "send_message",
         "self_update",
         "apply_patch",
+        "browser_research",
+        "browser_fill_form",
+        "browser_screenshot",
+        "browser_extract",
     ]
 }
 
@@ -886,6 +920,10 @@ pub fn init() {
     builtins::send_message::register();
     builtins::self_update::register();
     builtins::mcp::register();
+    builtins::browser_research::register();
+    builtins::browser_form::register();
+    builtins::browser_screenshot::register();
+    builtins::browser_extract::register();
 
     // Attach handlers to the built-in tools.
     register_handler(
@@ -1078,6 +1116,32 @@ pub fn init() {
         "mcp_call_tool",
         Arc::new(|args, _ws| Box::pin(async move { builtins::mcp::mcp_call_tool(args).await })),
     );
+    register_handler(
+        "browser_research",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::browser_research::browser_research(&ws, args).await })
+        }),
+    );
+    register_handler(
+        "browser_fill_form",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::browser_form::browser_fill_form(&ws, args).await })
+        }),
+    );
+    register_handler(
+        "browser_screenshot",
+        Arc::new(|args, ws| {
+            Box::pin(
+                async move { builtins::browser_screenshot::browser_screenshot(&ws, args).await },
+            )
+        }),
+    );
+    register_handler(
+        "browser_extract",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::browser_extract::browser_extract(&ws, args).await })
+        }),
+    );
 
     // Mark less-common tools as deferred (auto-injected when relevant
     // keywords appear in the user's message via auto_pluck_deferred).
@@ -1105,6 +1169,10 @@ pub fn init() {
             "mcp_list_servers",
             "mcp_list_tools",
             "mcp_call_tool",
+            "browser_research",
+            "browser_fill_form",
+            "browser_screenshot",
+            "browser_extract",
         ];
         let mut reg = REGISTRY.lock().expect("tool registry poisoned");
         for entry in reg.iter_mut() {

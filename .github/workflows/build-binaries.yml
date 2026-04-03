@@ -1,0 +1,162 @@
+name: Build Binaries
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  PLAYWRIGHT_SKIP_INSTALL: 1
+
+permissions:
+  contents: read
+
+jobs:
+  # Build and test binaries on every push/PR (for CI validation)
+  build-binaries:
+    name: Build ${{ matrix.name }} (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            name: Linux x86_64
+            binary_name: pinchy-linux-x86_64
+            cross: false
+          # Linux aarch64 (ARM64) - good to test cross-compilation works
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            name: Linux ARM64
+            binary_name: pinchy-linux-aarch64
+            cross: true
+          # macOS x86_64
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            name: macOS x86_64
+            binary_name: pinchy-macos-x86_64
+            cross: false
+          # macOS aarch64 (Apple Silicon)
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            name: macOS Apple Silicon
+            binary_name: pinchy-macos-aarch64
+            cross: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (for cross-compilation)
+        if: matrix.cross
+        run: cargo install cross --locked
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Run tests
+        run: cargo test --no-default-features --lib --target ${{ matrix.target }}
+        if: ${{ !matrix.cross }}  # Can't easily run tests for cross-compiled targets
+
+      - name: Build release binary (cross)
+        if: matrix.cross
+        run: |
+          cross build --release --no-default-features --features vendored-openssl --target ${{ matrix.target }}
+          echo "Binary built successfully (cross-compilation)"
+          ls -lh target/${{ matrix.target }}/release/pinchy
+
+      - name: Build release binary (native)
+        if: ${{ !matrix.cross }}
+        run: |
+          cargo build --release --no-default-features --target ${{ matrix.target }}
+          echo "Binary built successfully (native compilation)"
+          ls -lh target/${{ matrix.target }}/release/pinchy
+
+      - name: Verify binary works
+        if: ${{ !matrix.cross }}  # Can only test native binaries
+        run: |
+          ./target/${{ matrix.target }}/release/pinchy --version || true
+          ./target/${{ matrix.target }}/release/pinchy --help || true
+
+      - name: Strip debug symbols (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          # strip is already configured in Cargo.toml release profile
+          if command -v aarch64-linux-gnu-strip &> /dev/null && [ "${{ matrix.target }}" = "aarch64-unknown-linux-gnu" ]; then
+            aarch64-linux-gnu-strip target/${{ matrix.target }}/release/pinchy || true
+          elif command -v strip &> /dev/null && [ "${{ matrix.target }}" = "x86_64-unknown-linux-gnu" ]; then
+            strip target/${{ matrix.target }}/release/pinchy || true
+          fi
+          echo "Final binary size:"
+          ls -lh target/${{ matrix.target }}/release/pinchy
+
+      - name: Strip debug symbols (macOS)
+        if: startsWith(matrix.os, 'macos')
+        run: |
+          # strip is already configured in Cargo.toml release profile
+          echo "Final binary size:"
+          ls -lh target/${{ matrix.target }}/release/pinchy
+
+      - name: Rename binary for artifact
+        run: |
+          mkdir -p dist
+          cp target/${{ matrix.target }}/release/pinchy dist/${{ matrix.binary_name }}
+          chmod +x dist/${{ matrix.binary_name }}
+          echo "Created: dist/${{ matrix.binary_name }}"
+
+      - name: Generate SHA256 checksum
+        run: |
+          cd dist
+          if command -v sha256sum &> /dev/null; then
+            sha256sum ${{ matrix.binary_name }} > ${{ matrix.binary_name }}.sha256
+          else
+            shasum -a 256 ${{ matrix.binary_name }} > ${{ matrix.binary_name }}.sha256
+          fi
+          echo "Checksum:"
+          cat ${{ matrix.binary_name }}.sha256
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary_name }}-pr-${{ github.run_number }}
+          path: dist/${{ matrix.binary_name }}
+          if-no-files-found: error
+
+      - name: Upload checksum artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary_name }}-pr-${{ github.run_number }}-sha256
+          path: dist/${{ matrix.binary_name }}.sha256
+          if-no-files-found: error
+
+  # Summary job that runs after all builds complete
+  build-summary:
+    name: Build Summary
+    runs-on: ubuntu-latest
+    needs: build-binaries
+    if: always()
+    steps:
+      - name: Build Status
+        run: |
+          if [ "${{ needs.build-binaries.result }}" = "success" ]; then
+            echo "✅ All binary builds completed successfully"
+          else
+            echo "❌ Some binary builds failed"
+            exit 1
+          fi

@@ -6,6 +6,10 @@
 
 pub mod agent;
 pub mod apply_patch;
+pub mod browser_extract;
+pub mod browser_form;
+pub mod browser_research;
+pub mod browser_screenshot;
 pub mod cron;
 pub mod delegate;
 pub mod edit_file;
