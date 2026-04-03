@@ -1,30 +1,56 @@
+'use client';
+
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { useEffect } from 'react';
+import { STALE_TIME } from '@/lib/query-config';
+import { MutationOptions } from '@/shared/types/mutation';
 import { Agent } from '@/features/agents/types';
 import { getAgentSessions, getAllSessions, deleteSession } from './api';
 import { Session } from './types';
 
-interface MutationOptions<TData = unknown, TError = Error> {
-  onSuccess?: (data: TData) => void;
-  onError?: (error: TError) => void;
+export interface UseAgentSessionsResult {
+  data: Session[] | undefined;
+  isLoading: boolean;
+  error: Error | null;
 }
 
-export function useAgentSessions(agentId: string) {
-  return useQuery<Session[], Error>({
+export function useAgentSessions(agentId: string): UseAgentSessionsResult {
+  const { data, isLoading, error } = useQuery<Session[], Error>({
     queryKey: ['agents', agentId, 'sessions'],
     queryFn: () => getAgentSessions(agentId),
-    staleTime: 5000,
+    staleTime: STALE_TIME.SHORT,
     enabled: !!agentId,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load sessions: ${error.message}`);
+    }
+  }, [error]);
+
+  return {
+    data,
+    isLoading,
+    error: error || null,
+  };
 }
 
 export function useAllSessions(agents: Agent[]) {
-  return useQuery<Session[], Error>({
+  const { data, isLoading, error } = useQuery<Session[], Error>({
     queryKey: ['sessions', 'all', agents.map(a => a.id)],
     queryFn: () => getAllSessions(agents),
-    staleTime: 5000,
+    staleTime: STALE_TIME.SHORT,
     enabled: agents.length > 0,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load all sessions: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
 }
 
 interface DeleteSessionVariables {

@@ -12,9 +12,15 @@ export { useAgent, type UseAgentResult } from './use-agent';
 export { useAgents, type UseAgentsResult } from './use-agents';
 export { useAgentFile, type UseAgentFileResult } from './use-agent-file';
 export { useAgentFiles, type UseAgentFilesResult } from './use-agent-files';
-export { useAgentMemories, type UseAgentMemoriesResult } from './use-agent-memories';
-export { useAgentSessions, type UseAgentSessionsResult } from './use-agent-sessions';
-export { useAgentHeartbeat, type UseAgentHeartbeatResult } from './use-agent-heartbeat';
+export { useAgentSessions, type UseAgentSessionsResult } from '@/features/sessions/hooks';
+
+// Memory hooks - re-exported from memories feature
+export {
+  useAgentMemories,
+  useSearchMemories,
+  useAddMemory,
+  useDeleteMemory,
+} from '@/features/memories/hooks';
 
 // ============================================================================
 // Mutation Hooks (TanStack Query)
@@ -25,7 +31,6 @@ export { useUpdateAgent, type UseUpdateAgentResult } from './use-update-agent';
 export { useDeleteAgent, type UseDeleteAgentResult } from './use-delete-agent';
 export { useCloneAgent, type UseCloneAgentResult } from './use-clone-agent';
 export { useSaveAgentFile, type UseSaveAgentFileResult } from './use-save-agent-file';
-export { useDeleteMemory, type UseDeleteMemoryResult } from './use-delete-memory';
 export { useTestAgent, type UseTestAgentResult } from './use-test-agent';
 
 // ============================================================================
@@ -47,23 +52,12 @@ export {
 
 export {
   useFilteredAgents,
-  useFilteredAgentsFromStore,
-  useGroupedAgents,
   type UseFilteredAgentsOptions,
   type UseFilteredAgentsResult,
-  type GroupedAgents,
-  type UseGroupedAgentsResult,
 } from './use-filtered-agents';
 
 export {
   useAgentStats,
-  useAgentCount,
-  useActiveAgentCount,
-  useAgentWithHeartbeatCount,
-  useAgentProviderStats,
-  useAgentStatusDistribution,
   type UseAgentStatsOptions,
   type UseAgentStatsResult,
-  type ProviderStat,
-  type StatusDistribution,
 } from './use-agent-stats';

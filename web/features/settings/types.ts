@@ -3,6 +3,10 @@
  * Domain-specific types for the settings module
  */
 
+// Re-export ModelInfo from the central schema
+import type { ModelInfo } from '@/lib/validation/schemas';
+export type { ModelInfo };
+
 // ============================================================================
 // Auth Prompt Types (for OAuth dialog)
 // ============================================================================
@@ -83,32 +87,14 @@ export interface ModelsDevProvider {
   id: string;
   name: string;
   env: string[];
-  api?: string;
-  doc?: string;
+  api?: string | null;
+  doc?: string | null;
   models: ModelsDevModel[];
 }
 
 // ============================================================================
 // Model Configuration Types
 // ============================================================================
-
-export interface ModelInfo {
-  id: string;
-  name: string;
-  provider: string;
-  description?: string | null;
-  input_price?: number | null;
-  output_price?: number | null;
-  context_window?: number | null;
-  max_output?: number | null;
-  tool_call?: boolean;
-  reasoning?: boolean;
-  attachment?: boolean;
-  family?: string | null;
-  cache_read_price?: number | null;
-  cache_write_price?: number | null;
-  modalities?: string[] | null;
-}
 
 export interface ProviderConfig {
   id: string;
@@ -155,6 +141,7 @@ export interface ProviderTestResult {
 
 export interface ProviderStatusItem {
   id: string;
+  name: string;
   configured: boolean;
   method?: string;
   tested?: boolean;

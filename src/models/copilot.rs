@@ -890,6 +890,28 @@ impl CopilotProvider {
             .iter()
             .filter_map(|m| {
                 let id = m.get("id")?.as_str()?.to_string();
+
+                // Skip disabled models - check multiple possible field patterns
+                // The Copilot API may indicate disabled models via:
+                // - "state": "disabled" (string field)
+                // - "enabled": false (boolean field)
+                // - "disabled": true (boolean field)
+                let is_disabled = m
+                    .get("state")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s == "disabled")
+                    .unwrap_or(false)
+                    || m.get("enabled")
+                        .and_then(|v| v.as_bool())
+                        .map(|b| !b)
+                        .unwrap_or(false)
+                    || m.get("disabled").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                if is_disabled {
+                    debug!(model_id = %id, "skipping disabled model");
+                    return None;
+                }
+
                 let name = m
                     .get("name")
                     .and_then(|v| v.as_str())
@@ -2410,5 +2432,89 @@ mod tests {
             }
             (other, _) => panic!("expected FunctionCall, got: {other:?}"),
         }
+    }
+
+    // -------------------------------------------------------------------
+    // Disabled model filtering tests
+    // -------------------------------------------------------------------
+
+    /// Test that fetch_models_from_api filters out disabled models
+    /// based on state, enabled, or disabled fields.
+    #[tokio::test(flavor = "current_thread")]
+    async fn fetch_models_from_api_filters_disabled_models() {
+        let mock_server = wiremock::MockServer::start().await;
+
+        // Mock the /models endpoint with a mix of enabled and disabled models
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/models"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "data": [
+                    {
+                        "id": "gpt-4o",
+                        "name": "GPT-4o",
+                        "vendor": "OpenAI",
+                        "capabilities": { "type": "chat" }
+                    },
+                    {
+                        "id": "claude-opus-4",
+                        "name": "Claude Opus 4",
+                        "vendor": "Anthropic",
+                        "state": "disabled",
+                        "capabilities": { "type": "chat" }
+                    },
+                    {
+                        "id": "claude-sonnet-4",
+                        "name": "Claude Sonnet 4",
+                        "vendor": "Anthropic",
+                        "enabled": false,
+                        "capabilities": { "type": "chat" }
+                    },
+                    {
+                        "id": "claude-haiku-4",
+                        "name": "Claude Haiku 4",
+                        "vendor": "Anthropic",
+                        "disabled": true,
+                        "capabilities": { "type": "chat" }
+                    },
+                    {
+                        "id": "gpt-4o-mini",
+                        "name": "GPT-4o Mini",
+                        "vendor": "OpenAI",
+                        "capabilities": { "type": "chat" }
+                    }
+                ]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let provider = with_test_token(&mock_server.uri(), "test-bearer");
+        let models = provider.fetch_models_from_api().await.unwrap();
+
+        // Should only have the 2 enabled models (gpt-4o and gpt-4o-mini)
+        assert_eq!(
+            models.len(),
+            2,
+            "expected 2 enabled models, got: {:?}",
+            models
+        );
+
+        let model_ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        assert!(model_ids.contains(&"gpt-4o"), "gpt-4o should be included");
+        assert!(
+            model_ids.contains(&"gpt-4o-mini"),
+            "gpt-4o-mini should be included"
+        );
+        assert!(
+            !model_ids.contains(&"claude-opus-4"),
+            "claude-opus-4 (state=disabled) should be filtered"
+        );
+        assert!(
+            !model_ids.contains(&"claude-sonnet-4"),
+            "claude-sonnet-4 (enabled=false) should be filtered"
+        );
+        assert!(
+            !model_ids.contains(&"claude-haiku-4"),
+            "claude-haiku-4 (disabled=true) should be filtered"
+        );
     }
 }

@@ -193,9 +193,9 @@ export const ModelInfoSchema = z.object({
   output_price: z.number().nullable().optional(),
   context_window: z.number().nullable().optional(),
   max_output: z.number().nullable().optional(),
-  tool_call: z.boolean().default(false),
-  reasoning: z.boolean().default(false),
-  attachment: z.boolean().default(false),
+  tool_call: z.boolean().optional(),
+  reasoning: z.boolean().optional(),
+  attachment: z.boolean().optional(),
   family: z.string().nullable().optional(),
   cache_read_price: z.number().nullable().optional(),
   cache_write_price: z.number().nullable().optional(),
@@ -263,8 +263,66 @@ export const TestMessageResponseSchema = z.object({
 });
 
 // ============================================================================
-// Export inferred types
+// Webhook Schemas
 // ============================================================================
+
+export const WebhookConfigSchema = z.object({
+  enabled: z.boolean(),
+  secret: z.string().nullable().optional(),
+  event_types: z.array(z.string()).default([]),
+  url: z.string(),
+});
+
+export const WebhookConfigResponseSchema = z.object({
+  agent_id: z.string(),
+  enabled: z.boolean(),
+  secret: z.string().nullable().optional(),
+  event_types: z.array(z.string()).default([]),
+  url: z.string(),
+});
+
+export const WebhookDeliverySchema = z.object({
+  id: z.string(),
+  timestamp: z.number(),
+  event_type: z.string(),
+  status: z.string(),
+  status_code: z.number().nullable().optional(),
+  error: z.string().nullable().optional(),
+  duration_ms: z.number().nullable().optional(),
+  payload_preview: z.string().nullable().optional(),
+});
+
+export const WebhookDeliveriesResponseSchema = z.object({
+  agent_id: z.string(),
+  deliveries: z.array(WebhookDeliverySchema),
+});
+
+export const WebhookTestResponseSchema = z.object({
+  success: z.boolean(),
+  message: z.string(),
+  delivery_id: z.string().nullable().optional(),
+});
+
+// ============================================================================
+// Usage/Analytics Schemas
+// ============================================================================
+
+export const UsageBucketSchema = z.object({
+  day: z.string(),
+  agent: z.string(),
+  model: z.string(),
+  turns: z.number(),
+  prompt_tokens: z.number(),
+  completion_tokens: z.number(),
+  total_tokens: z.number(),
+  estimated_cost_usd: z.number(),
+});
+
+export const UsageApiResponseSchema = z.object({
+  usage: z.array(UsageBucketSchema),
+  total_cost_usd: z.number(),
+  total_turns: z.number(),
+});
 
 export type Agent = z.infer<typeof AgentSchema>;
 export type RawAgent = z.infer<typeof RawAgentSchema>;
@@ -287,3 +345,10 @@ export type CopilotAuthSession = z.infer<typeof CopilotAuthSessionSchema>;
 export type ApiKeyAuthResponse = z.infer<typeof ApiKeyAuthResponseSchema>;
 export type CopilotPollResponse = z.infer<typeof CopilotPollResponseSchema>;
 export type TestMessageResponse = z.infer<typeof TestMessageResponseSchema>;
+export type WebhookConfig = z.infer<typeof WebhookConfigSchema>;
+export type WebhookConfigResponse = z.infer<typeof WebhookConfigResponseSchema>;
+export type WebhookDelivery = z.infer<typeof WebhookDeliverySchema>;
+export type WebhookDeliveriesResponse = z.infer<typeof WebhookDeliveriesResponseSchema>;
+export type WebhookTestResponse = z.infer<typeof WebhookTestResponseSchema>;
+export type UsageBucket = z.infer<typeof UsageBucketSchema>;
+export type UsageApiResponse = z.infer<typeof UsageApiResponseSchema>;

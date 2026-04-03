@@ -14,17 +14,20 @@ import {
   Pie,
   Cell,
 } from 'recharts';
-import { ResponseTimeDataPoint, SummaryMetrics } from '../types';
-import { modelUsageData } from '../utils';
+import { ResponseTimeDataPoint, SummaryMetrics, ModelUsage } from '../types';
 import { ChartTooltip } from './chart-tooltip';
 
 interface PerformanceTabProps {
   responseTimeData: ResponseTimeDataPoint[];
   summaryMetrics: SummaryMetrics;
+  modelUsageData: ModelUsage[];
   loading: boolean;
 }
 
-export function PerformanceTab({ responseTimeData, summaryMetrics, loading }: PerformanceTabProps) {
+export function PerformanceTab({ responseTimeData, summaryMetrics, modelUsageData, loading }: PerformanceTabProps) {
+  // Show empty state when no model data available
+  const hasModelData = modelUsageData.length > 0;
+  const displayModelData = hasModelData ? modelUsageData : [];
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card>
@@ -121,12 +124,16 @@ export function PerformanceTab({ responseTimeData, summaryMetrics, loading }: Pe
         <CardContent>
           {loading ? (
             <Skeleton className="h-[250px] w-full" />
+          ) : !hasModelData ? (
+            <div className="flex h-[200px] items-center justify-center">
+              <p className="text-sm text-muted-foreground">No model usage data available</p>
+            </div>
           ) : (
             <div className="flex flex-col items-center">
               <ResponsiveContainer width="100%" height={200}>
                 <PieChart>
                   <Pie
-                    data={modelUsageData}
+                    data={displayModelData}
                     cx="50%"
                     cy="50%"
                     innerRadius={60}
@@ -134,7 +141,7 @@ export function PerformanceTab({ responseTimeData, summaryMetrics, loading }: Pe
                     paddingAngle={5}
                     dataKey="value"
                   >
-                    {modelUsageData.map((entry, index) => (
+                    {displayModelData.map((entry, index) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
@@ -153,7 +160,7 @@ export function PerformanceTab({ responseTimeData, summaryMetrics, loading }: Pe
                 </PieChart>
               </ResponsiveContainer>
               <div className="flex flex-wrap justify-center gap-3 mt-4">
-                {modelUsageData.map((model) => (
+                {displayModelData.map((model) => (
                   <div key={model.name} className="flex items-center gap-1.5">
                     <div
                       className="w-2.5 h-2.5 rounded-full"

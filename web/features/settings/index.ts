@@ -4,8 +4,8 @@
  */
 
 // Types
+export type { ModelInfo } from '@/lib/validation/schemas';
 export type {
-  ModelInfo,
   ProviderConfig,
   ModelsApiResponse,
   ProviderStatus,

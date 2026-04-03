@@ -1,26 +1,68 @@
+'use client';
+
 /**
  * Logs feature React Query hooks
  */
 
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getAgentLogs, getSystemLogs } from './api';
+import { toast } from 'sonner';
+import { STALE_TIME, REFETCH_INTERVAL } from '@/lib/query-config';
+import { getAgentLogs, getSystemLogs, getRecentSystemLogs } from './api';
 import { LogEntry } from '@/shared/types/common';
 
 export function useAgentLogs(agentId: string, limit?: number) {
-  return useQuery<LogEntry[], Error>({
+  const { data, isLoading, error } = useQuery<LogEntry[], Error>({
     queryKey: ['agents', agentId, 'logs', limit],
     queryFn: () => getAgentLogs(agentId, limit),
-    staleTime: 5000,
+    staleTime: STALE_TIME.SHORT,
     enabled: !!agentId,
-    refetchInterval: 5000,
+    refetchInterval: STALE_TIME.SHORT,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load agent logs: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
 }
 
 export function useSystemLogs(limit?: number) {
-  return useQuery<LogEntry[], Error>({
+  const { data, isLoading, error } = useQuery<LogEntry[], Error>({
     queryKey: ['logs', 'system', limit],
     queryFn: () => getSystemLogs(limit),
-    staleTime: 5000,
-    refetchInterval: 5000,
+    staleTime: STALE_TIME.SHORT,
+    refetchInterval: STALE_TIME.SHORT,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load system logs: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
+}
+
+/**
+ * Hook for real-time recent logs from in-memory buffer.
+ * Faster but logs are lost on server restart.
+ */
+export function useRecentSystemLogs(limit?: number) {
+  const { data, isLoading, error } = useQuery<LogEntry[], Error>({
+    queryKey: ['logs', 'recent', limit],
+    queryFn: () => getRecentSystemLogs(limit),
+    staleTime: STALE_TIME.REALTIME,
+    refetchInterval: REFETCH_INTERVAL.REALTIME,
+  });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load recent logs: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
 }

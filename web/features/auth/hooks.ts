@@ -1,9 +1,13 @@
+'use client';
+
 /**
  * Auth feature hooks
  */
 
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { STALE_TIME } from '@/lib/query-config';
 import { startChatGptAuth, logoutChatGpt, getChatGptAuthStatus, authenticateWithApiKey, startCopilotAuth, pollCopilotAuth } from './api';
 import { ChatGptAuthSession, ChatGptAuthStatus } from './types';
 
@@ -11,11 +15,19 @@ const AUTH_QUERY_KEY = ['auth', 'chatgpt'];
 const COPILOT_AUTH_QUERY_KEY = ['auth', 'copilot'];
 
 export function useChatGptAuthStatus() {
-  return useQuery<ChatGptAuthStatus, Error>({
+  const { data, isLoading, error } = useQuery<ChatGptAuthStatus, Error>({
     queryKey: AUTH_QUERY_KEY,
     queryFn: getChatGptAuthStatus,
-    staleTime: 30000,
+    staleTime: STALE_TIME.NORMAL,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load auth status: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
 }
 
 export function useStartChatGptAuth() {

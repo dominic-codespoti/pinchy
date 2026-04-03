@@ -24,27 +24,13 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, Pencil, Save, Bot } from 'lucide-react';
 import { Agent } from '../types';
+import { useAvailableModels, useProvidersStatus } from '@/features/settings';
 
 interface EditAgentSheetProps {
   agent: Agent;
   onSave?: (agentId: string, data: Partial<Agent>) => Promise<void>;
   trigger?: React.ReactNode;
 }
-
-const MODEL_OPTIONS = [
-  { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'gpt-4', label: 'GPT-4' },
-  { value: 'claude-sonnet-4', label: 'Claude Sonnet 4' },
-  { value: 'claude-opus', label: 'Claude Opus' },
-  { value: 'claude-haiku', label: 'Claude Haiku' },
-];
-
-const PROVIDER_OPTIONS = [
-  { value: 'copilot', label: 'GitHub Copilot' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'azure', label: 'Azure OpenAI' },
-];
 
 export function EditAgentSheet({ agent, onSave, trigger }: EditAgentSheetProps) {
   const [open, setOpen] = useState(false);
@@ -55,6 +41,16 @@ export function EditAgentSheet({ agent, onSave, trigger }: EditAgentSheetProps) 
     provider: agent.config.provider,
     heartbeatInterval: agent.heartbeatInterval || 60,
   });
+
+  const { data: models, isLoading: modelsLoading } = useAvailableModels();
+  const { data: providers, isLoading: providersLoading } = useProvidersStatus();
+
+  // Build dynamic options
+  const modelOptions = models?.map((m) => ({ value: m.id, label: m.name })) || [];
+  const providerOptions =
+    providers
+      ?.filter((p) => p.configured)
+      ?.map((p) => ({ value: p.id, label: p.name || p.id })) || [];
 
   // Reset form when agent changes or sheet opens
   useEffect(() => {
@@ -129,16 +125,23 @@ export function EditAgentSheet({ agent, onSave, trigger }: EditAgentSheetProps) 
               <Select
                 value={formData.provider}
                 onValueChange={(v) => handleChange('provider', v)}
+                disabled={providersLoading}
               >
                 <SelectTrigger id="edit-provider">
-                  <SelectValue />
+                  <SelectValue placeholder={providersLoading ? 'Loading...' : 'Select provider'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {PROVIDER_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                  {providerOptions.length === 0 ? (
+                    <SelectItem value="__empty__" disabled>
+                      No configured providers
                     </SelectItem>
-                  ))}
+                  ) : (
+                    providerOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -148,16 +151,23 @@ export function EditAgentSheet({ agent, onSave, trigger }: EditAgentSheetProps) 
               <Select
                 value={formData.model}
                 onValueChange={(v) => handleChange('model', v)}
+                disabled={modelsLoading}
               >
                 <SelectTrigger id="edit-model">
-                  <SelectValue placeholder="Select model" />
+                  <SelectValue placeholder={modelsLoading ? 'Loading...' : 'Select model'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {MODEL_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                  {modelOptions.length === 0 ? (
+                    <SelectItem value="__empty__" disabled>
+                      No models available
                     </SelectItem>
-                  ))}
+                  ) : (
+                    modelOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>

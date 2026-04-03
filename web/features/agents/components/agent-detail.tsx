@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Bot, Heart, Clock, Zap, Settings, FileText, Brain, MessageSquare } from 'lucide-react';
+import { Bot, Heart, Clock, Zap, Settings, FileText, Brain, MessageSquare, Receipt, Webhook } from 'lucide-react';
 import { useAgent } from '../hooks/use-agent';
 import { Agent } from '../types';
 import { AgentOverviewTab } from './agent-overview-tab';
@@ -13,9 +13,27 @@ import { AgentMemoryTab } from './agent-memory-tab';
 import { AgentSessionsTab } from './agent-sessions-tab';
 import { AgentTestTab } from './agent-test-tab';
 import { AgentSettingsTab } from './agent-settings-tab';
+import { AgentWebhookTab } from './agent-webhook-tab';
+import { ReceiptsTab } from '@/features/receipts/components/receipts-tab';
 
 interface AgentDetailProps {
   id: string;
+}
+
+async function sendTestMessage(agentId: string, message: string): Promise<string> {
+  const response = await fetch(`/api/agents/${agentId}/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message }),
+  });
+
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
+    throw new Error(error.error || `HTTP ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.response || data.reply || 'No response';
 }
 
 function getStatusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
@@ -124,6 +142,10 @@ export function AgentDetail({ id }: AgentDetailProps) {
             <Clock className="h-4 w-4" />
             Sessions
           </TabsTrigger>
+          <TabsTrigger value="receipts" className="gap-2">
+            <Receipt className="h-4 w-4" />
+            Receipts
+          </TabsTrigger>
           <TabsTrigger value="test" className="gap-2">
             <MessageSquare className="h-4 w-4" />
             Test
@@ -131,6 +153,10 @@ export function AgentDetail({ id }: AgentDetailProps) {
           <TabsTrigger value="settings" className="gap-2">
             <Settings className="h-4 w-4" />
             Settings
+          </TabsTrigger>
+          <TabsTrigger value="webhooks" className="gap-2">
+            <Webhook className="h-4 w-4" />
+            Webhooks
           </TabsTrigger>
         </TabsList>
 
@@ -150,12 +176,23 @@ export function AgentDetail({ id }: AgentDetailProps) {
           <AgentSessionsTab agent={agent} />
         </TabsContent>
 
+        <TabsContent value="receipts" className="mt-0">
+          <ReceiptsTab agentId={agent.id} />
+        </TabsContent>
+
         <TabsContent value="test" className="mt-0">
-          <AgentTestTab agent={agent} />
+          <AgentTestTab 
+            agent={agent} 
+            onSendMessage={(msg) => sendTestMessage(agent.id, msg)}
+          />
         </TabsContent>
 
         <TabsContent value="settings" className="mt-0">
           <AgentSettingsTab agent={agent} />
+        </TabsContent>
+
+        <TabsContent value="webhooks" className="mt-0">
+          <AgentWebhookTab agentId={agent.id} />
         </TabsContent>
       </Tabs>
     </div>

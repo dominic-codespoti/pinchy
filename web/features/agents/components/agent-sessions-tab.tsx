@@ -4,39 +4,17 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { Clock, MessageSquare, ExternalLink } from 'lucide-react';
+import { Clock, MessageSquare, ExternalLink, Receipt } from 'lucide-react';
 import Link from 'next/link';
 import { Agent } from '../types';
-
-// Placeholder data - in production this would come from an API
-const MOCK_SESSIONS = [
-  {
-    id: 'session-1',
-    title: 'Code review discussion',
-    messageCount: 12,
-    createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'session-2',
-    title: 'Architecture planning',
-    messageCount: 24,
-    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-  },
-  {
-    id: 'session-3',
-    title: 'Bug fix session',
-    messageCount: 8,
-    createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
-  },
-];
+import { useAgentSessions } from '@/features/sessions/hooks';
 
 interface AgentSessionsTabProps {
   agent: Agent;
 }
 
 export function AgentSessionsTab({ agent }: AgentSessionsTabProps) {
-  const isLoading = false; // Would be from useAgentSessions hook
-  const sessions = MOCK_SESSIONS;
+  const { data: sessions, isLoading } = useAgentSessions(agent.id);
 
   if (isLoading) {
     return (
@@ -63,7 +41,7 @@ export function AgentSessionsTab({ agent }: AgentSessionsTabProps) {
                 <CardTitle>Sessions</CardTitle>
               </div>
               <CardDescription>
-                {sessions.length} conversation sessions with this agent
+                {sessions?.length ?? 0} conversation sessions with this agent
               </CardDescription>
             </div>
             <Link href={`/chat?agent=${agent.id}`}>
@@ -75,7 +53,7 @@ export function AgentSessionsTab({ agent }: AgentSessionsTabProps) {
           </div>
         </CardHeader>
         <CardContent>
-          {sessions.length === 0 ? (
+          {(sessions?.length ?? 0) === 0 ? (
             <div className="rounded-lg border border-dashed p-8 text-center">
               <MessageSquare className="mx-auto mb-4 h-8 w-8 text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
@@ -84,7 +62,7 @@ export function AgentSessionsTab({ agent }: AgentSessionsTabProps) {
             </div>
           ) : (
             <div className="space-y-3">
-              {sessions.map((session) => (
+              {sessions?.map((session) => (
                 <div
                   key={session.id}
                   className="flex items-center justify-between rounded-lg border p-4 hover:bg-muted/50 transition-colors"
@@ -99,12 +77,20 @@ export function AgentSessionsTab({ agent }: AgentSessionsTabProps) {
                       <Badge variant="secondary">{session.messageCount} messages</Badge>
                     </div>
                   </div>
-                  <Link href={`/chat?agent=${agent.id}&session=${session.id}`}>
-                    <Button variant="ghost" size="sm">
-                      <ExternalLink className="mr-2 h-4 w-4" />
-                      Open
-                    </Button>
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link href={`/agents/${agent.id}?tab=receipts&session=${session.id}`}>
+                      <Button variant="ghost" size="sm">
+                        <Receipt className="mr-2 h-4 w-4" />
+                        Receipts
+                      </Button>
+                    </Link>
+                    <Link href={`/chat?agent=${agent.id}&session=${session.id}`}>
+                      <Button variant="ghost" size="sm">
+                        <ExternalLink className="mr-2 h-4 w-4" />
+                        Open
+                      </Button>
+                    </Link>
+                  </div>
                 </div>
               ))}
             </div>

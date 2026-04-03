@@ -16,22 +16,14 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/shared/lib/utils';
 import { useQuery } from '@tanstack/react-query';
-
-// Minimal Session type for dashboard
-interface DashboardSession {
-  id: string;
-  agentId: string;
-  title?: string;
-  messageCount: number;
-  updatedAt: string;
-}
+import { getDashboardSessions, DashboardSession } from '../api';
 
 interface ActivityFeedProps extends React.HTMLAttributes<HTMLDivElement> {
   loading?: boolean;
 }
 
-function getRelativeTime(dateString: string): string {
-  const date = new Date(dateString);
+function getRelativeTime(timestamp: number): string {
+  const date = new Date(timestamp);
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();
   const diffSecs = Math.floor(diffMs / 1000);
@@ -49,14 +41,7 @@ function getRelativeTime(dateString: string): string {
 function useDashboardSessions() {
   return useQuery<DashboardSession[], Error>({
     queryKey: ['dashboard', 'sessions'],
-    queryFn: async () => {
-      // Backend does not have a global /api/sessions endpoint
-      // Sessions are per-agent at /api/agents/:id/sessions
-      // For dashboard, we'll return an empty array - the original code
-      // used useSessions from lib/queries which also returns empty array
-      // when there's no global endpoint
-      return [];
-    },
+    queryFn: getDashboardSessions,
     staleTime: 5000,
   });
 }
@@ -69,7 +54,7 @@ export const ActivityFeed = React.forwardRef<HTMLDivElement, ActivityFeedProps>(
     const sortedSessions = useMemo(() => {
       return (sessions || [])
         .slice()
-        .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+        .sort((a, b) => b.updated_at - a.updated_at)
         .slice(0, 5);
     }, [sessions]);
 
@@ -136,17 +121,17 @@ function ActivityItem({ session }: { session: DashboardSession }) {
             {session.title || `Session ${session.id.slice(0, 8)}`}
           </p>
           <span className="text-xs text-muted-foreground whitespace-nowrap">
-            {getRelativeTime(session.updatedAt)}
+            {getRelativeTime(session.updated_at)}
           </span>
         </div>
         <div className="flex items-center gap-2 mt-1">
           <Badge variant="outline" className="text-xs font-normal">
             <MessageSquare className="size-3 mr-1" data-icon="inline-start" />
-            {session.messageCount} messages
+            {session.message_count} messages
           </Badge>
           <span className="text-xs text-muted-foreground flex items-center">
             <Clock className="size-3 mr-1" data-icon="inline-start" />
-            {session.agentId.slice(0, 8)}
+            {session.agent_id.slice(0, 8)}
           </span>
         </div>
       </div>

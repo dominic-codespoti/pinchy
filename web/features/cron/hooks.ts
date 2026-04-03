@@ -4,6 +4,8 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { STALE_TIME } from '@/lib/query-config';
+import { MutationOptions } from '@/shared/types/mutation';
 import {
   getCronJobs,
   getCronAgents,
@@ -19,7 +21,7 @@ export function useCronJobs() {
   return useQuery<CronJob[], Error>({
     queryKey: ['cron'],
     queryFn: getCronJobs,
-    staleTime: 5000,
+    staleTime: STALE_TIME.SHORT,
   });
 }
 
@@ -27,13 +29,8 @@ export function useCronAgents() {
   return useQuery<{ id: string; name: string }[], Error>({
     queryKey: ['cron', 'agents'],
     queryFn: getCronAgents,
-    staleTime: 5000,
+    staleTime: STALE_TIME.SHORT,
   });
-}
-
-interface MutationOptions<TData = unknown, TError = Error> {
-  onSuccess?: (data: TData) => void;
-  onError?: (error: TError) => void;
 }
 
 export function useCreateCronJob(options?: MutationOptions<CronJob, Error>) {

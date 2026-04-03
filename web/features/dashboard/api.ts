@@ -1,5 +1,5 @@
 import { fetchApi, ApiError } from '@/shared/api/client';
-import { DashboardAgent, DashboardCronJob, RawAgent, RawCronJob } from './types';
+import { DashboardAgent, DashboardCronJob, DashboardSession, RawAgent, RawCronJob } from './types';
 
 export type { ApiError };
 
@@ -16,8 +16,9 @@ interface BackendCronJob {
 // Transform functions to convert raw API data to dashboard-friendly format
 function transformAgent(raw: RawAgent): DashboardAgent {
   const hasHeartbeat = Boolean(raw.has_heartbeat);
-  const lastHeartbeatAt = hasHeartbeat
-    ? new Date().toISOString()
+  // Use real heartbeat timestamp from backend (unix seconds -> ISO string)
+  const lastHeartbeatAt = hasHeartbeat && raw.last_heartbeat_at
+    ? new Date(raw.last_heartbeat_at * 1000).toISOString()
     : undefined;
 
   return {
@@ -48,4 +49,29 @@ export async function getDashboardAgents(): Promise<DashboardAgent[]> {
 export async function getDashboardCronJobs(): Promise<DashboardCronJob[]> {
   const response = await fetchApi<{ jobs: BackendCronJob[] }>('/api/cron/jobs');
   return response.jobs.map(transformCronJob);
+}
+
+// Backend response shape for global sessions endpoint
+interface BackendSession {
+  id: string;
+  agent_id: string;
+  title?: string;
+  message_count: number;
+  updated_at: number;
+}
+
+// Transform function to convert backend session to dashboard format
+function transformSession(raw: BackendSession): DashboardSession {
+  return {
+    id: raw.id,
+    agent_id: raw.agent_id,
+    title: raw.title,
+    message_count: raw.message_count,
+    updated_at: raw.updated_at,
+  };
+}
+
+export async function getDashboardSessions(): Promise<DashboardSession[]> {
+  const response = await fetchApi<{ sessions: BackendSession[] }>('/api/sessions');
+  return response.sessions.map(transformSession);
 }

@@ -1,6 +1,10 @@
-import { useMemo } from 'react';
+'use client';
+
+import { useEffect, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Bot, Activity, Clock, Server } from 'lucide-react';
+import { STALE_TIME } from '@/lib/query-config';
 import { getDashboardAgents, getDashboardCronJobs } from './api';
 import { StatItem, DashboardAgent } from './types';
 
@@ -23,15 +27,23 @@ function getHeartbeatStatus(
 }
 
 export function useDashboardAgents() {
-  return useQuery<DashboardAgent[], Error>({
+  const { data, isLoading, error } = useQuery<DashboardAgent[], Error>({
     queryKey: ['dashboard', 'agents'],
     queryFn: getDashboardAgents,
-    staleTime: 5000,
+    staleTime: STALE_TIME.SHORT,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load dashboard agents: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
 }
 
 export function useDashboardCronJobs() {
-  return useQuery<
+  const { data, isLoading, error } = useQuery<
     Array<{
       id: string;
       agentId: string;
@@ -43,8 +55,16 @@ export function useDashboardCronJobs() {
   >({
     queryKey: ['dashboard', 'cron'],
     queryFn: getDashboardCronJobs,
-    staleTime: 5000,
+    staleTime: STALE_TIME.SHORT,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load cron jobs: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
 }
 
 export function useDashboardStats() {

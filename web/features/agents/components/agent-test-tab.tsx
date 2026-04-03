@@ -22,23 +22,6 @@ interface AgentTestTabProps {
   onSendMessage?: (message: string) => Promise<string>;
 }
 
-// Mock messages for demonstration
-const MOCK_MESSAGES: Message[] = [
-  {
-    id: '1',
-    role: 'user',
-    content: 'Hello! Can you help me review some code?',
-    timestamp: '2024-01-15T10:30:00Z',
-  },
-  {
-    id: '2',
-    role: 'assistant',
-    content:
-      "Hello! I'd be happy to help you review code. Please share the code you'd like me to look at, and I'll provide feedback on style, potential bugs, and improvements.",
-    timestamp: '2024-01-15T10:30:05Z',
-  },
-];
-
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.role === 'user';
 
@@ -75,7 +58,7 @@ function MessageBubble({ message }: { message: Message }) {
 }
 
 export function AgentTestTab({ agent, isLoading, onSendMessage }: AgentTestTabProps) {
-  const [messages, setMessages] = useState<Message[]>(MOCK_MESSAGES);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -103,10 +86,11 @@ export function AgentTestTab({ agent, isLoading, onSendMessage }: AgentTestTabPr
     setIsSending(true);
 
     try {
-      // In a real implementation, this would call the API
-      const response =
-        (await onSendMessage?.(input)) ||
-        'This is a mock response. In production, this would be the actual agent response.';
+      if (!onSendMessage) {
+        throw new Error('Test message handler not configured');
+      }
+
+      const response = await onSendMessage(input);
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),

@@ -1095,6 +1095,223 @@ impl PinchyDb {
     {
         self.transaction(f)
     }
+
+    // =====================================================================
+    // System logs (persistent)
+    // =====================================================================
+
+    /// Insert a system log entry.
+    pub fn insert_system_log(
+        &self,
+        timestamp: i64,
+        level: &str,
+        target: &str,
+        message: &str,
+        fields_json: Option<&str>,
+    ) -> Result<i64> {
+        let ts_rfc3339 = chrono::DateTime::from_timestamp(timestamp, 0)
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_else(|| timestamp.to_string());
+
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+        conn.execute(
+            "INSERT INTO system_logs (timestamp, ts_rfc3339, level, target, message, fields_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![timestamp, ts_rfc3339, level, target, message, fields_json],
+        )?;
+        let id = conn.last_insert_rowid();
+        debug!(id, target, level, "system log inserted");
+        Ok(id)
+    }
+
+    /// Query system logs with optional filters.
+    pub fn query_system_logs(
+        &self,
+        level_filter: Option<&str>,
+        search_filter: Option<&str>,
+        from_ts: Option<i64>,
+        to_ts: Option<i64>,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<SystemLogEntry>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+
+        // Build dynamic WHERE clause
+        let mut conditions = Vec::new();
+        let mut params_list: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(level) = level_filter {
+            conditions.push(format!("level = ?{}", params_list.len() + 1));
+            params_list.push(Box::new(level.to_string()));
+        }
+        if let Some(search) = search_filter {
+            let pattern = format!("%{}%", search);
+            conditions.push(format!(
+                "(message LIKE ?{} OR target LIKE ?{})",
+                params_list.len() + 1,
+                params_list.len() + 2
+            ));
+            params_list.push(Box::new(pattern.clone()));
+            params_list.push(Box::new(pattern));
+        }
+        if let Some(from) = from_ts {
+            conditions.push(format!("timestamp >= ?{}", params_list.len() + 1));
+            params_list.push(Box::new(from));
+        }
+        if let Some(to) = to_ts {
+            conditions.push(format!("timestamp <= ?{}", params_list.len() + 1));
+            params_list.push(Box::new(to));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let sql = format!(
+            "SELECT id, timestamp, ts_rfc3339, level, target, message, fields_json
+             FROM system_logs
+             {}
+             ORDER BY timestamp DESC, id DESC
+             LIMIT ?{} OFFSET ?{}",
+            where_clause,
+            params_list.len() + 1,
+            params_list.len() + 2
+        );
+
+        params_list.push(Box::new(limit as i64));
+        params_list.push(Box::new(offset as i64));
+
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_list.iter().map(|b| b.as_ref()).collect();
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_refs.as_slice(), |row| {
+            Ok(SystemLogEntry {
+                id: row.get(0)?,
+                timestamp: row.get::<_, i64>(1)? as u64,
+                ts_rfc3339: row.get(2)?,
+                level: row.get(3)?,
+                target: row.get(4)?,
+                message: row.get(5)?,
+                fields_json: row.get(6)?,
+            })
+        })?;
+
+        let mut entries = Vec::new();
+        for r in rows {
+            entries.push(r?);
+        }
+        Ok(entries)
+    }
+
+    /// Count system logs matching filters (for pagination).
+    pub fn count_system_logs(
+        &self,
+        level_filter: Option<&str>,
+        search_filter: Option<&str>,
+        from_ts: Option<i64>,
+        to_ts: Option<i64>,
+    ) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+
+        // Build dynamic WHERE clause
+        let mut conditions = Vec::new();
+        let mut params_list: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(level) = level_filter {
+            conditions.push(format!("level = ?{}", params_list.len() + 1));
+            params_list.push(Box::new(level.to_string()));
+        }
+        if let Some(search) = search_filter {
+            let pattern = format!("%{}%", search);
+            conditions.push(format!(
+                "(message LIKE ?{} OR target LIKE ?{})",
+                params_list.len() + 1,
+                params_list.len() + 2
+            ));
+            params_list.push(Box::new(pattern.clone()));
+            params_list.push(Box::new(pattern));
+        }
+        if let Some(from) = from_ts {
+            conditions.push(format!("timestamp >= ?{}", params_list.len() + 1));
+            params_list.push(Box::new(from));
+        }
+        if let Some(to) = to_ts {
+            conditions.push(format!("timestamp <= ?{}", params_list.len() + 1));
+            params_list.push(Box::new(to));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let sql = format!("SELECT COUNT(*) FROM system_logs {}", where_clause);
+
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_list.iter().map(|b| b.as_ref()).collect();
+
+        let count: i64 = conn.query_row(&sql, params_refs.as_slice(), |row| row.get(0))?;
+        Ok(count as usize)
+    }
+
+    /// Clean up old system logs based on retention policy.
+    pub fn cleanup_system_logs(&self, retention_days: i64, max_rows: i64) -> Result<usize> {
+        let cutoff_ts = chrono::Utc::now().timestamp() - (retention_days * 24 * 60 * 60);
+
+        // First, delete logs older than retention period
+        let deleted_old = self.execute(
+            "DELETE FROM system_logs WHERE timestamp < ?1",
+            params![cutoff_ts],
+        )?;
+
+        // Then, if still over max_rows, delete oldest entries
+        let count = self.count_system_logs(None, None, None, None)?;
+        let mut deleted_excess = 0;
+
+        if count > max_rows as usize {
+            let to_delete = count - max_rows as usize;
+            deleted_excess = self.execute(
+                "DELETE FROM system_logs WHERE id IN (
+                    SELECT id FROM system_logs ORDER BY timestamp ASC LIMIT ?1
+                )",
+                params![to_delete as i64],
+            )?;
+        }
+
+        let total_deleted = deleted_old + deleted_excess;
+        if total_deleted > 0 {
+            debug!(
+                deleted = total_deleted,
+                retention_days, max_rows, "system logs cleaned up"
+            );
+        }
+        Ok(total_deleted)
+    }
+}
+
+/// System log entry for persisted logs.
+#[derive(Debug)]
+pub struct SystemLogEntry {
+    pub id: i64,
+    pub timestamp: u64,
+    pub ts_rfc3339: String,
+    pub level: String,
+    pub target: String,
+    pub message: String,
+    pub fields_json: Option<String>,
 }
 
 // ---------------------------------------------------------------------------

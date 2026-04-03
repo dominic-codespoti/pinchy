@@ -33,6 +33,7 @@ export interface RawAgent {
   id: string;
   model?: string;
   has_heartbeat?: boolean;
+  last_heartbeat_at?: number | null;
   heartbeat_secs?: number | null;
 }
 
@@ -43,4 +44,13 @@ export interface RawCronJob {
   schedule: string;
   message?: string;
   last_status?: string | null;
+}
+
+// Dashboard session type for activity feed
+export interface DashboardSession {
+  id: string;
+  agent_id: string;
+  title?: string;
+  message_count: number;
+  updated_at: number; // epoch milliseconds
 }

@@ -1,10 +1,14 @@
+'use client';
+
 /**
  * Settings feature hooks
  * TanStack Query hooks for settings data fetching and mutations
  */
 
+import { useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { STALE_TIME } from '@/lib/query-config';
 import {
   fetchModels,
   getAllProvidersStatus,
@@ -16,7 +20,7 @@ import {
   getConfigSchema,
 } from './api';
 import { fetchApi } from '@/shared/api/client';
-import { ModelInfo, ProviderConfig, ProviderTestResult, ConfigModelInfo } from './types';
+import { ModelInfo, ProviderConfig, ProviderTestResult, ConfigModelInfo, ProviderStatusItem } from './types';
 
 // ============================================================================
 // Model Hooks
@@ -26,19 +30,35 @@ export const MODELS_QUERY_KEY = ['settings', 'models'];
 export const PROVIDERS_STATUS_QUERY_KEY = ['settings', 'providers', 'status'];
 
 export function useAvailableModels() {
-  return useQuery<ModelInfo[], Error>({
+  const { data, isLoading, error } = useQuery<ModelInfo[], Error>({
     queryKey: MODELS_QUERY_KEY,
     queryFn: fetchModels,
-    staleTime: 60000,
+    staleTime: STALE_TIME.LONG,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load models: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
 }
 
 export function useProvidersStatus() {
-  return useQuery({
+  const { data, isLoading, error } = useQuery<ProviderStatusItem[], Error>({
     queryKey: PROVIDERS_STATUS_QUERY_KEY,
     queryFn: getAllProvidersStatus,
-    staleTime: 30000,
+    staleTime: STALE_TIME.NORMAL,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load provider status: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
 }
 
 export function useTestProviderConnection() {
@@ -106,11 +126,19 @@ export const CONFIG_QUERY_KEY = ['config'];
 export const CONFIG_SCHEMA_QUERY_KEY = ['config-schema'];
 
 export function useConfig() {
-  return useQuery<Record<string, unknown>, Error>({
+  const { data, isLoading, error } = useQuery<Record<string, unknown>, Error>({
     queryKey: CONFIG_QUERY_KEY,
     queryFn: getConfig,
-    staleTime: 30_000,
+    staleTime: STALE_TIME.NORMAL,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load config: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
 }
 
 export function useUpdateConfig() {
@@ -129,11 +157,19 @@ export function useUpdateConfig() {
 }
 
 export function useConfigSchema() {
-  return useQuery<Record<string, unknown>, Error>({
+  const { data, isLoading, error } = useQuery<Record<string, unknown>, Error>({
     queryKey: CONFIG_SCHEMA_QUERY_KEY,
     queryFn: getConfigSchema,
-    staleTime: 5 * 60_000,
+    staleTime: STALE_TIME.SCHEMA,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load config schema: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
 }
 
 // Query key for config models
@@ -143,7 +179,7 @@ export const CONFIG_MODELS_QUERY_KEY = ['settings', 'config-models'];
  * Hook to fetch configured models from the config
  */
 export function useConfigModels() {
-  return useQuery<ConfigModelInfo[], Error>({
+  const { data, isLoading, error } = useQuery<ConfigModelInfo[], Error>({
     queryKey: CONFIG_MODELS_QUERY_KEY,
     queryFn: async () => {
       const config = await getConfig();
@@ -169,6 +205,14 @@ export function useConfigModels() {
         enabled: m.enabled,
       }));
     },
-    staleTime: 30000,
+    staleTime: STALE_TIME.NORMAL,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load config models: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
 }

@@ -11,11 +11,35 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use std::collections::HashSet;
 
 use crate::models::ModelProvider;
 
 use super::super::types::*;
 use super::super::AppState;
+
+/// Normalize a model name for deduplication.
+///
+/// - Lowercase the name
+/// - Convert separators (hyphens, underscores, periods) to spaces
+/// - Strip remaining special characters (keep only alphanumeric and spaces)
+/// - Collapse multiple whitespace to single spaces
+fn normalize_model_name(name: &str) -> String {
+    name.to_lowercase()
+        .chars()
+        .map(|c| {
+            if c == '-' || c == '_' || c == '.' {
+                ' '
+            } else {
+                c
+            }
+        })
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
 
 /// Check if a provider ID should be treated as an alias for catalog/auth purposes.
 ///
@@ -139,9 +163,8 @@ pub(crate) async fn api_models_list(
 /// `GET /api/models`
 ///
 /// Returns ALL available models from all configured providers.
-/// Uses models.dev registry as the PRIMARY source for model metadata.
-/// Falls back to live provider discovery for local providers (ollama, lmstudio, vllm)
-/// that aren't in models.dev.
+/// Uses live provider discovery as PRIMARY source for each provider.
+/// Falls back to models.dev registry only when live discovery returns zero models.
 pub(crate) async fn api_all_models(State(state): State<AppState>) -> impl IntoResponse {
     // Load the current config.
     let cfg = match crate::config::Config::load(&state.config_path).await {
@@ -164,16 +187,98 @@ pub(crate) async fn api_all_models(State(state): State<AppState>) -> impl IntoRe
     let mut all_models: Vec<ModelInfo> = Vec::new();
     let timeout_duration = std::time::Duration::from_secs(5);
 
-    // Try to load models.dev registry as primary source
+    // Track which providers have live-discovered models
+    let mut providers_with_live_models: HashSet<String> = HashSet::new();
+
+    // Try live discovery for Copilot if authenticated
+    let copilot_auth = std::env::var("COPILOT_TOKEN")
+        .ok()
+        .or_else(|| crate::auth::github_device::retrieve_token().ok().flatten())
+        .or_else(|| {
+            dirs::home_dir()
+                .map(|h| h.join(".pinchy/copilot-token"))
+                .filter(|p| p.exists())
+                .and_then(|p| std::fs::read_to_string(&p).ok())
+        });
+
+    if copilot_auth.is_some() {
+        let copilot_provider = crate::models::CopilotProvider::new();
+        let timeout_duration = std::time::Duration::from_secs(10);
+
+        match tokio::time::timeout(timeout_duration, copilot_provider.list_models()).await {
+            Ok(Ok(Some(models))) if !models.is_empty() => {
+                providers_with_live_models.insert("copilot".to_string());
+                for model in models {
+                    // Convert provider ModelInfo to gateway ModelInfo
+                    all_models.push(ModelInfo {
+                        id: model.id.clone(),
+                        name: model.name.clone(),
+                        provider: "copilot".to_string(),
+                        description: model.vendor.clone(),
+                        input_price: model.input_price,
+                        output_price: model.output_price,
+                        context_window: model.max_tokens.map(|t| t as u64),
+                        max_output: None,
+                        tool_call: model
+                            .supported_endpoints
+                            .iter()
+                            .any(|e: &String| e.contains("chat")),
+                        reasoning: false,
+                        attachment: false,
+                        family: None,
+                        cache_read_price: None,
+                        cache_write_price: None,
+                        modalities: None,
+                    });
+                }
+                tracing::debug!(
+                    model_count = all_models.len(),
+                    "added models from Copilot live discovery"
+                );
+            }
+            Ok(Ok(Some(_))) => {
+                tracing::debug!("Copilot live discovery returned empty model list");
+            }
+            Ok(Ok(None)) => {
+                tracing::debug!("Copilot provider does not support model discovery");
+            }
+            Ok(Err(e)) => {
+                tracing::warn!(error = %e, "Copilot live model discovery failed");
+            }
+            Err(_) => {
+                tracing::warn!("Copilot live model discovery timed out");
+            }
+        }
+    }
+
+    // Try live discovery for local providers
+    try_local_providers(
+        &mut all_models,
+        &mut providers_with_live_models,
+        &cfg,
+        timeout_duration,
+    )
+    .await;
+
+    // Load models.dev registry as FALLBACK for providers without live models
     match crate::models_dev::get_or_load_registry().await {
         Ok(registry) => {
             tracing::info!(
                 providers = registry.providers().len(),
-                "loaded models.dev registry"
+                "loaded models.dev registry for fallback"
             );
 
             // For each provider in the registry, check if user has auth configured
             for provider in registry.providers() {
+                // Skip if this provider already has live models
+                if providers_with_live_models.contains(&provider.id) {
+                    tracing::debug!(
+                        provider = %provider.id,
+                        "skipping registry models - live models already discovered"
+                    );
+                    continue;
+                }
+
                 // Check if any of the env vars are set
                 let has_auth = provider
                     .env
@@ -264,85 +369,36 @@ pub(crate) async fn api_all_models(State(state): State<AppState>) -> impl IntoRe
                     tracing::debug!(
                         provider = %provider.id,
                         model_count = provider.models.len(),
-                        "added models from models.dev registry"
+                        "added models from models.dev registry (fallback)"
                     );
                 }
             }
         }
         Err(e) => {
-            tracing::warn!(error = %e, "failed to load models.dev registry, falling back to provider discovery");
+            tracing::warn!(error = %e, "failed to load models.dev registry");
         }
     }
 
-    // Collect already-checked providers from models.dev
-    let already_checked: Vec<String> = all_models
-        .iter()
-        .map(|m| m.provider.clone())
-        .collect::<std::collections::HashSet<_>>()
-        .into_iter()
-        .collect();
-
-    // Try live discovery for Copilot if authenticated and not already in registry
-    if !already_checked.iter().any(|p| p == "copilot") {
-        let copilot_auth = std::env::var("COPILOT_TOKEN")
-            .ok()
-            .or_else(|| crate::auth::github_device::retrieve_token().ok().flatten())
-            .or_else(|| {
-                dirs::home_dir()
-                    .map(|h| h.join(".pinchy/copilot-token"))
-                    .filter(|p| p.exists())
-                    .and_then(|p| std::fs::read_to_string(&p).ok())
-            });
-
-        if copilot_auth.is_some() {
-            let copilot_provider = crate::models::CopilotProvider::new();
-            let timeout_duration = std::time::Duration::from_secs(10);
-
-            match tokio::time::timeout(timeout_duration, copilot_provider.list_models()).await {
-                Ok(Ok(Some(models))) => {
-                    for model in models {
-                        // Convert provider ModelInfo to gateway ModelInfo
-                        all_models.push(ModelInfo {
-                            id: model.id.clone(),
-                            name: model.name.clone(),
-                            provider: "copilot".to_string(),
-                            description: model.vendor.clone(),
-                            input_price: model.input_price,
-                            output_price: model.output_price,
-                            context_window: model.max_tokens.map(|t| t as u64),
-                            max_output: None,
-                            tool_call: model
-                                .supported_endpoints
-                                .iter()
-                                .any(|e: &String| e.contains("chat")),
-                            reasoning: false,
-                            attachment: false,
-                            family: None,
-                            cache_read_price: None,
-                            cache_write_price: None,
-                            modalities: None,
-                        });
-                    }
-                    tracing::debug!(
-                        model_count = all_models.len(),
-                        "added models from Copilot live discovery"
-                    );
-                }
-                Ok(Ok(None)) => {
-                    tracing::debug!("Copilot provider does not support model discovery");
-                }
-                Ok(Err(e)) => {
-                    tracing::warn!(error = %e, "Copilot live model discovery failed");
-                }
-                Err(_) => {
-                    tracing::warn!("Copilot live model discovery timed out");
-                }
-            }
+    // Deduplicate models across all providers using composite key (provider, normalized_name)
+    // This handles duplicates from any source: registry, Copilot, local providers
+    // Models like "GPT-4o" and "gpt-4o" are considered the same after normalization
+    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    all_models.retain(|m| {
+        let key = (m.provider.clone(), normalize_model_name(&m.name));
+        if seen.contains(&key) {
+            tracing::debug!(provider = %m.provider, model_name = %m.name, normalized = %normalize_model_name(&m.name), "skipping duplicate model");
+            false
+        } else {
+            seen.insert(key);
+            true
         }
-    }
+    });
 
-    // Also try live discovery for local providers not in models.dev
-    try_local_providers(&mut all_models, &already_checked, &cfg, timeout_duration).await;
+    tracing::info!(
+        total_models = all_models.len(),
+        live_providers = providers_with_live_models.len(),
+        "returning model list from all providers"
+    );
 
     (
         StatusCode::OK,
@@ -357,7 +413,7 @@ pub(crate) async fn api_all_models(State(state): State<AppState>) -> impl IntoRe
 /// Try to list models from local providers that may not be in models.dev.
 async fn try_local_providers(
     all_models: &mut Vec<ModelInfo>,
-    already_checked: &[String],
+    providers_with_live_models: &mut HashSet<String>,
     cfg: &crate::config::Config,
     timeout_duration: std::time::Duration,
 ) {
@@ -381,10 +437,6 @@ async fn try_local_providers(
     ];
 
     for (provider_name, endpoint, default_model) in local_providers {
-        if already_checked.iter().any(|p| p == provider_name) {
-            continue;
-        }
-
         // Check if there's a config entry for this provider
         let model_cfg = cfg.models.iter().find(|m| m.provider == provider_name);
 
@@ -410,30 +462,26 @@ async fn try_local_providers(
         };
 
         match tokio::time::timeout(timeout_duration, provider.list_models()).await {
-            Ok(Ok(Some(models))) => {
+            Ok(Ok(Some(models))) if !models.is_empty() => {
+                providers_with_live_models.insert(provider_name.to_string());
                 for model in &models {
-                    if !all_models
-                        .iter()
-                        .any(|m| m.id == model.id && m.provider == provider_name)
-                    {
-                        all_models.push(ModelInfo {
-                            id: model.id.clone(),
-                            name: model.name.clone(),
-                            provider: provider_name.to_string(),
-                            description: model.vendor.clone(),
-                            input_price: None,
-                            output_price: None,
-                            context_window: None,
-                            max_output: None,
-                            tool_call: false,
-                            reasoning: false,
-                            attachment: false,
-                            family: None,
-                            cache_read_price: None,
-                            cache_write_price: None,
-                            modalities: None,
-                        });
-                    }
+                    all_models.push(ModelInfo {
+                        id: model.id.clone(),
+                        name: model.name.clone(),
+                        provider: provider_name.to_string(),
+                        description: model.vendor.clone(),
+                        input_price: None,
+                        output_price: None,
+                        context_window: None,
+                        max_output: None,
+                        tool_call: false,
+                        reasoning: false,
+                        attachment: false,
+                        family: None,
+                        cache_read_price: None,
+                        cache_write_price: None,
+                        modalities: None,
+                    });
                 }
                 tracing::debug!(
                     provider = provider_name,
@@ -488,5 +536,83 @@ pub(crate) async fn api_models_registry() -> impl IntoResponse {
             )
                 .into_response()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_model_name;
+
+    #[test]
+    fn test_normalize_model_name_basic() {
+        // Basic lowercasing
+        assert_eq!(normalize_model_name("GPT-4o"), "gpt 4o");
+        assert_eq!(normalize_model_name("gpt-4o"), "gpt 4o");
+        assert_eq!(normalize_model_name("GPT 4o"), "gpt 4o");
+
+        // Same model, different formats should normalize to same value
+        assert_eq!(
+            normalize_model_name("GPT-4o"),
+            normalize_model_name("gpt-4o")
+        );
+        assert_eq!(
+            normalize_model_name("GPT-4o"),
+            normalize_model_name("GPT 4o")
+        );
+        assert_eq!(
+            normalize_model_name("gpt-4o"),
+            normalize_model_name("GPT 4o")
+        );
+    }
+
+    #[test]
+    fn test_normalize_model_name_whitespace() {
+        // Multiple spaces collapsed
+        assert_eq!(normalize_model_name("GPT   4o"), "gpt 4o");
+        assert_eq!(normalize_model_name("GPT\t\t4o"), "gpt 4o");
+        assert_eq!(normalize_model_name("  GPT 4o  "), "gpt 4o");
+
+        // Leading/trailing whitespace removed
+        assert_eq!(normalize_model_name("  gpt-4o  "), "gpt 4o");
+    }
+
+    #[test]
+    fn test_normalize_model_name_special_chars() {
+        // Various special characters stripped
+        assert_eq!(normalize_model_name("GPT-4o-Mini"), "gpt 4o mini");
+        assert_eq!(normalize_model_name("claude-3-opus"), "claude 3 opus");
+        assert_eq!(normalize_model_name("o3-mini (high)"), "o3 mini high");
+        assert_eq!(normalize_model_name("gpt-4o@latest"), "gpt 4olatest");
+    }
+
+    #[test]
+    fn test_normalize_model_name_complex() {
+        // Complex real-world cases
+        assert_eq!(
+            normalize_model_name("Claude 3.5 Sonnet"),
+            "claude 3 5 sonnet" // Period is stripped, leaving space between 3 and 5
+        );
+        assert_eq!(
+            normalize_model_name("GPT-4 Turbo Preview"),
+            "gpt 4 turbo preview"
+        );
+        assert_eq!(
+            normalize_model_name("o1-preview-2024-09-12"),
+            "o1 preview 2024 09 12"
+        );
+    }
+
+    #[test]
+    fn test_normalize_model_name_empty() {
+        // Empty and whitespace-only
+        assert_eq!(normalize_model_name(""), "");
+        assert_eq!(normalize_model_name("   "), "");
+        assert_eq!(normalize_model_name("---"), "");
+    }
+
+    #[test]
+    fn test_normalize_model_name_unicode() {
+        // Unicode alphanumeric should be preserved
+        assert_eq!(normalize_model_name("模型-123"), "模型 123");
     }
 }

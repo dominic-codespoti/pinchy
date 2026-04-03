@@ -1476,6 +1476,7 @@ dependencies = [
  "notify-debouncer-mini",
  "once_cell",
  "openssl",
+ "rand 0.8.5",
  "reqwest",
  "ring",
  "rusqlite",

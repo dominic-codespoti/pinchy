@@ -1,13 +1,12 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { fetchApi, isNotFoundError } from '@/shared/api/client';
+import { toast } from 'sonner';
+import { fetchApi } from '@/shared/api/client';
+import { STALE_TIME, GC_TIME, REFETCH_INTERVAL } from '@/lib/query-config';
 import { Agent, RawAgent } from '../types';
 import { transformAgent } from '../utils';
-
-const STALE_TIME = 30 * 1000; // 30 seconds
-const GC_TIME = 5 * 60 * 1000; // 5 minutes
-const REFETCH_INTERVAL = 30 * 1000; // 30 seconds polling
 
 interface AgentsListResponse {
   agents: RawAgent[];
@@ -28,10 +27,16 @@ export function useAgents(): UseAgentsResult {
   const { data, isLoading, error } = useQuery<Agent[], Error>({
     queryKey: ['agents'],
     queryFn: fetchAgents,
-    staleTime: STALE_TIME,
-    gcTime: GC_TIME,
-    refetchInterval: REFETCH_INTERVAL,
+    staleTime: STALE_TIME.NORMAL,
+    gcTime: GC_TIME.SHORT,
+    refetchInterval: REFETCH_INTERVAL.LONG,
   });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load agents: ${error.message}`);
+    }
+  }, [error]);
 
   return {
     agents: data || [],

@@ -31,6 +31,17 @@ export interface AuthSession {
   expiresAt: number;
 }
 
+// Provider authentication state (mirrors backend data)
+export interface ProviderAuthState {
+  provider: string;
+  name: string;
+  configured: boolean;
+  hasApiKey: boolean;
+  envVar?: string;
+  details?: string;
+  source?: string;
+}
+
 // ChatGPT Auth types
 export interface ChatGptAuthSession {
   login_id: string;

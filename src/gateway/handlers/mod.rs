@@ -4,6 +4,7 @@ pub(crate) mod cron;
 pub(crate) mod debug;
 pub(crate) mod health;
 pub(crate) mod heartbeat;
+pub(crate) mod logs;
 pub(crate) mod memory;
 pub(crate) mod models;
 pub(crate) mod providers;

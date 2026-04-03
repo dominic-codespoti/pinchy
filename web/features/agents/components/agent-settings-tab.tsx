@@ -11,27 +11,13 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Settings, Save, Heart, Wrench, Bot, Clock } from 'lucide-react';
 import { Agent } from '../types';
+import { useAvailableModels, useProvidersStatus } from '@/features/settings';
 
 interface AgentSettingsTabProps {
   agent: Agent;
   isLoading?: boolean;
   onSave?: (settings: Partial<Agent>) => void;
 }
-
-const MODEL_OPTIONS = [
-  { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'gpt-4', label: 'GPT-4' },
-  { value: 'claude-sonnet-4', label: 'Claude Sonnet 4' },
-  { value: 'claude-opus', label: 'Claude Opus' },
-  { value: 'claude-haiku', label: 'Claude Haiku' },
-];
-
-const PROVIDER_OPTIONS = [
-  { value: 'copilot', label: 'GitHub Copilot' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'azure', label: 'Azure OpenAI' },
-];
 
 const REASONING_OPTIONS = [
   { value: 'low', label: 'Low' },
@@ -52,6 +38,16 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
   });
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+
+  const { data: models, isLoading: modelsLoading } = useAvailableModels();
+  const { data: providers, isLoading: providersLoading } = useProvidersStatus();
+
+  // Build dynamic options
+  const modelOptions = models?.map((m) => ({ value: m.id, label: m.name })) || [];
+  const providerOptions =
+    providers
+      ?.filter((p) => p.configured)
+      ?.map((p) => ({ value: p.id, label: p.name || p.id })) || [];
 
   const handleChange = (field: string, value: string | number) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -116,16 +112,23 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
               <Select
                 value={formData.provider}
                 onValueChange={(v) => handleChange('provider', v)}
+                disabled={providersLoading}
               >
                 <SelectTrigger id="provider">
-                  <SelectValue />
+                  <SelectValue placeholder={providersLoading ? 'Loading...' : 'Select provider'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {PROVIDER_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                  {providerOptions.length === 0 ? (
+                    <SelectItem value="__empty__" disabled>
+                      No configured providers
                     </SelectItem>
-                  ))}
+                  ) : (
+                    providerOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -135,16 +138,23 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
               <Select
                 value={formData.model}
                 onValueChange={(v) => handleChange('model', v)}
+                disabled={modelsLoading}
               >
                 <SelectTrigger id="model">
-                  <SelectValue placeholder="Select model" />
+                  <SelectValue placeholder={modelsLoading ? 'Loading...' : 'Select model'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {MODEL_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                  {modelOptions.length === 0 ? (
+                    <SelectItem value="__empty__" disabled>
+                      No models available
                     </SelectItem>
-                  ))}
+                  ) : (
+                    modelOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>

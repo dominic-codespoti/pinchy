@@ -10,7 +10,7 @@ export { LogsPage } from './components/logs-page';
 export type { LogEntry, LogLevel, LogFilters, RawLogEntry } from './types';
 
 // API
-export { getAgentLogs, getSystemLogs } from './api';
+export { getAgentLogs, getSystemLogs, getRecentSystemLogs } from './api';
 
 // Hooks
-export { useAgentLogs, useSystemLogs } from './hooks';
+export { useAgentLogs, useSystemLogs, useRecentSystemLogs } from './hooks';

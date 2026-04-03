@@ -1,7 +1,7 @@
 import { format, subDays } from 'date-fns';
-import { TimeRange, UsageBucket, UsageApiResponse } from '../types';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
+import { fetchApi } from '@/shared/api/client';
+import { UsageApiResponseSchema, type UsageApiResponse } from '@/lib/validation/schemas';
+import { TimeRange, UsageBucket } from '../types';
 
 export async function getUsage(
   timeRange: TimeRange,
@@ -22,25 +22,22 @@ export async function getUsage(
   if (agent) params.set('agent', agent);
   if (model) params.set('model', model);
 
-  const response = await fetch(`${API_BASE}/api/usage?${params.toString()}`);
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
-  }
-
-  return response.json();
+  return fetchApi<UsageApiResponse>(
+    `/api/usage?${params.toString()}`,
+    {},
+    UsageApiResponseSchema
+  );
 }
 
 /**
- * Transform backend usage buckets into time-series data grouped by day.
+ * Transform backend usage rows into time-series data grouped by day.
  * Since the backend aggregates by (day, agent, model), we roll up to day level.
  */
-export function transformUsageData(buckets: UsageBucket[]) {
+export function transformUsageData(usage: UsageBucket[]) {
   // Group by day
   const byDay = new Map<string, UsageBucket[]>();
 
-  for (const bucket of buckets) {
+  for (const bucket of usage) {
     const existing = byDay.get(bucket.day) || [];
     existing.push(bucket);
     byDay.set(bucket.day, existing);
@@ -81,7 +78,7 @@ export function transformUsageData(buckets: UsageBucket[]) {
 
   // Agent performance - aggregate by agent across all days
   const byAgent = new Map<string, UsageBucket[]>();
-  for (const bucket of buckets) {
+  for (const bucket of usage) {
     const existing = byAgent.get(bucket.agent) || [];
     existing.push(bucket);
     byAgent.set(bucket.agent, existing);
@@ -105,7 +102,7 @@ export function transformUsageData(buckets: UsageBucket[]) {
   // Model distribution - aggregate by model
   const byModel = new Map<string, number>();
   let totalTurns = 0;
-  for (const bucket of buckets) {
+  for (const bucket of usage) {
     const current = byModel.get(bucket.model) || 0;
     byModel.set(bucket.model, current + bucket.turns);
     totalTurns += bucket.turns;
@@ -118,9 +115,9 @@ export function transformUsageData(buckets: UsageBucket[]) {
   }));
 
   // Summary metrics
-  const totalRequests = buckets.reduce((sum, b) => sum + b.turns, 0);
-  const totalTokens = buckets.reduce((sum, b) => sum + b.total_tokens, 0);
-  const totalCost = buckets.reduce((sum, b) => sum + b.estimated_cost_usd, 0);
+  const totalRequests = usage.reduce((sum, b) => sum + b.turns, 0);
+  const totalTokens = usage.reduce((sum, b) => sum + b.total_tokens, 0);
+  const totalCost = usage.reduce((sum, b) => sum + b.estimated_cost_usd, 0);
 
   return {
     tokenData,

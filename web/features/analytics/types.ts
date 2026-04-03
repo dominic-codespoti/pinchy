@@ -19,9 +19,9 @@ export interface UsageBucket {
 }
 
 export interface UsageApiResponse {
-  buckets: UsageBucket[];
-  from: string;
-  to: string;
+  usage: UsageBucket[];
+  total_cost_usd: number;
+  total_turns: number;
 }
 
 // ============================================================================

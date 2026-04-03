@@ -53,6 +53,51 @@ pub(crate) async fn api_sessions_list(Path(agent_id): Path<String>) -> impl Into
     Json(SessionsListResponse { sessions: vec![] }).into_response()
 }
 
+/// `GET /api/sessions` — list recent sessions across all agents for dashboard.
+pub(crate) async fn api_sessions_global() -> impl IntoResponse {
+    // Prefer PinchyDb when available.
+    if let Some(db) = crate::store::global_db() {
+        let entries = match db.list_sessions() {
+            Ok(e) => e,
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("{e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
+                )
+                    .into_response();
+            }
+        };
+        // Take the 20 most recent sessions and transform them
+        let sessions: Vec<crate::gateway::types::DashboardSessionItem> = entries
+            .into_iter()
+            .take(20)
+            .map(|e| {
+                // Get the exchange count for this session (best effort)
+                let message_count = db.exchange_count(&e.session_id).unwrap_or(0);
+                crate::gateway::types::DashboardSessionItem {
+                    id: e.session_id.clone(),
+                    agent_id: e.agent_id,
+                    title: e.title,
+                    message_count,
+                    // `created_at` is stored as epoch milliseconds
+                    updated_at: e.created_at as i64,
+                }
+            })
+            .collect();
+        return Json(crate::gateway::types::GlobalSessionsListResponse { sessions })
+            .into_response();
+    }
+
+    tracing::warn!("no database available — skipping api_sessions_global");
+    Json(crate::gateway::types::GlobalSessionsListResponse { sessions: vec![] }).into_response()
+}
+
 /// `GET /api/agents/:id/sessions/:file` — read session content.
 pub(crate) async fn api_session_get(
     Path((agent_id, session_file)): Path<(String, String)>,

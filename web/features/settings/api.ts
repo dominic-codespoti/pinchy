@@ -91,6 +91,7 @@ export async function getAllProvidersStatus(): Promise<ProviderStatusItem[]> {
     );
     return response.providers.map((p) => ({
       id: p.provider,
+      name: p.name,
       configured: p.configured,
       method: p.source || (p.has_api_key ? 'api_key' : undefined),
       tested: p.configured,

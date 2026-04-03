@@ -152,6 +152,29 @@ impl<S: Subscriber> Layer<S> for BroadcastLayer {
                     g.push(line.clone());
                 }
             }
+
+            // Persist to database for important logs (INFO and above)
+            // This is best-effort; we don't block on DB writes
+            if *level <= Level::INFO {
+                if let Some(db) = crate::store::global_db() {
+                    let timestamp = chrono::Utc::now().timestamp();
+                    let level_str = level_str(level);
+                    let fields_json = if visitor.fields.is_empty() {
+                        None
+                    } else {
+                        serde_json::to_string(&visitor.fields).ok()
+                    };
+                    // Spawn a blocking task to avoid blocking the async runtime
+                    let _ = db.insert_system_log(
+                        timestamp,
+                        level_str,
+                        target,
+                        &message,
+                        fields_json.as_deref(),
+                    );
+                }
+            }
+
             // Best-effort; drop if no receivers.
             let _ = self.tx.send(line);
         }

@@ -405,8 +405,26 @@ pub async fn start_gateway_with_config(
             post(handlers::agents::api_agent_clone),
         )
         .route(
+            "/agents/:agent_id/test",
+            post(handlers::agents::api_agent_test),
+        )
+        .route(
             "/agents/:agent_id/cron",
             get(handlers::cron::api_agent_cron_jobs),
+        )
+        // Webhook configuration
+        .route(
+            "/agents/:agent_id/webhook/config",
+            get(handlers::webhook::api_webhook_config_get)
+                .put(handlers::webhook::api_webhook_config_update),
+        )
+        .route(
+            "/agents/:agent_id/webhook/deliveries",
+            get(handlers::webhook::api_webhook_deliveries_get),
+        )
+        .route(
+            "/agents/:agent_id/webhook/test",
+            post(handlers::webhook::api_webhook_test),
         )
         // Agent files
         .route(
@@ -418,6 +436,7 @@ pub async fn start_gateway_with_config(
             "/agents/:agent_id/session/current",
             get(handlers::sessions::api_session_current),
         )
+        .route("/sessions", get(handlers::sessions::api_sessions_global))
         .route(
             "/agents/:agent_id/sessions",
             get(handlers::sessions::api_sessions_list),
@@ -517,6 +536,9 @@ pub async fn start_gateway_with_config(
             "/agents/:agent_id/logs",
             get(handlers::debug::api_agent_logs),
         )
+        .route("/logs", get(handlers::logs::api_logs))
+        .route("/logs/recent", get(handlers::logs::api_logs_recent))
+        .route("/logs/cleanup", post(handlers::logs::api_logs_cleanup))
         // Model discovery
         .route(
             "/models/registry",

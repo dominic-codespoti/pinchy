@@ -1,11 +1,11 @@
 'use client';
 
+import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchApi, isNotFoundError } from '@/shared/api/client';
 import { toast } from 'sonner';
+import { GC_TIME } from '@/lib/query-config';
 import { AgentFile } from '../types';
-
-const GC_TIME = 5 * 60 * 1000; // 5 minutes
 
 interface FileEntry {
   name: string;
@@ -51,13 +51,15 @@ export function useAgentFiles(agentId: string): UseAgentFilesResult {
   const { data, isLoading, error } = useQuery<AgentFile[], Error>({
     queryKey: ['agents', agentId, 'files'],
     queryFn: () => fetchAgentFiles(agentId),
-    gcTime: GC_TIME,
+    gcTime: GC_TIME.SHORT,
     enabled: !!agentId,
   });
 
-  if (error) {
-    toast.error(`Failed to load agent files: ${error.message}`);
-  }
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load agent files: ${error.message}`);
+    }
+  }, [error]);
 
   return {
     files: data || [],

@@ -114,17 +114,19 @@ function modelInfoToDevModel(model: ModelInfo): ModelsDevModel {
     attachment: model.attachment ?? false,
     reasoning: model.reasoning ?? false,
     tool_call: model.tool_call ?? false,
-    cost: (model.input_price !== undefined || model.output_price !== undefined) ? {
-      input: model.input_price,
-      output: model.output_price,
-      cache_read: model.cache_read_price,
-      cache_write: model.cache_write_price,
+    cost: (model.input_price !== undefined && model.input_price !== null) || 
+          (model.output_price !== undefined && model.output_price !== null) ? {
+      input: model.input_price ?? undefined,
+      output: model.output_price ?? undefined,
+      cache_read: model.cache_read_price ?? undefined,
+      cache_write: model.cache_write_price ?? undefined,
     } : undefined,
-    limit: (model.context_window || model.max_output) ? {
-      context: model.context_window,
-      output: model.max_output,
+    limit: (model.context_window !== undefined && model.context_window !== null) || 
+            (model.max_output !== undefined && model.max_output !== null) ? {
+      context: model.context_window ?? undefined,
+      output: model.max_output ?? undefined,
     } : undefined,
-    modalities: model.modalities,
+    modalities: model.modalities ?? undefined,
   };
 }
 
@@ -959,7 +961,83 @@ function ModelPickerSheet({
   }, [providers, liveModels, isOpen]);
 
   // Filter models - uses deferredSearch for performance
+  // When filtering by provider, build a complete list from that provider (not just globally unique models)
   const filteredModels = React.useMemo(() => {
+    // If filtering by a specific provider, build a complete list from that provider only
+    if (providerFilter !== 'all') {
+      const targetProvider = providers.find(p => p.id === providerFilter);
+      if (!targetProvider) return [];
+
+      const providerModels: FlattenedModel[] = [];
+      const seenIds = new Set<string>();
+
+      // Add registry models for this provider
+      if (targetProvider.modelsDevData?.models) {
+        for (const model of targetProvider.modelsDevData.models) {
+          if (!seenIds.has(model.id)) {
+            seenIds.add(model.id);
+            providerModels.push({
+              id: model.id,
+              name: model.name,
+              providerId: targetProvider.id,
+              providerName: targetProvider.modelsDevData.name || targetProvider.id,
+              model,
+              isConnected: targetProvider.configured,
+            });
+          }
+        }
+      }
+
+      // Add live models for this provider (that aren't already in registry)
+      const providerLiveModels = liveModels.filter(m => m.provider === providerFilter);
+      for (const liveModel of providerLiveModels) {
+        if (!seenIds.has(liveModel.id)) {
+          seenIds.add(liveModel.id);
+          const devModel = modelInfoToDevModel(liveModel);
+          providerModels.push({
+            id: liveModel.id,
+            name: liveModel.name,
+            providerId: liveModel.provider,
+            providerName: targetProvider.modelsDevData?.name || liveModel.provider,
+            model: devModel,
+            isConnected: targetProvider.configured,
+          });
+        }
+      }
+
+      // Apply text search and capability filters to provider-specific models
+      let filtered = providerModels;
+
+      // Text search
+      if (deferredSearch.trim()) {
+        const query = deferredSearch.toLowerCase();
+        filtered = filtered.filter(
+          (m) =>
+            m.name.toLowerCase().includes(query) ||
+            m.id.toLowerCase().includes(query)
+        );
+      }
+
+      // Capability filters
+      if (capabilityFilters.tools) {
+        filtered = filtered.filter((m) => m.model.tool_call);
+      }
+      if (capabilityFilters.reasoning) {
+        filtered = filtered.filter((m) => m.model.reasoning);
+      }
+      if (capabilityFilters.attachments) {
+        filtered = filtered.filter((m) => m.model.attachment);
+      }
+
+      // Connected filter (redundant when filtering by configured provider, but keep for consistency)
+      if (connectedFilter) {
+        filtered = filtered.filter((m) => m.isConnected);
+      }
+
+      return filtered;
+    }
+
+    // "All providers" mode - use the globally deduplicated allModels
     let filtered = allModels;
 
     // Text search
@@ -971,11 +1049,6 @@ function ModelPickerSheet({
           m.providerName.toLowerCase().includes(query) ||
           m.id.toLowerCase().includes(query)
       );
-    }
-
-    // Provider filter
-    if (providerFilter !== 'all') {
-      filtered = filtered.filter((m) => m.providerId === providerFilter);
     }
 
     // Capability filters
@@ -995,7 +1068,7 @@ function ModelPickerSheet({
     }
 
     return filtered;
-  }, [allModels, deferredSearch, providerFilter, capabilityFilters, connectedFilter]);
+  }, [allModels, deferredSearch, providerFilter, capabilityFilters, connectedFilter, providers, liveModels]);
 
   // Virtualization setup
   const parentRef = React.useRef<HTMLDivElement>(null);
@@ -1052,6 +1125,24 @@ function ModelPickerSheet({
   }, [isOpen]);
 
   const virtualItems = virtualizer.getVirtualItems();
+
+  // Compute total model count for accurate display
+  // When showing "all", use globally deduplicated count
+  // When filtering by provider, show that provider's actual total
+  const totalModelCount = React.useMemo(() => {
+    if (providerFilter === 'all') {
+      return allModels.length;
+    }
+    // For specific provider, calculate their total (registry + live, deduplicated within provider)
+    const provider = providers.find(p => p.id === providerFilter);
+    if (!provider) return allModels.length;
+
+    const registryModels = provider.modelsDevData?.models || [];
+    const registryModelIds = new Set(registryModels.map(m => m.id));
+    const providerLiveModels = liveModels.filter(m => m.provider === providerFilter && !registryModelIds.has(m.id));
+
+    return registryModels.length + providerLiveModels.length;
+  }, [providerFilter, providers, liveModels, allModels.length]);
 
   return (
     <Sheet open={isOpen} onOpenChange={onClose}>
@@ -1135,7 +1226,7 @@ function ModelPickerSheet({
 
           {/* Results count */}
           <p className="text-xs text-muted-foreground">
-            Showing {filteredModels.length} of {allModels.length} models
+            Showing {filteredModels.length} of {totalModelCount} models
           </p>
 
           {/* Virtualized Model list */}
@@ -1326,6 +1417,7 @@ export function ModelsPage() {
       if (!allProviders.has(id)) {
         allProviders.set(id, {
           id,
+          name: data.name || id,
           configured: false,
           modelCount: data.models?.length ?? 0,
           modelsDevData: data,
@@ -1338,6 +1430,7 @@ export function ModelsPage() {
       if (!allProviders.has(provider.id)) {
         allProviders.set(provider.id, {
           id: provider.id,
+          name: provider.name,
           configured: false,
         });
       }

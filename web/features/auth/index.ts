@@ -15,6 +15,7 @@ export type {
   AuthError,
   AuthMethod,
   DialogState,
+  ProviderAuthState,
 } from './types';
 
 // API

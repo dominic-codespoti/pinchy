@@ -29,7 +29,6 @@ export {
   type UseAgentsResult,
   type UseAgentFileResult,
   type UseAgentFilesResult,
-  type UseAgentMemoriesResult,
   // URL state hooks
   useAgentUrlState,
   useAgentTab,
@@ -39,22 +38,11 @@ export {
   type UrlStateSyncProps,
   // Derived state hooks
   useFilteredAgents,
-  useFilteredAgentsFromStore,
-  useGroupedAgents,
   useAgentStats,
-  useAgentCount,
-  useActiveAgentCount,
-  useAgentWithHeartbeatCount,
-  useAgentProviderStats,
-  useAgentStatusDistribution,
   type UseFilteredAgentsOptions,
   type UseFilteredAgentsResult,
-  type GroupedAgents,
-  type UseGroupedAgentsResult,
   type UseAgentStatsOptions,
   type UseAgentStatsResult,
-  type ProviderStat,
-  type StatusDistribution,
 } from './hooks';
 
 // ============================================================================

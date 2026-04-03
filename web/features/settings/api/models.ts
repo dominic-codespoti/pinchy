@@ -1,22 +1,9 @@
 import type { ModelsDevProvider, ModelsDevModel } from '../types';
 import { fetchApi } from '@/shared/api/client';
 import { z } from 'zod';
+import type { ModelInfo } from '@/lib/validation/schemas';
 
-export interface ModelInfo {
-  id: string;
-  name: string;
-  provider: string;
-  description?: string;
-  input_price?: number;
-  output_price?: number;
-  context_window?: number;
-  max_output?: number;
-  tool_call?: boolean;
-  reasoning?: boolean;
-  attachment?: boolean;
-  family?: string;
-  configId?: string;
-}
+export type { ModelInfo };
 
 export interface ProviderConfig {
   id: string;
@@ -73,7 +60,6 @@ export async function fetchModels(): Promise<ModelInfo[]> {
     input_price: m.input_price,
     output_price: m.output_price,
     context_window: m.max_tokens,
-    configId: m.config_id,
   }));
 }
 

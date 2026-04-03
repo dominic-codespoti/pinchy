@@ -4,7 +4,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Brain, Tag, Clock } from 'lucide-react';
-import { useAgentMemories } from '../hooks/use-agent-memories';
+import { useAgentMemories } from '@/features/memories/hooks';
 import { Agent } from '../types';
 
 interface AgentMemoryTabProps {
@@ -12,7 +12,7 @@ interface AgentMemoryTabProps {
 }
 
 export function AgentMemoryTab({ agent }: AgentMemoryTabProps) {
-  const { memories, isLoading } = useAgentMemories(agent.id);
+  const { data: memories = [], isLoading } = useAgentMemories(agent.id);
 
   if (isLoading) {
     return (

@@ -1,18 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { STALE_TIME } from '@/lib/query-config';
+import { MutationOptions } from '@/shared/types/mutation';
 import { getAgentMemories, searchMemories, addMemory, deleteMemory } from './api';
 import { Memory } from './types';
-
-interface MutationOptions<TData = unknown, TError = Error> {
-  onSuccess?: (data: TData) => void;
-  onError?: (error: TError) => void;
-}
 
 export function useAgentMemories(agentId: string, search?: string) {
   return useQuery<Memory[], Error>({
     queryKey: ['agents', agentId, 'memories', search],
     queryFn: () => getAgentMemories(agentId, search),
-    staleTime: 5000,
+    staleTime: STALE_TIME.SHORT,
     enabled: !!agentId,
   });
 }
@@ -21,7 +18,7 @@ export function useSearchMemories(agentId: string, query: string) {
   return useQuery<Memory[], Error>({
     queryKey: ['agents', agentId, 'memories', 'search', query],
     queryFn: () => searchMemories(agentId, query),
-    staleTime: 5000,
+    staleTime: STALE_TIME.SHORT,
     enabled: !!agentId && query.length > 0,
   });
 }

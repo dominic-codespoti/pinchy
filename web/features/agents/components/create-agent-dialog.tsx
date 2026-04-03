@@ -21,36 +21,32 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Plus, Loader2 } from 'lucide-react';
+import { useAvailableModels, useProvidersStatus } from '@/features/settings';
 
 interface CreateAgentDialogProps {
   onCreate?: (data: { id: string; model: string; provider: string }) => Promise<void>;
   trigger?: React.ReactNode;
 }
 
-const MODEL_OPTIONS = [
-  { value: 'gpt-4o', label: 'GPT-4o' },
-  { value: 'gpt-4', label: 'GPT-4' },
-  { value: 'claude-sonnet-4', label: 'Claude Sonnet 4' },
-  { value: 'claude-opus', label: 'Claude Opus' },
-  { value: 'claude-haiku', label: 'Claude Haiku' },
-];
-
-const PROVIDER_OPTIONS = [
-  { value: 'copilot', label: 'GitHub Copilot' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'anthropic', label: 'Anthropic' },
-  { value: 'azure', label: 'Azure OpenAI' },
-];
-
 export function CreateAgentDialog({ onCreate, trigger }: CreateAgentDialogProps) {
   const [open, setOpen] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [formData, setFormData] = useState({
     id: '',
-    model: 'gpt-4o',
-    provider: 'copilot',
+    model: '',
+    provider: '',
   });
   const [error, setError] = useState<string | null>(null);
+
+  const { data: models, isLoading: modelsLoading } = useAvailableModels();
+  const { data: providers, isLoading: providersLoading } = useProvidersStatus();
+
+  // Build dynamic options
+  const modelOptions = models?.map((m) => ({ value: m.id, label: m.name })) || [];
+  const providerOptions =
+    providers
+      ?.filter((p) => p.configured)
+      ?.map((p) => ({ value: p.id, label: p.name || p.id })) || [];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,7 +66,7 @@ export function CreateAgentDialog({ onCreate, trigger }: CreateAgentDialogProps)
     try {
       await onCreate?.(formData);
       setOpen(false);
-      setFormData({ id: '', model: 'gpt-4o', provider: 'copilot' });
+      setFormData({ id: '', model: '', provider: '' });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create agent');
     } finally {
@@ -118,17 +114,23 @@ export function CreateAgentDialog({ onCreate, trigger }: CreateAgentDialogProps)
               <Select
                 value={formData.provider}
                 onValueChange={(v) => setFormData((prev) => ({ ...prev, provider: v }))}
-                disabled={isCreating}
+                disabled={isCreating || providersLoading}
               >
                 <SelectTrigger id="provider">
-                  <SelectValue />
+                  <SelectValue placeholder={providersLoading ? 'Loading...' : 'Select provider'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {PROVIDER_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                  {providerOptions.length === 0 ? (
+                    <SelectItem value="__empty__" disabled>
+                      No configured providers
                     </SelectItem>
-                  ))}
+                  ) : (
+                    providerOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -138,17 +140,23 @@ export function CreateAgentDialog({ onCreate, trigger }: CreateAgentDialogProps)
               <Select
                 value={formData.model}
                 onValueChange={(v) => setFormData((prev) => ({ ...prev, model: v }))}
-                disabled={isCreating}
+                disabled={isCreating || modelsLoading}
               >
                 <SelectTrigger id="model">
-                  <SelectValue />
+                  <SelectValue placeholder={modelsLoading ? 'Loading...' : 'Select model'} />
                 </SelectTrigger>
                 <SelectContent>
-                  {MODEL_OPTIONS.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                  {modelOptions.length === 0 ? (
+                    <SelectItem value="__empty__" disabled>
+                      No models available
                     </SelectItem>
-                  ))}
+                  ) : (
+                    modelOptions.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>

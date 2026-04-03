@@ -4,6 +4,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { STALE_TIME } from '@/lib/query-config';
 import {
   getSkills,
   getSkillDetail,
@@ -17,7 +18,7 @@ export function useSkills() {
   return useQuery<Skill[], Error>({
     queryKey: ['skills'],
     queryFn: getSkills,
-    staleTime: 5000,
+    staleTime: STALE_TIME.SHORT,
   });
 }
 
@@ -25,7 +26,7 @@ export function useSkillDetail(name: string) {
   return useQuery<SkillDetail, Error>({
     queryKey: ['skills', name],
     queryFn: () => getSkillDetail(name),
-    staleTime: 10000,
+    staleTime: STALE_TIME.MEDIUM,
     enabled: !!name,
   });
 }

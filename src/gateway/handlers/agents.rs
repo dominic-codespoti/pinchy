@@ -47,6 +47,7 @@ pub(crate) async fn api_agents_list() -> impl IntoResponse {
                 has_soul,
                 has_tools,
                 has_heartbeat,
+                last_heartbeat_at: None,
                 model: None,
                 heartbeat_secs: None,
                 max_tool_iterations: None,
@@ -74,6 +75,13 @@ pub(crate) async fn api_agents_list() -> impl IntoResponse {
                     item.compact_keep_recent_turns = ac.compact_keep_recent_turns;
                     item.timezone = Some(cfg.resolve_timezone(&item.id).to_string());
                     item.reasoning_effort = ac.reasoning_effort.clone();
+                }
+            }
+
+            // Load real heartbeat timestamp from scheduler status
+            if item.has_heartbeat {
+                if let Some(status) = crate::scheduler::load_heartbeat_status(&item.id).await {
+                    item.last_heartbeat_at = status.last_tick;
                 }
             }
 
@@ -857,6 +865,97 @@ pub(crate) async fn api_agent_file_put(
             }),
         )
             .into_response(),
+    }
+}
+
+/// `POST /api/agents/:id/test` — send a test message to an agent.
+pub(crate) async fn api_agent_test(
+    Path(agent_id): Path<String>,
+    Json(body): Json<TestAgentRequest>,
+) -> impl IntoResponse {
+    use crate::config::Config;
+    use crate::models::send_chat_messages;
+    use crate::models::ChatMessage;
+
+    // Validate agent_id
+    if let Err(e) = validate_path_segment(&agent_id) {
+        return e.into_response();
+    }
+
+    // Check if agent exists
+    let agent_root = crate::utils::agent_root(&agent_id);
+    if !agent_root.exists() {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "agent not found".to_string(),
+                id: Some(agent_id),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
+        )
+            .into_response();
+    }
+
+    // Load agent configuration (for potential future use)
+    let config_path = crate::pinchy_home().join("config.yaml");
+    let _agent_config = Config::load(&config_path)
+        .await
+        .ok()
+        .and_then(|cfg| cfg.agents.into_iter().find(|a| a.id == agent_id));
+
+    // Build system prompt from SOUL.md
+    let soul_path = agent_root.join("SOUL.md");
+    let soul_content = tokio::fs::read_to_string(&soul_path).await.ok();
+
+    let system_prompt = soul_content
+        .unwrap_or_else(|| format!("You are a helpful AI assistant named {}.", agent_id));
+
+    // Build messages for the model
+    let mut messages = vec![ChatMessage::system(&system_prompt)];
+    messages.push(ChatMessage::user(&body.message));
+
+    // Try to send to model
+    match send_chat_messages(&messages).await {
+        Ok(reply) => {
+            // Estimate token counts (approximate)
+            let input_tokens = body.message.len() as u64 / 4;
+            let output_tokens = reply.len() as u64 / 4;
+
+            let response = TestAgentResponse {
+                response: reply.clone(),
+                content: Some(reply),
+                usage: Some(TestAgentUsage {
+                    input_tokens,
+                    output_tokens,
+                }),
+            };
+
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, agent_id = %agent_id, "agent test failed");
+
+            // Return a graceful fallback response
+            let response = TestAgentResponse {
+                response: format!(
+                    "I'm {} (running in fallback mode).\n\nYou said: {}\n\nNote: No AI model is currently configured. Please set up an AI provider (OpenAI, Anthropic, Copilot, etc.) in your config.yaml to enable full responses.",
+                    agent_id,
+                    body.message
+                ),
+                content: Some(format!(
+                    "Fallback response: Agent {} received your test message.",
+                    agent_id
+                )),
+                usage: Some(TestAgentUsage {
+                    input_tokens: body.message.len() as u64 / 4,
+                    output_tokens: 0,
+                }),
+            };
+
+            (StatusCode::OK, Json(response)).into_response()
+        }
     }
 }
 

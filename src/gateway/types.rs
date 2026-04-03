@@ -14,6 +14,8 @@ pub(crate) struct AgentListItem {
     pub has_tools: bool,
     pub has_heartbeat: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_heartbeat_at: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heartbeat_secs: Option<u64>,
@@ -461,6 +463,23 @@ pub(crate) struct SessionDeleteResponse {
     pub deleted: bool,
 }
 
+/// Dashboard session item for global sessions endpoint
+#[derive(Serialize)]
+pub(crate) struct DashboardSessionItem {
+    pub id: String,
+    pub agent_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub message_count: usize,
+    pub updated_at: i64,
+}
+
+/// Response for global sessions list endpoint
+#[derive(Serialize)]
+pub(crate) struct GlobalSessionsListResponse {
+    pub sessions: Vec<DashboardSessionItem>,
+}
+
 /// Debug payload list response
 #[derive(Serialize)]
 pub(crate) struct DebugPayloadListResponse {
@@ -592,6 +611,88 @@ pub(crate) struct WebhookIngestResponse {
     pub message: String,
 }
 
+/// Webhook configuration for an agent
+#[derive(Serialize, Deserialize)]
+pub(crate) struct WebhookConfig {
+    pub enabled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secret: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub event_types: Vec<String>,
+    pub url: String,
+}
+
+/// Response for webhook config endpoint
+#[derive(Serialize)]
+pub(crate) struct WebhookConfigResponse {
+    pub agent_id: String,
+    #[serde(flatten)]
+    pub config: WebhookConfig,
+}
+
+/// Request body for PUT /api/agents/:id/webhook/config
+#[derive(Deserialize)]
+pub(crate) struct UpdateWebhookConfigRequest {
+    pub enabled: bool,
+    #[serde(default)]
+    pub secret: Option<String>,
+    #[serde(default)]
+    pub event_types: Vec<String>,
+}
+
+/// Response for webhook config update
+#[derive(Serialize)]
+pub(crate) struct WebhookConfigUpdateResponse {
+    pub agent_id: String,
+    pub updated: bool,
+}
+
+/// Individual webhook delivery log entry
+#[derive(Serialize)]
+pub(crate) struct WebhookDeliveryItem {
+    pub id: String,
+    pub timestamp: u64,
+    pub event_type: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status_code: Option<u16>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payload_preview: Option<String>,
+}
+
+/// Response for webhook deliveries list endpoint
+#[derive(Serialize)]
+pub(crate) struct WebhookDeliveriesResponse {
+    pub agent_id: String,
+    pub deliveries: Vec<WebhookDeliveryItem>,
+}
+
+/// Request body for POST /api/agents/:id/webhook/test
+#[derive(Deserialize)]
+pub(crate) struct TestWebhookRequest {
+    #[serde(default = "default_test_event_type")]
+    pub event_type: String,
+    #[serde(default)]
+    pub payload: Option<serde_json::Value>,
+}
+
+fn default_test_event_type() -> String {
+    "test".to_string()
+}
+
+/// Response for webhook test endpoint
+#[derive(Serialize)]
+pub(crate) struct WebhookTestResponse {
+    pub success: bool,
+    pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivery_id: Option<String>,
+}
+
 /// Individual command info for slash commands
 #[derive(Serialize)]
 pub(crate) struct CommandInfo {
@@ -604,4 +705,27 @@ pub(crate) struct CommandInfo {
 #[derive(Serialize)]
 pub(crate) struct SlashCommandsResponse {
     pub commands: Vec<CommandInfo>,
+}
+
+/// Request body for POST /api/agents/:id/test
+#[derive(Deserialize)]
+pub(crate) struct TestAgentRequest {
+    pub message: String,
+}
+
+/// Usage info for test agent response
+#[derive(Serialize)]
+pub(crate) struct TestAgentUsage {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+}
+
+/// Response for agent test endpoint
+#[derive(Serialize)]
+pub(crate) struct TestAgentResponse {
+    pub response: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<TestAgentUsage>,
 }
