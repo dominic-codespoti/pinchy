@@ -609,9 +609,35 @@ impl ModelsDevRegistry {
         self.providers.iter().find(|p| p.id == id)
     }
 
+    /// Look up a provider by ID with alias fallback.
+    ///
+    /// If the provider is not found directly, tries known aliases:
+    /// - `openai-codex` → `openai`
+    pub fn provider_with_alias(&self, id: &str) -> Option<&ModelsDevProvider> {
+        // Try direct lookup first
+        if let Some(provider) = self.provider(id) {
+            return Some(provider);
+        }
+
+        // Try known alias fallbacks
+        let fallback_id = match id {
+            "openai-codex" => "openai",
+            _ => return None,
+        };
+
+        self.provider(fallback_id)
+    }
+
     /// Get all models for a specific provider.
     pub fn models_for_provider(&self, provider_id: &str) -> Vec<&ModelsDevModel> {
         self.provider(provider_id)
+            .map(|p| p.models.iter().collect())
+            .unwrap_or_default()
+    }
+
+    /// Get all models for a specific provider with alias fallback.
+    pub fn models_for_provider_with_alias(&self, provider_id: &str) -> Vec<&ModelsDevModel> {
+        self.provider_with_alias(provider_id)
             .map(|p| p.models.iter().collect())
             .unwrap_or_default()
     }

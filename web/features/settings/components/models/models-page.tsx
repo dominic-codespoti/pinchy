@@ -1317,13 +1317,27 @@ export function ModelsPage() {
   };
 
   const handleDisconnect = async (providerId: string) => {
+    // Store previous state for potential rollback
+    const previousStatuses = queryClient.getQueryData<ProviderStatusItem[]>(PROVIDERS_STATUS_QUERY_KEY);
+
+    // Optimistically update cache to show provider as disconnected immediately
+    queryClient.setQueryData<ProviderStatusItem[]>(PROVIDERS_STATUS_QUERY_KEY, (old) => {
+      if (!old) return old;
+      return old.map((p) =>
+        p.id === providerId ? { ...p, configured: false, method: undefined } : p
+      );
+    });
+
     try {
       const { removeProviderAuth } = await import('../../api');
       await removeProviderAuth(providerId);
       toast.success('Provider disconnected');
-      queryClient.invalidateQueries({ queryKey: PROVIDERS_STATUS_QUERY_KEY });
-      queryClient.invalidateQueries({ queryKey: MODELS_QUERY_KEY });
+      // Refetch to ensure server state consistency
+      await queryClient.invalidateQueries({ queryKey: PROVIDERS_STATUS_QUERY_KEY });
+      await queryClient.invalidateQueries({ queryKey: MODELS_QUERY_KEY });
     } catch {
+      // Revert optimistic update on failure
+      queryClient.setQueryData(PROVIDERS_STATUS_QUERY_KEY, previousStatuses);
       toast.error('Failed to disconnect provider');
     }
   };

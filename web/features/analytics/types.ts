@@ -3,6 +3,31 @@ export type TimeRange = '24h' | '7d' | '30d';
 // Extended TimeRange to include 'custom'
 export type ExtendedTimeRange = TimeRange | 'custom';
 
+// ============================================================================
+// API Types
+// ============================================================================
+
+export interface UsageBucket {
+  day: string;
+  agent: string;
+  model: string;
+  turns: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  estimated_cost_usd: number;
+}
+
+export interface UsageApiResponse {
+  buckets: UsageBucket[];
+  from: string;
+  to: string;
+}
+
+// ============================================================================
+// Chart Data Types
+// ============================================================================
+
 export interface TokenDataPoint {
   time: string;
   inputTokens: number;

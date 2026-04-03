@@ -29,8 +29,7 @@ pub const DEFAULT_BASE_URL: &str = "https://api.x.ai/v1";
 /// Provider that talks to the xAI (Grok) chat completions API.
 pub struct XaiProvider {
     api_key: String,
-    #[allow(dead_code)]
-    base_url: String,
+    _base_url: String,
     endpoint: String,
     model: String,
     client: Client,
@@ -53,7 +52,7 @@ impl XaiProvider {
         let model = "grok-2-latest".to_string();
         Self {
             api_key,
-            base_url: DEFAULT_BASE_URL.to_string(),
+            _base_url: DEFAULT_BASE_URL.to_string(),
             endpoint: DEFAULT_ENDPOINT.to_string(),
             client: super::get_shared_http_client(),
             model,
@@ -75,7 +74,7 @@ impl XaiProvider {
         };
         Self {
             api_key,
-            base_url,
+            _base_url: base_url,
             endpoint,
             client: super::get_shared_http_client(),
             model,
@@ -336,7 +335,7 @@ mod tests {
     fn construct_with_config() {
         let p = XaiProvider::with_config("xai-test-key".into(), "grok-2-latest".into());
         assert_eq!(p.model, "grok-2-latest");
-        assert_eq!(p.base_url, "https://api.x.ai/v1");
+        assert_eq!(p._base_url, "https://api.x.ai/v1");
     }
 
     /// Build the JSON request body the same way `send_chat` does and
@@ -362,9 +361,7 @@ mod tests {
         });
 
         // Three messages total: 1 system + 2 user.
-        let arr = body["messages"]
-            .as_array()
-            .expect("Expected messages to be an array");
+        let arr = body["messages"].as_array().unwrap();
         assert_eq!(arr.len(), 3);
         assert_eq!(arr[0]["role"], "system");
         assert_eq!(arr[1]["role"], "user");

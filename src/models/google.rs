@@ -88,8 +88,7 @@ struct GeminiResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     usage_metadata: Option<GeminiUsageMetadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[allow(dead_code)]
-    prompt_feedback: Option<serde_json::Value>,
+    _prompt_feedback: Option<serde_json::Value>,
 }
 
 /// Gemini candidate (choice) structure.
@@ -97,11 +96,9 @@ struct GeminiResponse {
 struct GeminiCandidate {
     content: GeminiContent,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[allow(dead_code)]
-    finish_reason: Option<String>,
+    _finish_reason: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[allow(dead_code)]
-    safety_ratings: Option<Vec<serde_json::Value>>,
+    _safety_ratings: Option<Vec<serde_json::Value>>,
 }
 
 /// Gemini usage metadata.
@@ -333,15 +330,15 @@ impl GoogleProvider {
                             inline_data: None,
                         }],
                     },
-                    finish_reason: Some("STOP".to_string()),
-                    safety_ratings: None,
+                    _finish_reason: Some("STOP".to_string()),
+                    _safety_ratings: None,
                 }],
                 usage_metadata: Some(GeminiUsageMetadata {
                     prompt_token_count: Some(total_prompt_tokens),
                     candidates_token_count: Some(total_candidates_tokens),
                     total_token_count: Some(total_prompt_tokens + total_candidates_tokens),
                 }),
-                prompt_feedback: None,
+                _prompt_feedback: None,
             };
 
             Ok(synthetic_response)

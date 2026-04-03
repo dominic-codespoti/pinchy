@@ -1,0 +1,821 @@
+# Letta-Inspired Shared Memory Feature Board
+# Persistent internal planning artifact for cross-agent memory system
+# Manual updates expected; keep in sync with spec
+
+# ============================================================================
+# METADATA
+# ============================================================================
+
+feature_name: "Letta-Inspired Shared Memory"
+spec_file: "LETTA_INSPIRED_SHARED_MEMORY_SPEC.md"
+status: "wave-1-hardening-complete"
+owner: "pinchy-team"
+last_updated: "2026-04-02"
+version: "1.0-wave-1-hardening"
+
+# ============================================================================
+# GOALS (from spec section 1.2)
+# ============================================================================
+
+goals:
+  - id: G1
+    priority: P0
+    text: "Agents can read shared memory with explicit authorization"
+    metric: "recall_memory can query shared namespaces"
+    phase: MVP
+    status: implemented
+  - id: G2
+    priority: P0
+    text: "Agents can write shared memory with explicit capability"
+    metric: "save_memory accepts shared namespace parameter"
+    phase: MVP
+    status: implemented
+  - id: G3
+    priority: P0
+    text: "Private memory remains default and isolated"
+    metric: "No regression in per-agent memory behavior"
+    phase: MVP
+    status: implemented
+  - id: G4
+    priority: P1
+    text: "Shared memory counts against context/token budget"
+    metric: "Integrated with existing turn-based compaction"
+    phase: MVP
+    status: implemented
+  - id: G5
+    priority: P1
+    text: "Reuse existing embedding infrastructure"
+    metric: "No separate embedding subsystem"
+    phase: MVP
+    status: implemented
+  - id: G6
+    priority: P2
+    text: "Simple config-based access control"
+    metric: "Namespace allowlists in config.yaml"
+    phase: MVP
+    status: implemented
+
+# ============================================================================
+# NON-GOALS (from spec section 1.3)
+# ============================================================================
+
+non_goals:
+  - item: "Letta API compatibility"
+    rationale: "Borrow architectural ideas, not wire protocols"
+  - item: "Working/Core/Archival promotion layers"
+    rationale: "Single shared pool is sufficient for MVP"
+  - item: "Real-time sync across hosts"
+    rationale: "Single-binary scope; clustering is v2"
+  - item: "Distributed consensus"
+    rationale: "SQLite is sufficient for single-host scale"
+  - item: "Agent-to-agent direct messaging"
+    rationale: "Use existing gateway/WebSocket patterns"
+  - item: "Automatic memory merging"
+    rationale: "Agents must explicitly read/write shared memory"
+  - item: "Cross-organization federation"
+    rationale: "Future research topic"
+  - item: "Graph relationship queries"
+    rationale: "Start with tag-based filtering; graph is v1.1"
+  - item: "Built-in vector database"
+    rationale: "SQLite + embeddings via existing providers"
+  - item: "Cryptographic signatures"
+    rationale: "Provenance tracking without crypto in MVP"
+  - item: "Heavy secret detection"
+    rationale: "Basic pattern matching enhanced in Wave 1 (JWT, SSH, API keys); ML-based deferred"
+
+# ============================================================================
+# ARCHITECTURAL DECISIONS (from spec section 8)
+# These must be maintained during implementation
+# ============================================================================
+
+decisions:
+  - id: D1
+    date: "2026-04-01"
+    title: "Config-based ACL over capabilities"
+    rationale: "Simpler for single-binary deployment; sufficient for MVP scope"
+    reversible_in: v1.0
+  - id: D2
+    date: "2026-04-01"
+    title: "Single pool over Working/Core/Archival layers"
+    rationale: "Reduced complexity; defer layering to v1.1+"
+    reversible_in: v1.1
+  - id: D3
+    date: "2026-04-01"
+    title: "Tool-first over HTTP-first API"
+    rationale: "Consistent with Pinchy's tool-centric design patterns"
+    reversible_in: v1.0
+  - id: D4
+    date: "2026-04-01"
+    title: "Reuse ProviderManager for embeddings"
+    rationale: "No new subsystem needed; follows existing fallback chain"
+    reversible_in: null
+  - id: D5
+    date: "2026-04-01"
+    title: "Shared memory counts against same context budget"
+    rationale: "Preserves existing turn-based compaction behavior"
+    reversible_in: null
+  - id: D6
+    date: "2026-04-01"
+    title: "Content hashes for provenance (no Ed25519 in MVP)"
+    rationale: "Basic integrity without cryptographic complexity"
+    reversible_in: v1.1
+  - id: D7
+    date: "2026-04-01"
+    title: "Explicit over Implicit sharing model"
+    rationale: "No automatic sharing; all shared access requires opt-in"
+    reversible_in: null
+  - id: D8
+    date: "2026-04-01"
+    title: "Default Deny security posture"
+    rationale: "Agents cannot access shared memory without explicit authorization"
+    reversible_in: null
+
+# ============================================================================
+# RISKS (from spec sections 4.1, 7.3)
+# ============================================================================
+
+risks:
+  - category: "Security"
+    threat: "Unauthorized Read"
+    severity: High
+    mitigation: "Config-based ACL; default deny"
+    status: implemented
+  - category: "Security"
+    threat: "Unauthorized Write / Poisoning"
+    severity: Critical
+    mitigation: "Config-based ACL + write allowlists"
+    status: implemented
+  - category: "Security"
+    threat: "FTS5 Query Injection"
+    severity: High
+    mitigation: "Input sanitization: strip FTS5 operators, limit query complexity"
+    status: hardened-wave-1
+  - category: "Security"
+    threat: "Secret Leakage"
+    severity: Critical
+    mitigation: "Enhanced pattern detection: JWT, SSH keys, API keys + block"
+    status: hardened-wave-1
+  - category: "Operational"
+    threat: "Namespace flooding"
+    impact: "Storage exhaustion"
+    mitigation: "Rate limiting + size quotas + max_entries_per_agent (ALL ENFORCED)"
+    status: implemented
+  - category: "Operational"
+    threat: "Shared DB corruption"
+    impact: "Shared memory unavailable"
+    mitigation: "Fallback to private only; backups"
+    status: implemented
+  - category: "Operational"
+    threat: "Embedding provider down"
+    impact: "Semantic search degrades"
+    mitigation: "Fallback to BM25-only"
+    status: implemented
+  - category: "Operational"
+    threat: "Config ACL misconfiguration"
+    impact: "Unauthorized access possible"
+    mitigation: "Validate config on startup"
+    status: implemented
+  - category: "Operational"
+    threat: "Namespace flooding"
+    impact: "Storage exhaustion"
+    mitigation: "Rate limiting + size quotas"
+    status: implemented
+
+# ============================================================================
+# REFERENCES
+# ============================================================================
+
+references:
+  - type: spec
+    path: "LETTA_INSPIRED_SHARED_MEMORY_SPEC.md"
+    description: "Full specification document"
+  - type: code
+    path: "src/memory/mod.rs"
+    description: "Memory store module integration point"
+  - type: code
+    path: "src/memory/shared.rs"
+    description: "Shared memory store implementation"
+  - type: code
+    path: "src/config/shared_memory.rs"
+    description: "Shared memory configuration structures"
+  - type: code
+    path: "src/store/mod.rs"
+    description: "PinchyDb migration and shared_memories table"
+  - type: code
+    path: "src/tools/builtins/memory.rs"
+    description: "Tool integration point"
+  - type: code
+    path: "src/context/mod.rs"
+    description: "Context budget integration point"
+  - type: code
+    path: "tests/shared_memory_core.rs"
+    description: "Core functionality test harness"
+  - type: code
+    path: "tests/shared_memory_e2e.rs"
+    description: "End-to-end test harness"
+  - type: code
+    path: "tests/shared_memory_evil.rs"
+    description: "Boundary/evil test harness"
+  - type: external
+    url: "https://docs.letta.com/"
+    description: "Letta documentation (architectural inspiration only)"
+
+# ============================================================================
+# OPEN QUESTIONS & DEFERRED ITEMS
+# ============================================================================
+
+open_questions:
+  - question: "Default memory_budget percent value"
+    current_thinking: "20% of context budget - IMPLEMENTED"
+    blocking: false
+    decision_needed_by: MVP
+  - question: "Wildcard matching implementation details"
+    current_thinking: "Pattern matching like agent:backend-* - IMPLEMENTED"
+    blocking: false
+    decision_needed_by: MVP
+  - question: "TTL cleanup strategy"
+    current_thinking: "Deferred to v1.1; basic TTL filtering implemented in MVP"
+    blocking: false
+    decision_needed_by: v1.1
+
+deferred_to_v1_0:
+  - "Database-backed capabilities (grant/revoke tools)"
+  - "HTTP API endpoints for shared memory"
+  - "Structured content schemas"
+  - "Full context builder integration (SM-023, SM-026, SM-027)"
+
+deferred_to_v1_1:
+  - "Working/Core/Archival promotion layers"
+  - "Background re-embedding for stale embeddings"
+  - "Ed25519 cryptographic signatures"
+  - "Entry relationships / graph queries"
+  - "TTL-based archival cleanup with background task"
+
+deferred_to_v1_2:
+  - "Reputation scoring"
+  - "Cross-organization federation"
+  - "Advanced secret detection (ML-based)"
+
+# ============================================================================
+# TRELLO-STYLE BOARD COLUMNS
+# ============================================================================
+
+# BACKLOG: Work identified but not yet ready for development
+backlog:
+  # Context Integration tickets (partially implemented, full integration deferred)
+  - id: SM-023
+    title: "Add shared memory query to context builder (full integration)"
+    phase: MVP
+    epic: "Context Integration"
+    estimate: 3
+    description: "Full integration into prompt context construction with source attribution"
+    depends_on: [SM-008]
+    labels: [context, integration]
+    status: done
+    note: "Wave 2A COMPLETE: Wired into src/agent/turn.rs build_initial_messages() - queries readable namespaces and injects shared memory prompt block per-turn."
+
+  - id: SM-024
+    title: "Implement memory budget allocation (private priority, shared cap)"
+    phase: MVP
+    epic: "Context Integration"
+    estimate: 3
+    description: "Allocate context budget between private and shared memory (structures implemented)"
+    depends_on: [SM-023, SM-011]
+    labels: [context, budget]
+    status: done
+    note: "Wave 2A COMPLETE: Budget allocation helpers used in turn.rs with 8KB char cap for shared memory."
+
+  - id: SM-025
+    title: "Integrate with existing turn-based compaction"
+    phase: MVP
+    epic: "Context Integration"
+    estimate: 3
+    description: "Shared memory respects turn > 20 OR tokens > 96000 triggers"
+    depends_on: [SM-024]
+    labels: [context, compaction]
+    status: done
+    note: "Wave 3 COMPLETE: Shared memory counts against same budget and is rebuilt per-turn, participating in context management."
+
+  - id: SM-026
+    title: "Add source attribution to prompt injection (namespace + author)"
+    phase: MVP
+    epic: "Context Integration"
+    estimate: 2
+    description: "Label shared memory entries with namespace and author in prompts"
+    depends_on: [SM-023]
+    labels: [context, attribution]
+    status: done
+    note: "Wave 2A COMPLETE: format_for_prompt() attribution used in turn.rs integration."
+
+  - id: SM-027
+    title: "Implement per-turn memory rebuild behavior"
+    phase: MVP
+    epic: "Context Integration"
+    estimate: 2
+    description: "Shared memory rebuilt every turn, not pinned permanently"
+    depends_on: [SM-025]
+    labels: [context, rebuild]
+    status: done
+    note: "Wave 2A COMPLETE: Shared memory is re-queried every turn in build_initial_messages(), NOT pinned like system messages."
+
+  # Audit/metrics tickets
+  - id: SM-029
+    title: "Add basic metrics (reads/writes per namespace)"
+    phase: MVP
+    epic: "Audit"
+    estimate: 2
+    description: "Expose counters for shared memory usage via HTTP endpoint"
+    labels: [observability]
+
+  # v1.0+ Post-MVP tickets
+  - id: SM-031
+    title: "Database-backed capabilities table"
+    phase: v1.0
+    epic: "Post-MVP"
+    estimate: 3
+    description: "Replace config ACL with database-stored capabilities"
+    labels: [security, auth]
+
+  - id: SM-032
+    title: "Admin grant/revoke tools"
+    phase: v1.0
+    epic: "Post-MVP"
+    estimate: 3
+    description: "Runtime capability management tools"
+    depends_on: [SM-031]
+    labels: [tools, auth]
+
+  - id: SM-033
+    title: "HTTP API endpoints for shared memory"
+    phase: v1.0
+    epic: "Post-MVP"
+    estimate: 3
+    description: "GET /api/memory/namespaces, GET /api/memory/shared"
+    labels: [api, gateway]
+
+  - id: SM-034
+    title: "Structured content schemas"
+    phase: v1.0
+    epic: "Post-MVP"
+    estimate: 3
+    description: "Typed memory entries (ADR, patterns, etc.)"
+    labels: [schema]
+
+  # v1.1 Items
+  - id: SM-035
+    title: "Background re-embedding for stale embeddings"
+    phase: v1.1
+    epic: "Post-MVP"
+    estimate: 3
+    description: "Re-embed when model/dim mismatch detected"
+    labels: [performance, embeddings]
+
+  - id: SM-036
+    title: "Archival layer with TTL cleanup"
+    phase: v1.1
+    epic: "Post-MVP"
+    estimate: 3
+    description: "Working/Core/Archival promotion and cleanup"
+    labels: [storage, lifecycle]
+
+  - id: SM-037
+    title: "Ed25519 signatures for provenance"
+    phase: v1.1
+    epic: "Post-MVP"
+    estimate: 3
+    description: "Cryptographic verification of memory authorship"
+    labels: [security, crypto]
+
+  - id: SM-038
+    title: "Entry relationships"
+    phase: v1.1
+    epic: "Post-MVP"
+    estimate: 3
+    description: "Graph relationships between memory entries"
+    labels: [graph, queries]
+
+  # v1.2 Items
+  - id: SM-039
+    title: "Reputation scoring"
+    phase: v1.2
+    epic: "Post-MVP"
+    estimate: 3
+    description: "Score agents based on memory quality"
+    labels: [ml, quality]
+
+# READY: Work planned and ready to start (dependencies satisfied, specs clear)
+ready: []
+
+# IN PROGRESS: Actively being worked on
+in_progress: []
+
+# BLOCKED: Cannot proceed due to external dependency or unresolved issue
+blocked: []
+
+# DONE: Completed work
+# MVP Foundation and harnesses completed
+done:
+  # Core Storage tickets (MVP Foundation)
+  - id: SM-001
+    title: "Implement PinchyDb::migrate() with PRAGMA user_version"
+    phase: MVP
+    epic: "Core Storage"
+    estimate: 2
+    description: "Migration framework for additive schema changes - v1 shared memory tables"
+    labels: [storage, migration]
+
+  - id: SM-002
+    title: "Create shared_memories table schema (idempotent)"
+    phase: MVP
+    epic: "Core Storage"
+    estimate: 2
+    description: "Main shared memory table with namespace, path, content, hashes"
+    depends_on: [SM-001]
+    labels: [storage, schema]
+
+  - id: SM-003
+    title: "Add FTS5 virtual table + triggers (idempotent)"
+    phase: MVP
+    epic: "Core Storage"
+    estimate: 2
+    description: "Full-text search index with insert/update/delete triggers"
+    depends_on: [SM-002]
+    labels: [storage, fts5, search]
+
+  - id: SM-004
+    title: "Add shared_embeddings table with model/dim tracking"
+    phase: MVP
+    epic: "Core Storage"
+    estimate: 2
+    description: "Embedding storage with dimension and model identifier for mismatch detection"
+    depends_on: [SM-001]
+    labels: [storage, embeddings]
+
+  - id: SM-005
+    title: "Add shared_audit_log table"
+    phase: MVP
+    epic: "Core Storage"
+    estimate: 2
+    description: "Append-only audit log for all shared memory operations"
+    depends_on: [SM-001]
+    labels: [storage, audit]
+
+  - id: SM-006
+    title: "Create SharedMemoryStore struct in src/memory/shared.rs"
+    phase: MVP
+    epic: "Core Storage"
+    estimate: 3
+    description: "Main store interface for shared memory operations"
+    depends_on: [SM-002, SM-003, SM-004, SM-005]
+    labels: [storage, api]
+
+  - id: SM-007
+    title: "Implement save_shared with content hashing"
+    phase: MVP
+    epic: "Core Storage"
+    estimate: 3
+    description: "Write path with SHA-256 content hashing"
+    depends_on: [SM-006]
+    labels: [storage, write]
+
+  - id: SM-008
+    title: "Implement recall_shared with BM25 + embedding mismatch handling"
+    phase: MVP
+    epic: "Core Storage"
+    estimate: 3
+    description: "Read path with FTS5 BM25 search and semantic fallback"
+    depends_on: [SM-006]
+    labels: [storage, read, search]
+
+  - id: SM-009
+    title: "Implement forget_shared with auth check"
+    phase: MVP
+    epic: "Core Storage"
+    estimate: 2
+    description: "Delete path with authorization verification"
+    depends_on: [SM-006]
+    labels: [storage, delete]
+
+  # Authorization tickets
+  - id: SM-010
+    title: "Load namespace ACL from config.yaml"
+    phase: MVP
+    epic: "Authorization"
+    estimate: 2
+    description: "Parse shared_memory.namespaces config section with pattern matching"
+    labels: [config, auth]
+
+  - id: SM-011
+    title: "Add memory_budget config to ContextBudget"
+    phase: MVP
+    epic: "Authorization"
+    estimate: 2
+    description: "percent_of_context and max_percent fields in config and context"
+    labels: [config, context]
+
+  - id: SM-012
+    title: "Implement can_read_namespace(agent_id, ns) with wildcard support"
+    phase: MVP
+    epic: "Authorization"
+    estimate: 2
+    description: "Read permission check with pattern matching like agent:backend-*"
+    depends_on: [SM-010]
+    labels: [auth, read]
+
+  - id: SM-013
+    title: "Implement can_write_namespace(agent_id, ns)"
+    phase: MVP
+    epic: "Authorization"
+    estimate: 2
+    description: "Write permission check with stricter allowlist"
+    depends_on: [SM-010]
+    labels: [auth, write]
+
+  - id: SM-014
+    title: "Add rate limiting per agent/namespace"
+    phase: MVP
+    epic: "Authorization"
+    estimate: 2
+    description: "Per-agent write rate limits with runtime enforcement"
+    depends_on: [SM-010]
+    labels: [auth, rate-limiting]
+    status: done
+    note: "Wave 2 COMPLETE: Added count_writes_in_window() and enforcement in save_shared_memory. Returns RateLimitExceeded error with audit logging."
+
+  - id: SM-015
+    title: "Basic content validation (size, keywords, secrets)"
+    phase: MVP
+    epic: "Authorization"
+    estimate: 2
+    description: "Size limits, namespace validation, and secret detection for security"
+    labels: [security, validation]
+    status: done
+    note: "Wave 2 COMPLETE: Added check_content_for_secrets() with MVP-safe patterns (password/api_key/token/private_key). Returns SecretDetected error with audit logging."
+
+  # Tool Integration tickets
+  - id: SM-016
+    title: "Add namespace parameter to save_memory tool"
+    phase: MVP
+    epic: "Tool Integration"
+    estimate: 2
+    description: "Extend save_memory with optional namespace for shared writes"
+    depends_on: [SM-007, SM-013]
+    labels: [tools, write]
+
+  - id: SM-017
+    title: "Add namespace parameter to recall_memory tool with wildcard support"
+    phase: MVP
+    epic: "Tool Integration"
+    estimate: 2
+    description: "Extend recall_memory with namespace filter and * wildcard"
+    depends_on: [SM-008, SM-012]
+    labels: [tools, read, search]
+
+  - id: SM-018
+    title: "Add namespace parameter to forget_memory tool"
+    phase: MVP
+    epic: "Tool Integration"
+    estimate: 2
+    description: "Extend forget_memory with namespace for shared deletes"
+    depends_on: [SM-009, SM-013]
+    labels: [tools, delete]
+
+  - id: SM-019
+    title: "Reuse existing embed() via ProviderManager with model/dim storage"
+    phase: MVP
+    epic: "Tool Integration"
+    estimate: 2
+    description: "Integration with existing embedding infrastructure"
+    depends_on: [SM-004]
+    labels: [tools, embeddings]
+
+  - id: SM-020
+    title: "Implement embedding mismatch handling (BM25 fallback)"
+    phase: MVP
+    epic: "Tool Integration"
+    estimate: 2
+    description: "Graceful degradation when embedding model/dim mismatches"
+    depends_on: [SM-019]
+    labels: [tools, embeddings, fallback]
+
+  - id: SM-021
+    title: "Implement structured error envelope"
+    phase: MVP
+    epic: "Tool Integration"
+    estimate: 2
+    description: "JSON error responses with codes: NamespaceNotAuthorized, ContentTooLarge, etc."
+    labels: [error-handling, api]
+
+  - id: SM-022
+    title: "Update tool schemas + documentation"
+    phase: MVP
+    epic: "Tool Integration"
+    estimate: 1
+    description: "Update tool definitions and documentation for namespace parameter"
+    depends_on: [SM-016, SM-017, SM-018]
+    labels: [tools, docs]
+
+  # Audit
+  - id: SM-028
+    title: "Implement audit logging for all shared operations"
+    phase: MVP
+    epic: "Audit"
+    estimate: 3
+    description: "Log read/write/delete to shared_audit_log table"
+    depends_on: [SM-005]
+    labels: [observability, security]
+
+  - id: SM-030
+    title: "Feature flag implementation"
+    phase: MVP
+    epic: "Audit"
+    estimate: 2
+    description: "Enable/disable shared memory via config.yaml"
+    labels: [ops]
+
+# ============================================================================
+# EPIC TRACKING (for progress overview)
+# ============================================================================
+
+epics:
+  - name: "Core Storage"
+    description: "Database schema and SharedMemoryStore implementation"
+    tickets: [SM-001, SM-002, SM-003, SM-004, SM-005, SM-006, SM-007, SM-008, SM-009]
+    phase: MVP
+    status: done
+
+  - name: "Authorization"
+    description: "Config-based ACL and access control"
+    tickets: [SM-010, SM-011, SM-012, SM-013, SM-014, SM-015]
+    phase: MVP
+    status: done
+
+  - name: "Tool Integration"
+    description: "Namespace parameter support in memory tools"
+    tickets: [SM-016, SM-017, SM-018, SM-019, SM-020, SM-021, SM-022]
+    phase: MVP
+    status: done
+
+  - name: "Test Harnesses"
+    description: "Shared memory test harnesses for verification"
+    tickets: [tests/shared_memory_core.rs, tests/shared_memory_e2e.rs, tests/shared_memory_evil.rs]
+    phase: MVP
+    status: done
+
+  - name: "Context Integration"
+    description: "Shared memory in prompt building and budget counting"
+    tickets: [SM-023, SM-024, SM-025, SM-026, SM-027]
+    phase: MVP
+    status: done
+
+  - name: "Audit"
+    description: "Logging, metrics, and observability (partial - audit log done, metrics deferred)"
+    tickets: [SM-028, SM-029, SM-030]
+    phase: MVP
+    status: partial
+
+  - name: "Post-MVP"
+    description: "v1.0+ enhancements"
+    tickets: [SM-031, SM-032, SM-033, SM-034, SM-035, SM-036, SM-037, SM-038, SM-039]
+    phase: v1.0-v1.2
+    status: backlog
+
+# ============================================================================
+# CHANGE LOG (for board itself)
+# ============================================================================
+
+board_changelog:
+  - date: "2026-04-02"
+    change: "Wave 1 Hardening Complete: Audit log retention / cleanup policy (SM-028-hardening)"
+    author: "pinchy-team"
+    changes:
+      - "Added audit_log_retention_days config to SharedMemoryConfig (default: 90 days)"
+      - "Added cleanup_audit_log_retention() and cleanup_audit_log_older_than() to SharedMemoryStore"
+      - "Added count_audit_log_entries() for diagnostics and testing"
+      - "Added cleanup_shared_audit_log() and count_shared_audit_log_entries() to PinchyDb"
+      - "Cleanup runs automatically during PinchyDb::migrate() with 90-day default"
+      - "Zero retention_days disables cleanup (keep everything)"
+      - "Cleanup is idempotent - running multiple times is safe"
+      - "Added comprehensive tests: retention_respects_days, disabled_with_zero, older_than_timestamp, idempotent"
+  - date: "2026-04-02"
+    change: "Wave 1 Hardening Complete: FTS5 query hardening and enhanced secret detection"
+    author: "pinchy-team"
+    changes:
+      - "Added build_safe_fts5_query() in src/memory/shared.rs and src/memory/mod.rs with comprehensive input sanitization"
+      - "FTS5 hardening strips: quotes, single-quotes, asterisks, ^, -, +, ~, ., (, ), =, ; and boolean operators (AND, OR, NOT, NEAR)"
+      - "Query complexity limits: max 10 words, max 64 chars per word - prevents resource exhaustion"
+      - "Empty query handling: returns empty results instead of invalid MATCH ''"
+      - "Fixed FTS5 prefix syntax: uses 'term*' (unquoted) instead of 'term*' (quoted) for proper prefix matching"
+      - "Enhanced secret detection patterns: JWT tokens (eyJ...), SSH keys (-----BEGIN..., ssh-rsa, ssh-ed25519), Stripe keys (sk_live_, sk_test_, rk_live_, rk_test_)"
+      - "Removed 'sk-' standalone pattern as too broad for documentation contexts"
+      - "Added Bearer token detection (bearer: and bearer =), AWS credential patterns, connection strings"
+      - "Improved high-entropy detection with contextual analysis for values after credential keywords"
+      - "Added template file exceptions: .env.example, .env.sample, .env.template are allowed in docs"
+      - "Added 18 new tests across shared.rs, mod.rs, and shared_memory_evil.rs"
+      - "All shared memory tests pass: 39 core + 28 evil + 16 e2e = 83 tests"
+      - "Risk SM-015 (Secret Leakage) status: hardened-wave-1"
+      - "New risk added: FTS5 Query Injection (High) - status: hardened-wave-1"
+  - date: "2026-04-02"
+    change: "Wave 2: Implemented runtime enforcement for rate limits, max entries, and secret detection"
+    author: "pinchy-team"
+    changes:
+      - "Added count_entries_by_author() method to SharedMemoryStore for max_entries_per_agent enforcement"
+      - "Added count_writes_in_window() method to SharedMemoryStore for rate_limit_writes_per_hour enforcement"
+      - "Added check_content_for_secrets() with MVP-safe pattern detection (password/api_key/token/private_key)"
+      - "Updated save_shared_memory() in src/tools/builtins/memory.rs to enforce all runtime limits"
+      - "Rate limit exceeded returns RateLimitExceeded error code with audit logging"
+      - "Max entries exceeded returns MaxEntriesExceeded error code with audit logging"
+      - "Secret detection returns SecretDetected error code with audit logging"
+      - "All enforcement errors include structured JSON responses with recoverable flag"
+      - "Tickets SM-014 and SM-015 marked as done"
+      - "Added 6 new tests: count_entries_by_author_works, count_writes_in_window_works, secret_detection_*"
+      - "All tests pass: cargo test --no-default-features --test shared_memory_* (39 tests)"
+  - date: "2026-04-02"
+    change: "Wave 1B: Implemented shared-memory gateway/API support (HTTP endpoints)"
+    author: "pinchy-team"
+    changes:
+      - "Updated src/gateway/handlers/memory.rs to support shared memory queries via namespace parameter"
+      - "Added POST /api/agents/:agent_id/memory/shared for writing to shared memory with auth checks"
+      - "Added DELETE /api/agents/:agent_id/memory/shared for deleting from shared memory"
+      - "Added GET /api/memory/namespaces for listing accessible namespaces"
+      - "Extended existing GET /api/agents/:agent_id/memory to query shared memory when namespace param provided"
+      - "Preserves backward compatibility: omitting namespace queries private memory (existing behavior)"
+      - "All endpoints check config-based ACL before allowing read/write operations"
+      - "Ticket SM-033 moved from deferred to done (Wave 1B scope)"
+      - "All tests pass: cargo test --no-default-features (253 lib + 67 integration tests)"
+  - date: "2026-04-02"
+    change: "Wave 1A: Migration/schema drift fixes and audit-failure handling improvements"
+    author: "pinchy-team"
+    changes:
+      - "Fixed migration in src/store/mod.rs to detect and repair author_session_id NOT NULL constraint in pre-existing databases"
+      - "Added schema drift detection using pragma_table_info to check notnull constraint"
+      - "Added safe table recreation logic for SQLite when nullability fix is needed"
+      - "Replaced all audit-failure swallowing (let _ = audit_log) with explicit warning logs in src/tools/builtins/memory.rs"
+      - "Fixed session field inconsistency: recall_shared_memory now properly passes session_id to audit_log"
+      - "Added tests for author_session_id nullability, audit log failure handling, and session_id inclusion"
+      - "All shared memory tests pass: cargo test --no-default-features --test shared_memory_*"
+  - date: "2026-04-02"
+    change: "Release Blocker Fix: Plumb real agent/session identity through tool execution"
+    author: "pinchy-team"
+    changes:
+      - "Fixed src/tools/builtins/memory.rs to pass real agent_id and session_id to shared memory operations"
+      - "Changed author_session_id from TEXT NOT NULL to TEXT (nullable) in shared memory schema"
+      - "Updated SharedMemoryEntry.author_session_id from String to Option<String>"
+      - "Updated save() signature to accept Option<&str> for author_session_id"
+      - "Removed hardcoded session_id.unwrap_or(\"\") pattern - now passes real identity"
+      - "Updated all affected tests to use Some(\"...\") for session IDs"
+      - "All tests pass: cargo test --no-default-features (253 lib + 67 integration tests)"
+  - date: "2026-04-01"
+    change: "Wave 3: Completed Context Integration with budget-aware shared memory"
+    author: "pinchy-team"
+    changes:
+      - "Replaced hardcoded 8KB char cap with token-based budget allocation in turn.rs"
+      - "Shared memory now uses allocate_memory_budget() and respects percent_of_context/max_percent"
+      - "Added token estimation and trimming to respect shared budget"
+      - "Per-turn rebuild behavior verified (shared memory re-queried every turn)"
+      - "Added comprehensive tests: shared_memory_respects_token_budget, budget_adjustment_*"
+      - "Added per_turn_rebuild_behavior and compaction_aware_rebuild tests"
+      - "All Context Integration tickets SM-023 through SM-027 now complete"
+      - "MVP Context Integration epic status: done"
+  - date: "2026-04-01"
+    change: "Wave 2A: Wired shared memory retrieval into src/agent/turn.rs during prompt construction"
+    author: "pinchy-team"
+    changes:
+      - "Shared memory now injected in build_initial_messages() per-turn"
+      - "Uses list_readable_namespaces() to find authorized namespaces"
+      - "Uses build_prompt_block() with budget cap for prompt injection"
+      - "Added PinchyDb::conn() method for SharedMemoryStore access"
+      - "Respects feature flag and authorization logic"
+      - "Added tests: prompt_injection_includes_namespace_and_author, prompt_block_multiple_entries_with_separators, prompt_block_respects_budget_tightly"
+      - "Tickets SM-023, SM-024, SM-026 complete - SM-025 and SM-027 deferred to Wave 3"
+  - date: "2026-04-01"
+    change: "Wave 1 Context Integration Helpers: Added prompt-ready shared memory helpers"
+    author: "pinchy-team"
+    changes:
+      - "Added format_for_prompt() helper in src/memory/shared.rs for namespace + author attribution"
+      - "Added build_prompt_block() helper for constructing prompt-ready shared memory blocks"
+      - "Added estimate_token_count() helper for context budget calculations"
+      - "Added format_timestamp() helper for date formatting in prompts"
+      - "Added focused tests for all prompt context integration helpers"
+      - "Tickets SM-023, SM-024, SM-026 partially complete - ready for Wave 2 wiring into src/agent/turn.rs"
+  - date: "2026-04-01"
+    change: "Wave 1 Foundation: Added namespace listing and memory budget allocation helpers"
+    author: "pinchy-team"
+    changes:
+      - "Added list_readable_namespaces() helper in src/config/shared_memory.rs"
+      - "Added allocate_memory_budget() and adjust_memory_budget_for_private_actual() helpers in src/context/mod.rs"
+      - "Added comprehensive unit tests for all new helpers"
+  - date: "2026-04-01"
+    change: "Initial board creation from LETTA_INSPIRED_SHARED_MEMORY_SPEC.md v0.9-revised"
+    author: "pinchy-team"
+  - date: "2026-04-01"
+    change: "MVP Foundation Complete - shared memory core, config, tools, and test harnesses implemented"
+    author: "pinchy-team"
+    changes:
+      - "Added SharedMemoryStore with save, recall, forget, audit logging"
+      - "Added FTS5 BM25 search and semantic search with embedding support"
+      - "Added config-based ACL with wildcard pattern matching"
+      - "Extended memory tools with optional namespace parameter"
+      - "Added MemoryBudget to ContextBudget"
+      - "Created 3 test harnesses: core, e2e, evil"
+      - "PinchyDb migrations v1 with shared memory tables"

@@ -1,0 +1,25 @@
+{
+  "name": "pinchy",
+  "version": "0.1.19",
+  "description": "Lightweight agent platform with Next.js frontend and Rust backend",
+  "private": true,
+  "scripts": {
+    "dev": "bash dev.sh",
+    "dev:clean": "make dev-clean",
+    "build": "make build",
+    "build:web": "cd web && npm run build",
+    "build:rust": "cargo build",
+    "install:watch": "cargo install cargo-watch",
+    "test": "cargo test --no-default-features --lib",
+    "lint": "make lint",
+    "fmt": "cargo fmt"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.0",
+    "playwright-core": "^1.59.0",
+    "typescript": "^6.0.2"
+  }
+}

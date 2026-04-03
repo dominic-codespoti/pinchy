@@ -1,0 +1,192 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]:
+    - img [ref=e8]
+  - alert [ref=e11]
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]: Pinchy
+        - generic [ref=e16]:
+          - button "Notifications" [ref=e17] [cursor=pointer]:
+            - img
+          - button [ref=e18] [cursor=pointer]:
+            - img
+      - tablist [ref=e24]:
+        - tab "Dashboard" [ref=e25] [cursor=pointer]:
+          - img [ref=e26]
+          - text: Dashboard
+        - tab "Chat" [ref=e31] [cursor=pointer]:
+          - img [ref=e32]
+          - text: Chat
+        - tab "Agents" [ref=e34] [cursor=pointer]:
+          - img [ref=e35]
+          - text: Agents
+        - tab "Memories" [ref=e38] [cursor=pointer]:
+          - img [ref=e39]
+          - text: Memories
+        - tab "Cron" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+          - text: Cron
+        - tab "Skills" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+          - text: Skills
+        - tab "Logs" [ref=e53] [cursor=pointer]:
+          - img [ref=e54]
+          - text: Logs
+        - tab "Models" [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - text: Models
+        - tab "Settings" [selected] [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+          - text: Settings
+      - generic [ref=e65]:
+        - generic [ref=e71]: Connected
+        - button "Toggle theme" [ref=e73] [cursor=pointer]:
+          - img
+          - generic [ref=e74]: Toggle theme
+        - paragraph [ref=e75]: Pinchy v0.1.19
+    - main [ref=e76]:
+      - generic [ref=e78]:
+        - generic [ref=e79]:
+          - heading "Settings" [level=1] [ref=e80]
+          - paragraph [ref=e81]: Manage your application preferences and configuration
+        - navigation [ref=e82]:
+          - link "Appearance" [ref=e83] [cursor=pointer]:
+            - /url: /settings/appearance
+            - img
+            - generic [ref=e84]: Appearance
+          - link "Notifications" [ref=e85] [cursor=pointer]:
+            - /url: /settings/notifications
+            - img
+            - generic [ref=e86]: Notifications
+          - link "Security" [ref=e87] [cursor=pointer]:
+            - /url: /settings/security
+            - img
+            - generic [ref=e88]: Security
+          - link "Advanced" [ref=e89] [cursor=pointer]:
+            - /url: /settings/advanced
+            - img
+            - generic [ref=e90]: Advanced
+          - link "MCP Servers" [ref=e91] [cursor=pointer]:
+            - /url: /settings/mcp
+            - img
+            - generic [ref=e92]: MCP Servers
+        - generic [ref=e93]:
+          - generic [ref=e94]:
+            - generic [ref=e95]:
+              - img [ref=e96]
+              - text: Enable Notifications
+            - generic [ref=e99]: Toggle notifications on or off
+          - generic [ref=e100]:
+            - generic [ref=e101]:
+              - generic [ref=e102]:
+                - text: Enable notifications
+                - paragraph [ref=e103]: Show in-app notifications for events
+              - switch "Enable notifications" [checked] [ref=e104] [cursor=pointer]
+            - generic [ref=e105]:
+              - generic [ref=e106]:
+                - text: Browser notifications
+                - paragraph [ref=e107]: Show system notifications even when tab is not active
+              - switch "Browser notifications" [ref=e108] [cursor=pointer]
+        - generic [ref=e109]:
+          - generic [ref=e110]:
+            - generic [ref=e111]: Auto-Dismiss
+            - generic [ref=e112]: Configure when notifications automatically dismiss
+          - generic [ref=e113]:
+            - generic [ref=e114]:
+              - generic [ref=e115]:
+                - text: Enable auto-dismiss
+                - paragraph [ref=e116]: Automatically mark notifications as read after a delay
+              - switch "Enable auto-dismiss" [checked] [ref=e117] [cursor=pointer]
+            - generic [ref=e118]:
+              - generic [ref=e119]:
+                - generic [ref=e120]: Auto-dismiss delay
+                - generic [ref=e121]: 5s
+              - slider [ref=e126]
+              - paragraph [ref=e127]: How long to wait before auto-dismissing notifications
+        - generic [ref=e128]:
+          - generic [ref=e129]:
+            - generic [ref=e130]: Event Types
+            - generic [ref=e131]: Choose which types of events trigger notifications
+          - generic [ref=e132]:
+            - generic [ref=e133]:
+              - generic [ref=e134]:
+                - checkbox "Success events" [checked] [ref=e135] [cursor=pointer]:
+                  - generic:
+                    - img
+                - generic [ref=e136]:
+                  - generic [ref=e137]:
+                    - img [ref=e138]
+                    - text: Success events
+                  - paragraph [ref=e141]: Agent online, cron job completed, etc.
+              - generic [ref=e142]:
+                - checkbox "Error events" [checked] [ref=e143] [cursor=pointer]:
+                  - generic:
+                    - img
+                - generic [ref=e144]:
+                  - generic [ref=e145]:
+                    - img [ref=e146]
+                    - text: Error events
+                  - paragraph [ref=e150]: Agent offline, job failures, high error rates
+              - generic [ref=e151]:
+                - checkbox "Warning events" [checked] [ref=e152] [cursor=pointer]:
+                  - generic:
+                    - img
+                - generic [ref=e153]:
+                  - generic [ref=e154]:
+                    - img [ref=e155]
+                    - text: Warning events
+                  - paragraph [ref=e157]: Slow responses, resource warnings
+              - generic [ref=e158]:
+                - checkbox "Info events" [ref=e159] [cursor=pointer]
+                - generic [ref=e160]:
+                  - generic [ref=e161]:
+                    - img [ref=e162]
+                    - text: Info events
+                  - paragraph [ref=e164]: Skill activations, session events
+            - generic [ref=e165]:
+              - checkbox "Agent status changes" [checked] [ref=e166] [cursor=pointer]:
+                - generic:
+                  - img
+              - generic [ref=e167]:
+                - text: Agent status changes
+                - paragraph [ref=e168]: Get notified when agents go online or offline
+            - generic [ref=e169]:
+              - checkbox "New log entries" [ref=e170] [cursor=pointer]
+              - generic [ref=e171]:
+                - text: New log entries
+                - paragraph [ref=e172]: Get notified for new error and warning logs
+        - generic [ref=e173]:
+          - generic [ref=e174]:
+            - generic [ref=e175]: Test Notifications
+            - generic [ref=e176]: Send test notifications to verify your settings
+          - generic [ref=e178]:
+            - button "Success" [ref=e179] [cursor=pointer]:
+              - img
+              - text: Success
+            - button "Error" [ref=e180] [cursor=pointer]:
+              - img
+              - text: Error
+            - button "Warning" [ref=e181] [cursor=pointer]:
+              - img
+              - text: Warning
+            - button "Info" [ref=e182] [cursor=pointer]:
+              - img
+              - text: Info
+        - generic [ref=e183]:
+          - generic [ref=e184]:
+            - generic [ref=e185]:
+              - img [ref=e186]
+              - text: Clear History
+            - generic [ref=e189]: Remove all notification history
+          - button "Clear All Notifications" [ref=e191] [cursor=pointer]:
+            - img
+            - text: Clear All Notifications
+        - generic [ref=e192]:
+          - button "Reset" [disabled]:
+            - img
+            - text: Reset
+          - button "Save Changes" [disabled]:
+            - img
+            - text: Save Changes
+  - region "Notifications alt+T"

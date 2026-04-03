@@ -15,6 +15,14 @@ use axum::{
 use super::super::types::*;
 use super::super::AppState;
 
+/// Check if a provider ID should be treated as an alias for catalog/auth purposes.
+///
+/// This handles cases where a distinct provider (like `openai-codex`) should
+/// resolve to another provider's catalog (like `openai`) for model lookup.
+fn is_catalog_alias(provider_id: &str, target_provider: &str) -> bool {
+    matches!((provider_id, target_provider), ("openai-codex", "openai"))
+}
+
 /// `GET /api/models/:config_model_id`
 ///
 /// Looks up the model config entry by `id`, builds a provider, and calls
@@ -170,20 +178,21 @@ pub(crate) async fn api_all_models(State(state): State<AppState>) -> impl IntoRe
                     .iter()
                     .any(|env_var| std::env::var(env_var).is_ok());
 
-                // Also check if there's an auth store entry
-                let has_auth_store = crate::auth::store::get_auth(&provider.id)
-                    .map(|e| {
-                        e.api_key.as_ref().map(|k| !k.is_empty()).unwrap_or(false)
-                            || e.access_token
-                                .as_ref()
-                                .map(|t| !t.is_empty())
-                                .unwrap_or(false)
-                    })
-                    .unwrap_or(false);
-
-                // Check config for api_key
-                let has_config_key = cfg.models.iter().any(|m| {
+                // Also check if there's an auth store entry (including alias matching)
+                let has_auth_store = cfg.models.iter().any(|m| {
                     m.provider == provider.id
+                        || is_catalog_alias(&m.provider, &provider.id)
+                        || crate::models::providers::normalize_provider_id(&m.provider)
+                            == provider.id
+                }) || crate::auth::store::get_auth(&provider.id).is_some();
+
+                // Check config for api_key (including alias matching for openai-codex -> openai)
+                let has_config_key = cfg.models.iter().any(|m| {
+                    let provider_matches = m.provider == provider.id
+                        || is_catalog_alias(&m.provider, &provider.id)
+                        || crate::models::providers::normalize_provider_id(&m.provider)
+                            == provider.id;
+                    provider_matches
                         && m.api_key
                             .as_ref()
                             .map(|k| !k.is_empty() && !k.starts_with('$'))

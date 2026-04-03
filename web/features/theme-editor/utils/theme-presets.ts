@@ -8,6 +8,9 @@
 export type ThemeVariant = 'light' | 'dark' | 'system';
 export type ThemeCategory = 'professional' | 'vibrant' | 'minimal' | 'nature';
 
+// Palette preset alias for backward compatibility
+export type PalettePreset = ThemePreset;
+
 export interface ThemeColors {
   // Core
   background: string;
@@ -340,3 +343,6 @@ export function applyThemeColors(colors: ThemeColors) {
 // Storage keys
 export const THEME_STORAGE_KEY = 'pinchy-theme-v4';
 export const THEME_VARIANT_KEY = 'pinchy-theme-variant-v2';
+
+// Palette presets alias for backward compatibility
+export { themePresets as palettePresets };

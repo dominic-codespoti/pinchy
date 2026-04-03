@@ -15,7 +15,8 @@ import {
   updateConfig,
   getConfigSchema,
 } from './api';
-import { ModelInfo, ProviderConfig, ProviderTestResult } from './types';
+import { fetchApi } from '@/shared/api/client';
+import { ModelInfo, ProviderConfig, ProviderTestResult, ConfigModelInfo } from './types';
 
 // ============================================================================
 // Model Hooks
@@ -132,5 +133,42 @@ export function useConfigSchema() {
     queryKey: CONFIG_SCHEMA_QUERY_KEY,
     queryFn: getConfigSchema,
     staleTime: 5 * 60_000,
+  });
+}
+
+// Query key for config models
+export const CONFIG_MODELS_QUERY_KEY = ['settings', 'config-models'];
+
+/**
+ * Hook to fetch configured models from the config
+ */
+export function useConfigModels() {
+  return useQuery<ConfigModelInfo[], Error>({
+    queryKey: CONFIG_MODELS_QUERY_KEY,
+    queryFn: async () => {
+      const config = await getConfig();
+      const models = config.models as Array<{
+        id: string;
+        name?: string;
+        provider: string;
+        model: string;
+        reasoning?: boolean;
+        enabled?: boolean;
+      }> | undefined;
+      
+      if (!models || !Array.isArray(models)) {
+        return [];
+      }
+      
+      return models.map(m => ({
+        id: m.id,
+        name: m.name || m.id,
+        provider: m.provider,
+        catalogModel: m.model,
+        reasoning: m.reasoning,
+        enabled: m.enabled,
+      }));
+    },
+    staleTime: 30000,
   });
 }

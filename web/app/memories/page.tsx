@@ -2,13 +2,13 @@
 
 import { useState } from 'react';
 import { MemoriesPage } from '@/features/memories';
-import { useAgents } from '@/features/agents/hooks';
+import { useAgents } from '@/features/agents';
 import { Skeleton } from '@/components/ui/skeleton';
 import { PageContainer } from '@/shared/components/page-container';
 import { Brain } from 'lucide-react';
 
 export default function MemoriesIndexPage() {
-  const { data: agents, isLoading } = useAgents();
+  const { agents, isLoading } = useAgents();
   const [selectedAgentId, setSelectedAgentId] = useState<string>('');
 
   if (isLoading) {
@@ -26,7 +26,7 @@ export default function MemoriesIndexPage() {
 
   return (
     <MemoriesPage
-      agents={agents || []}
+      agents={agents}
       selectedAgentId={selectedAgentId}
       onSelectAgent={setSelectedAgentId}
     />

@@ -16,6 +16,7 @@ pub mod mistral;
 pub mod openai;
 pub mod openai_compat;
 pub mod pricing;
+pub mod providers;
 pub mod together;
 pub mod xai;
 

@@ -4,6 +4,60 @@
  */
 
 // ============================================================================
+// Auth Prompt Types (for OAuth dialog)
+// ============================================================================
+
+export interface AuthPromptCondition {
+  [key: string]: string;
+}
+
+export interface AuthPrompt {
+  key: string;
+  type: 'text' | 'select';
+  label: string;
+  description?: string;
+  placeholder?: string;
+  options?: Array<{ label: string; value: string }>;
+  condition?: AuthPromptCondition;
+  secure?: boolean;
+}
+
+// ============================================================================
+// Provider Catalog Types
+// ============================================================================
+
+export interface ProviderCatalogItem {
+  id: string;
+  name: string;
+  providerId: string;
+  providerName: string;
+  description?: string;
+  input_price?: number;
+  output_price?: number;
+  context_window?: number;
+  max_output?: number;
+  tool_call?: boolean;
+  reasoning?: boolean;
+  attachment?: boolean;
+  family?: string;
+  cache_read_price?: number;
+  cache_write_price?: number;
+  modalities?: {
+    input?: string[];
+    output?: string[];
+  };
+}
+
+export interface ConfigModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  catalogModel: string;
+  reasoning?: boolean;
+  enabled?: boolean;
+}
+
+// ============================================================================
 // models.dev Integration Types
 // ============================================================================
 

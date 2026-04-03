@@ -67,8 +67,12 @@ export function useTheme() {
     // Stub color theme API for backward compatibility
     colorTheme: defaultPreset,
     currentTheme: defaultPreset,
+    hasPaletteActive: false,
     /** @deprecated No longer supported - only light/dark/system modes */
     setColorTheme: (_id?: string) => {
+      console.warn("Color themes no longer supported - use light/dark/system instead");
+    },
+    clearColorTheme: () => {
       console.warn("Color themes no longer supported - use light/dark/system instead");
     },
     /** @deprecated No longer supported */

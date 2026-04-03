@@ -2,10 +2,10 @@
 
 import { Suspense } from 'react';
 import { ChatPage } from '@/features/chat';
-import { useAgents } from '@/features/agents/hooks';
+import { useAgents } from '@/features/agents';
 
 function ChatPageContent() {
-  const { data: agents, isLoading: agentsLoading } = useAgents();
+  const { agents, isLoading: agentsLoading } = useAgents();
   return <ChatPage agents={agents} agentsLoading={agentsLoading} />;
 }
 

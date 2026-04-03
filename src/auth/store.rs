@@ -68,6 +68,10 @@ impl AuthEntry {
 pub struct AuthStore {
     /// Map of provider_id -> auth entry
     pub entries: std::collections::HashMap<String, AuthEntry>,
+    /// Set of provider IDs that have been manually disabled/disconnected.
+    /// This persists across sessions to honor user disconnection choices.
+    #[serde(default, skip_serializing_if = "std::collections::HashSet::is_empty")]
+    pub disabled_providers: std::collections::HashSet<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +376,53 @@ pub fn list_authed_providers() -> Vec<String> {
     get_cached_store()
         .map(|store| store.entries.keys().cloned().collect())
         .unwrap_or_default()
+}
+
+/// Check if a provider has been manually disabled/disconnected.
+/// This works for all providers including local ones (ollama, lmstudio, vllm).
+pub fn is_provider_disabled(provider: &str) -> bool {
+    let normalized = crate::models::providers::normalize_provider_id(provider);
+    get_cached_store()
+        .ok()
+        .map(|store| {
+            store.disabled_providers.contains(&normalized)
+                || store.disabled_providers.contains(provider)
+        })
+        .unwrap_or(false)
+}
+
+/// Mark a provider as manually disabled/disconnected.
+/// Persists the disabled state to auth.json.
+pub fn disable_provider(provider: &str) -> anyhow::Result<()> {
+    let mut store = get_cached_store()?;
+    let normalized = crate::models::providers::normalize_provider_id(provider);
+    store.disabled_providers.insert(normalized.clone());
+    // Also insert the original ID to handle aliases
+    if provider != normalized {
+        store.disabled_providers.insert(provider.to_string());
+    }
+    save_auth_store(&store)
+}
+
+/// Mark a provider as enabled (clear the disabled state).
+/// Called when a user reconnects/authenticates a provider.
+pub fn enable_provider(provider: &str) -> anyhow::Result<()> {
+    let mut store = get_cached_store()?;
+    let normalized = crate::models::providers::normalize_provider_id(provider);
+    let mut changed = store.disabled_providers.remove(&normalized);
+    changed = store.disabled_providers.remove(provider) || changed;
+
+    // Also clean up known aliases
+    if normalized == "copilot" {
+        for alias in ["github-copilot", "copilot"] {
+            changed = store.disabled_providers.remove(alias) || changed;
+        }
+    }
+
+    if changed {
+        save_auth_store(&store)?;
+    }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------

@@ -112,13 +112,13 @@ impl GroqProvider {
                 "stream": true,
             });
 
-        let resp = self
-            .client
-            .post(self.chat_endpoint())
-            .bearer_auth(&self.api_key)
-            .json(&body)
-            .send()
-            .await?;
+            let resp = self
+                .client
+                .post(self.chat_endpoint())
+                .bearer_auth(&self.api_key)
+                .json(&body)
+                .send()
+                .await?;
 
             let status = resp.status();
             if !status.is_success() {

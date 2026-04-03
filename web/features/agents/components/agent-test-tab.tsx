@@ -1,136 +1,133 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { useState, useRef, useEffect } from 'react';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ChevronDown, ChevronUp, Send, Sparkles, Trash2, Copy, Clock, AlertCircle } from 'lucide-react';
-import { sendTestMessage } from '../api/files-api';
-import { TestMessageResponseSchema } from '@/lib/validation/schemas';
-import { z } from 'zod';
+import { Send, MessageSquare, Bot, User, Sparkles } from 'lucide-react';
+import { Agent } from '../types';
 
-interface TestMessage {
+interface Message {
   id: string;
   role: 'user' | 'assistant';
   content: string;
-  status: 'pending' | 'completed' | 'error';
-  error?: string;
-  timestamp: Date;
+  timestamp: string;
 }
 
-type TestMessageResponse = z.infer<typeof TestMessageResponseSchema>;
-
-interface TestAgentPanelProps {
-  agentId: string;
-  agentName: string;
-  defaultOpen?: boolean;
+interface AgentTestTabProps {
+  agent: Agent;
+  isLoading?: boolean;
+  onSendMessage?: (message: string) => Promise<string>;
 }
 
-const PRESET_PROMPTS = [
-  'Hello',
-  'What can you do?',
-  'Help me with a task',
-  'What tools do you have?',
+// Mock messages for demonstration
+const MOCK_MESSAGES: Message[] = [
+  {
+    id: '1',
+    role: 'user',
+    content: 'Hello! Can you help me review some code?',
+    timestamp: '2024-01-15T10:30:00Z',
+  },
+  {
+    id: '2',
+    role: 'assistant',
+    content:
+      "Hello! I'd be happy to help you review code. Please share the code you'd like me to look at, and I'll provide feedback on style, potential bugs, and improvements.",
+    timestamp: '2024-01-15T10:30:05Z',
+  },
 ];
 
-export function TestAgentPanel({ agentId, agentName, defaultOpen = false }: TestAgentPanelProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+function MessageBubble({ message }: { message: Message }) {
+  const isUser = message.role === 'user';
+
+  return (
+    <div className={`flex gap-3 ${isUser ? 'flex-row-reverse' : ''}`}>
+      <div
+        className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+          isUser ? 'bg-primary' : 'bg-muted'
+        }`}
+      >
+        {isUser ? (
+          <User className="h-4 w-4 text-primary-foreground" />
+        ) : (
+          <Bot className="h-4 w-4" />
+        )}
+      </div>
+      <div className={`max-w-[80%] ${isUser ? 'items-end' : 'items-start'}`}>
+        <div
+          className={`rounded-lg px-4 py-2 ${
+            isUser ? 'bg-primary text-primary-foreground' : 'bg-muted'
+          }`}
+        >
+          <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+        </div>
+        <span className="text-xs text-muted-foreground mt-1">
+          {new Date(message.timestamp).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+export function AgentTestTab({ agent, isLoading, onSendMessage }: AgentTestTabProps) {
+  const [messages, setMessages] = useState<Message[]>(MOCK_MESSAGES);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [responseTime, setResponseTime] = useState<number | null>(null);
-  const [tokenUsage, setTokenUsage] = useState<{ input?: number; output?: number } | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [messages, setMessages] = useState<TestMessage[]>([]);
-  const [pendingMessageId, setPendingMessageId] = useState<string | null>(null);
+  const [isSending, setIsSending] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
-  }, [messages, isLoading]);
+    scrollToBottom();
+  }, [messages]);
 
-  const addMessage = useCallback((message: Omit<TestMessage, 'id' | 'timestamp'>): TestMessage => {
-    const newMessage: TestMessage = {
-      ...message,
-      id: `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, newMessage]);
-    return newMessage;
-  }, []);
+  const handleSend = async () => {
+    if (!input.trim() || isSending) return;
 
-  const updateMessage = useCallback((id: string, updates: Partial<TestMessage>) => {
-    setMessages((prev) =>
-      prev.map((msg) => (msg.id === id ? { ...msg, ...updates } : msg))
-    );
-  }, []);
-
-  const clearHistory = useCallback(() => {
-    setMessages([]);
-    setError(null);
-    setResponseTime(null);
-    setTokenUsage(null);
-  }, []);
-
-  const handleSend = useCallback(async () => {
-    if (!input.trim() || isLoading) return;
-
-    const content = input.trim();
-    setInput('');
-    setError(null);
-    setResponseTime(null);
-    setTokenUsage(null);
-    setIsLoading(true);
-
-    addMessage({
+    const userMessage: Message = {
+      id: Date.now().toString(),
       role: 'user',
-      content,
-      status: 'completed',
-    });
+      content: input,
+      timestamp: new Date().toISOString(),
+    };
 
-    const assistantMessage = addMessage({
-      role: 'assistant',
-      content: '',
-      status: 'pending',
-    });
-    setPendingMessageId(assistantMessage.id);
+    setMessages((prev) => [...prev, userMessage]);
+    setInput('');
+    setIsSending(true);
 
     try {
-      const startTime = Date.now();
-      const data: TestMessageResponse = await sendTestMessage(agentId, content);
+      // In a real implementation, this would call the API
+      const response =
+        (await onSendMessage?.(input)) ||
+        'This is a mock response. In production, this would be the actual agent response.';
 
-      updateMessage(assistantMessage.id, {
-        status: 'completed',
-        content: data.response || data.content || 'No response',
-      });
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: response,
+        timestamp: new Date().toISOString(),
+      };
 
-      const elapsed = Date.now() - startTime;
-      setResponseTime(elapsed);
-
-      if (data.usage) {
-        setTokenUsage({
-          input: data.usage.input_tokens,
-          output: data.usage.output_tokens,
-        });
-      }
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to send message';
-      setError(errorMessage);
-      updateMessage(assistantMessage.id, {
-        status: 'error',
-        error: errorMessage,
-      });
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch (error) {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: 'Sorry, there was an error processing your message. Please try again.',
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
     } finally {
-      setPendingMessageId(null);
-      setIsLoading(false);
+      setIsSending(false);
     }
-  }, [input, isLoading, agentId, addMessage, updateMessage]);
+  };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -139,149 +136,90 @@ export function TestAgentPanel({ agentId, agentName, defaultOpen = false }: Test
     }
   };
 
-  const handlePresetClick = (prompt: string) => {
-    setInput(prompt);
-  };
-
-  const handleCopyResponse = (content: string) => {
-    navigator.clipboard.writeText(content);
-  };
+  if (isLoading) {
+    return (
+      <Card>
+        <CardHeader>
+          <Skeleton className="h-6 w-32" />
+          <Skeleton className="h-4 w-48" />
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Skeleton className="h-[300px] w-full" />
+          <div className="flex gap-2">
+            <Skeleton className="h-10 flex-1" />
+            <Skeleton className="h-10 w-20" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
-    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
-      <Card>
-        <CollapsibleTrigger asChild>
-          <CardHeader className="cursor-pointer hover:bg-muted/50 transition-colors py-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CardTitle className="text-sm font-medium">Test Agent</CardTitle>
-                <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
-              </div>
-              <div className="flex items-center gap-2">
-                <Badge variant="outline" className="text-xs">HTTP</Badge>
-                <Button variant="ghost" size="icon" className="h-6 w-6">
-                  {isOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </Button>
-              </div>
+    <Card className="flex flex-col">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <MessageSquare className="h-5 w-5" />
+              Test Agent
+            </CardTitle>
+            <CardDescription>Send messages to test {agent.name}</CardDescription>
+          </div>
+          <Badge variant="outline" className="gap-1">
+            <Sparkles className="h-3 w-3" />
+            {agent.config.model || 'Default'}
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="flex-1">
+        <div className="h-[400px] overflow-y-auto rounded-lg border bg-muted/50 p-4 space-y-4">
+          {messages.length === 0 ? (
+            <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
+              <Bot className="mb-2 h-8 w-8" />
+              <p>Start a conversation with {agent.name}</p>
             </div>
-          </CardHeader>
-        </CollapsibleTrigger>
-
-        <CollapsibleContent>
-          <CardContent className="space-y-3 pt-0">
-            <div className="flex flex-wrap gap-1.5">
-              {PRESET_PROMPTS.map((prompt) => (
-                <Button
-                  key={prompt}
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePresetClick(prompt)}
-                  className="text-xs h-7 px-2"
-                >
-                  {prompt}
-                </Button>
+          ) : (
+            <>
+              {messages.map((message) => (
+                <MessageBubble key={message.id} message={message} />
               ))}
-            </div>
-
-            {(responseTime || tokenUsage) && (
-              <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                {responseTime && (
-                  <div className="flex items-center gap-1">
-                    <Clock className="h-3 w-3" />
-                    <span>{responseTime}ms</span>
+              {isSending && (
+                <div className="flex gap-3">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-muted">
+                    <Bot className="h-4 w-4" />
                   </div>
-                )}
-                {tokenUsage?.input !== undefined && (
-                  <span>In: {tokenUsage.input}</span>
-                )}
-                {tokenUsage?.output !== undefined && (
-                  <span>Out: {tokenUsage.output}</span>
-                )}
-              </div>
-            )}
-
-            {error && (
-              <Alert variant="destructive" className="py-2">
-                <AlertCircle className="h-3.5 w-3.5" />
-                <AlertDescription className="text-xs">{error}</AlertDescription>
-              </Alert>
-            )}
-
-            <ScrollArea className="min-h-[200px] max-h-[400px] border rounded-md">
-              <div ref={scrollRef} className="p-3 space-y-3">
-                {messages.length === 0 ? (
-                  <div className="text-center text-xs text-muted-foreground py-12">
-                    <p>No messages yet.</p>
-                    <p>Send a message to test {agentName}.</p>
-                  </div>
-                ) : (
-                  messages.map((message) => (
-                    <div key={message.id} className={message.role === 'user' ? 'flex justify-end' : ''}>
-                      <div className={`group relative max-w-[85%] ${message.role === 'user' ? 'bg-primary text-primary-foreground' : 'bg-muted'} rounded-md p-2.5`}>
-                        <p className="text-sm whitespace-pre-wrap">{message.content}</p>
-                        {message.role === 'assistant' && message.status === 'completed' && message.content && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="absolute top-1 right-1 h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={() => handleCopyResponse(message.content)}
-                          >
-                            <Copy className="h-3 w-3" />
-                          </Button>
-                        )}
-                      </div>
+                  <div className="rounded-lg bg-muted px-4 py-2">
+                    <div className="flex gap-1">
+                      <span className="animate-bounce">●</span>
+                      <span className="animate-bounce delay-100">●</span>
+                      <span className="animate-bounce delay-200">●</span>
                     </div>
-                  ))
-                )}
-                {isLoading && pendingMessageId && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground ml-8">
-                    <div className="flex gap-0.5">
-                      <Skeleton className="h-1 w-1 rounded-full animate-bounce" />
-                      <Skeleton className="h-1 w-1 rounded-full animate-bounce delay-100" />
-                      <Skeleton className="h-1 w-1 rounded-full animate-bounce delay-200" />
-                    </div>
-                    <span className="text-xs">Thinking</span>
                   </div>
-                )}
-              </div>
-            </ScrollArea>
-
-            <div className="space-y-2">
-              <div className="flex gap-2">
-                <Textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder="Type a test message..."
-                  className="min-h-[60px] resize-none text-sm"
-                  disabled={isLoading}
-                />
-                <Button
-                  onClick={handleSend}
-                  disabled={!input.trim() || isLoading}
-                  className="shrink-0 h-[60px]"
-                  size="sm"
-                >
-                  <Send className="h-4 w-4" />
-                </Button>
-              </div>
-              <CardDescription className="flex items-center justify-between text-xs">
-                <span>Enter to send, Shift+Enter for new line</span>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={clearHistory}
-                  disabled={messages.length === 0}
-                  className="h-6 px-2 text-xs"
-                >
-                  <Trash2 className="h-3 w-3 mr-1" />
-                  Clear
-                </Button>
-              </CardDescription>
-            </div>
-          </CardContent>
-        </CollapsibleContent>
-      </Card>
-    </Collapsible>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </>
+          )}
+        </div>
+      </CardContent>
+      <CardFooter className="flex gap-2">
+        <Textarea
+          placeholder="Type your message... (Press Enter to send, Shift+Enter for new line)"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={handleKeyDown}
+          className="min-h-[60px] flex-1 resize-none"
+          disabled={isSending}
+        />
+        <Button
+          onClick={handleSend}
+          disabled={!input.trim() || isSending}
+          className="h-[60px] px-4"
+        >
+          <Send className="h-4 w-4" />
+          <span className="sr-only">Send message</span>
+        </Button>
+      </CardFooter>
+    </Card>
   );
 }

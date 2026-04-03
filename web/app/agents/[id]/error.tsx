@@ -1,27 +1,31 @@
 'use client';
 
 import { useEffect } from 'react';
-import { ErrorFallback } from '@/shared/components/error-fallback';
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { AlertCircle } from 'lucide-react';
 
-interface AgentDetailErrorProps {
+export default function AgentDetailError({
+  error,
+  reset,
+}: {
   error: Error & { digest?: string };
   reset: () => void;
-}
-
-export default function AgentDetailError({ error, reset }: AgentDetailErrorProps) {
+}) {
   useEffect(() => {
-    // Log to error reporting service
     console.error('Agent detail error:', error);
   }, [error]);
 
   return (
-    <div className="p-6">
-      <ErrorFallback
-        error={error}
-        resetErrorBoundary={reset}
-        title="Failed to load agent details"
-        description="There was a problem loading the agent information. Please try again."
-      />
-    </div>
+    <Alert variant="destructive">
+      <AlertCircle className="h-4 w-4" />
+      <AlertTitle>Something went wrong</AlertTitle>
+      <AlertDescription>
+        {error.message}
+        <Button onClick={reset} variant="outline" size="sm" className="ml-2">
+          Try again
+        </Button>
+      </AlertDescription>
+    </Alert>
   );
 }

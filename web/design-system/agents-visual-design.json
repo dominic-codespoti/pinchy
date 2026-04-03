@@ -1,0 +1,1430 @@
+{
+  "version": "1.0.0",
+  "project": "Pinchy Agents Interface",
+  "designSystem": {
+    "name": "Pinchy Agents Visual System",
+    "description": "Modern, clean visual design system for agent management interface using shadcn/ui primitives",
+    "principles": [
+      "Clarity over decoration - simpler layouts with fewer visual treatments",
+      "Component-first - build as shadcn compositions, not styled HTML",
+      "Consistency - reuse patterns from existing Pinchy UI",
+      "Accessibility - WCAG 2.1 AA compliance"
+    ]
+  },
+  "colorPalette": {
+    "base": {
+      "background": {
+        "light": "hsl(0 0% 100%)",
+        "dark": "hsl(240 10% 3.9%)"
+      },
+      "foreground": {
+        "light": "hsl(240 10% 3.9%)",
+        "dark": "hsl(0 0% 98%)"
+      },
+      "card": {
+        "light": "hsl(0 0% 100%)",
+        "dark": "hsl(240 10% 3.9%)"
+      },
+      "cardForeground": {
+        "light": "hsl(240 10% 3.9%)",
+        "dark": "hsl(0 0% 98%)"
+      },
+      "primary": {
+        "light": "hsl(240 5.9% 10%)",
+        "dark": "hsl(0 0% 98%)"
+      },
+      "primaryForeground": {
+        "light": "hsl(0 0% 98%)",
+        "dark": "hsl(240 5.9% 10%)"
+      },
+      "secondary": {
+        "light": "hsl(240 4.8% 95.9%)",
+        "dark": "hsl(240 3.7% 15.9%)"
+      },
+      "secondaryForeground": {
+        "light": "hsl(240 5.9% 10%)",
+        "dark": "hsl(0 0% 98%)"
+      },
+      "muted": {
+        "light": "hsl(240 4.8% 95.9%)",
+        "dark": "hsl(240 3.7% 15.9%)"
+      },
+      "mutedForeground": {
+        "light": "hsl(240 3.8% 46.1%)",
+        "dark": "hsl(240 5% 64.9%)"
+      },
+      "accent": {
+        "light": "hsl(240 4.8% 95.9%)",
+        "dark": "hsl(240 3.7% 15.9%)"
+      },
+      "accentForeground": {
+        "light": "hsl(240 5.9% 10%)",
+        "dark": "hsl(0 0% 98%)"
+      },
+      "destructive": {
+        "light": "hsl(0 84.2% 60.2%)",
+        "dark": "hsl(0 62.8% 30.6%)"
+      },
+      "destructiveForeground": {
+        "light": "hsl(0 0% 98%)",
+        "dark": "hsl(0 0% 98%)"
+      },
+      "border": {
+        "light": "hsl(240 5.9% 90%)",
+        "dark": "hsl(240 3.7% 15.9%)"
+      },
+      "input": {
+        "light": "hsl(240 5.9% 90%)",
+        "dark": "hsl(240 3.7% 15.9%)"
+      },
+      "ring": {
+        "light": "hsl(240 5.9% 10%)",
+        "dark": "hsl(240 4.9% 83.9%)"
+      }
+    },
+    "status": {
+      "online": {
+        "light": {
+          "bg": "hsl(142 76% 96%)",
+          "text": "hsl(142 76% 36%)",
+          "border": "hsl(142 76% 86%)",
+          "dot": "hsl(142 76% 45%)"
+        },
+        "dark": {
+          "bg": "hsl(142 76% 15%)",
+          "text": "hsl(142 76% 65%)",
+          "border": "hsl(142 76% 25%)",
+          "dot": "hsl(142 76% 55%)"
+        }
+      },
+      "offline": {
+        "light": {
+          "bg": "hsl(215 20% 96%)",
+          "text": "hsl(215 20% 46%)",
+          "border": "hsl(215 20% 86%)",
+          "dot": "hsl(215 20% 55%)"
+        },
+        "dark": {
+          "bg": "hsl(215 20% 20%)",
+          "text": "hsl(215 20% 65%)",
+          "border": "hsl(215 20% 30%)",
+          "dot": "hsl(215 20% 60%)"
+        }
+      },
+      "error": {
+        "light": {
+          "bg": "hsl(0 84% 96%)",
+          "text": "hsl(0 84% 45%)",
+          "border": "hsl(0 84% 86%)",
+          "dot": "hsl(0 84% 55%)"
+        },
+        "dark": {
+          "bg": "hsl(0 84% 15%)",
+          "text": "hsl(0 84% 65%)",
+          "border": "hsl(0 84% 25%)",
+          "dot": "hsl(0 84% 60%)"
+        }
+      },
+      "warning": {
+        "light": {
+          "bg": "hsl(38 92% 96%)",
+          "text": "hsl(38 92% 35%)",
+          "border": "hsl(38 92% 86%)",
+          "dot": "hsl(38 92% 50%)"
+        },
+        "dark": {
+          "bg": "hsl(38 92% 15%)",
+          "text": "hsl(38 92% 65%)",
+          "border": "hsl(38 92% 25%)",
+          "dot": "hsl(38 92% 55%)"
+        }
+      },
+      "pending": {
+        "light": {
+          "bg": "hsl(217 91% 96%)",
+          "text": "hsl(217 91% 35%)",
+          "border": "hsl(217 91% 86%)",
+          "dot": "hsl(217 91% 55%)"
+        },
+        "dark": {
+          "bg": "hsl(217 91% 15%)",
+          "text": "hsl(217 91% 65%)",
+          "border": "hsl(217 91% 25%)",
+          "dot": "hsl(217 91% 60%)"
+        }
+      }
+    },
+    "accentColors": {
+      "blue": {
+        "bg": "hsl(217 91% 95%)",
+        "text": "hsl(217 91% 40%)",
+        "icon": "hsl(217 91% 50%)"
+      },
+      "green": {
+        "bg": "hsl(142 76% 95%)",
+        "text": "hsl(142 76% 30%)",
+        "icon": "hsl(142 76% 40%)"
+      },
+      "violet": {
+        "bg": "hsl(258 90% 95%)",
+        "text": "hsl(258 90% 40%)",
+        "icon": "hsl(258 90% 50%)"
+      },
+      "amber": {
+        "bg": "hsl(38 92% 95%)",
+        "text": "hsl(38 92% 30%)",
+        "icon": "hsl(38 92% 45%)"
+      },
+      "rose": {
+        "bg": "hsl(0 84% 95%)",
+        "text": "hsl(0 84% 40%)",
+        "icon": "hsl(0 84% 50%)"
+      },
+      "emerald": {
+        "bg": "hsl(160 84% 95%)",
+        "text": "hsl(160 84% 30%)",
+        "icon": "hsl(160 84% 40%)"
+      }
+    }
+  },
+  "typography": {
+    "fontFamily": {
+      "sans": "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+      "mono": "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
+    },
+    "scale": {
+      "xs": { "size": "0.75rem", "lineHeight": "1rem", "letterSpacing": "0" },
+      "sm": { "size": "0.875rem", "lineHeight": "1.25rem", "letterSpacing": "0" },
+      "base": { "size": "1rem", "lineHeight": "1.5rem", "letterSpacing": "0" },
+      "lg": { "size": "1.125rem", "lineHeight": "1.75rem", "letterSpacing": "-0.01em" },
+      "xl": { "size": "1.25rem", "lineHeight": "1.75rem", "letterSpacing": "-0.01em" },
+      "2xl": { "size": "1.5rem", "lineHeight": "2rem", "letterSpacing": "-0.02em" },
+      "3xl": { "size": "1.875rem", "lineHeight": "2.25rem", "letterSpacing": "-0.02em" },
+      "4xl": { "size": "2.25rem", "lineHeight": "2.5rem", "letterSpacing": "-0.03em" }
+    },
+    "weights": {
+      "normal": "400",
+      "medium": "500",
+      "semibold": "600",
+      "bold": "700"
+    },
+    "hierarchy": {
+      "pageTitle": { "size": "2.25rem", "weight": "700", "tracking": "-0.03em" },
+      "sectionTitle": { "size": "1.5rem", "weight": "600", "tracking": "-0.02em" },
+      "cardTitle": { "size": "1.125rem", "weight": "600", "tracking": "-0.01em" },
+      "body": { "size": "1rem", "weight": "400", "tracking": "0" },
+      "small": { "size": "0.875rem", "weight": "400", "tracking": "0" },
+      "caption": { "size": "0.75rem", "weight": "500", "tracking": "0" }
+    }
+  },
+  "spacing": {
+    "scale": {
+      "0": "0",
+      "0.5": "0.125rem",
+      "1": "0.25rem",
+      "1.5": "0.375rem",
+      "2": "0.5rem",
+      "2.5": "0.625rem",
+      "3": "0.75rem",
+      "3.5": "0.875rem",
+      "4": "1rem",
+      "5": "1.25rem",
+      "6": "1.5rem",
+      "8": "2rem",
+      "10": "2.5rem",
+      "12": "3rem",
+      "16": "4rem",
+      "20": "5rem",
+      "24": "6rem"
+    },
+    "component": {
+      "cardPadding": "1.5rem",
+      "cardGap": "1rem",
+      "sectionGap": "2rem",
+      "pagePadding": "2rem",
+      "inputPadding": "0.75rem 1rem",
+      "buttonPadding": "0.5rem 1rem"
+    }
+  },
+  "shadows": {
+    "sm": "0 1px 2px 0 rgb(0 0 0 / 0.05)",
+    "DEFAULT": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
+    "md": "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
+    "lg": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+    "xl": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)",
+    "inner": "inset 0 2px 4px 0 rgb(0 0 0 / 0.05)",
+    "cardHover": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+    "dialog": "0 25px 50px -12px rgb(0 0 0 / 0.25)"
+  },
+  "borderRadius": {
+    "sm": "0.375rem",
+    "DEFAULT": "0.5rem",
+    "md": "0.75rem",
+    "lg": "1rem",
+    "xl": "1.5rem",
+    "full": "9999px"
+  },
+  "animation": {
+    "duration": {
+      "fast": "150ms",
+      "normal": "200ms",
+      "slow": "300ms",
+      "slower": "500ms"
+    },
+    "easing": {
+      "default": "cubic-bezier(0.4, 0, 0.2, 1)",
+      "in": "cubic-bezier(0.4, 0, 1, 1)",
+      "out": "cubic-bezier(0, 0, 0.2, 1)",
+      "bounce": "cubic-bezier(0.68, -0.55, 0.265, 1.55)"
+    },
+    "keyframes": {
+      "fadeIn": {
+        "from": { "opacity": "0" },
+        "to": { "opacity": "1" }
+      },
+      "fadeOut": {
+        "from": { "opacity": "1" },
+        "to": { "opacity": "0" }
+      },
+      "slideInFromRight": {
+        "from": { "transform": "translateX(100%)" },
+        "to": { "transform": "translateX(0)" }
+      },
+      "slideInFromBottom": {
+        "from": { "transform": "translateY(100%)" },
+        "to": { "transform": "translateY(0)" }
+      },
+      "scaleIn": {
+        "from": { "transform": "scale(0.95)", "opacity": "0" },
+        "to": { "transform": "scale(1)", "opacity": "1" }
+      },
+      "pulse": {
+        "0%, 100%": { "opacity": "1" },
+        "50%": { "opacity": "0.5" }
+      },
+      "ping": {
+        "75%, 100%": { "transform": "scale(2)", "opacity": "0" }
+      }
+    }
+  },
+  "responsive": {
+    "breakpoints": {
+      "sm": { "min": "640px" },
+      "md": { "min": "768px" },
+      "lg": { "min": "1024px" },
+      "xl": { "min": "1280px" },
+      "2xl": { "min": "1400px" }
+    },
+    "containers": {
+      "default": "100%",
+      "sm": "640px",
+      "md": "768px",
+      "lg": "1024px",
+      "xl": "1280px",
+      "2xl": "1400px"
+    }
+  },
+  "pages": {
+    "agentsList": {
+      "title": "Agents List Page",
+      "description": "Grid-based listing of all agents with search, filters, and quick actions",
+      "layout": {
+        "type": "pageWithHeader",
+        "headerHeight": "4rem",
+        "contentPadding": "2rem"
+      },
+      "header": {
+        "structure": [
+          {
+            "component": "div",
+            "purpose": "Header container",
+            "layout": "flex justify-between items-center",
+            "children": [
+              {
+                "component": "div",
+                "purpose": "Title section",
+                "children": [
+                  {
+                    "component": "h1",
+                    "text": "Agents",
+                    "className": "text-3xl font-bold tracking-tight"
+                  },
+                  {
+                    "component": "p",
+                    "text": "Manage and monitor your AI agents",
+                    "className": "text-muted-foreground text-sm mt-1"
+                  }
+                ]
+              },
+              {
+                "component": "Button",
+                "variant": "default",
+                "size": "default",
+                "children": [
+                  { "component": "Plus icon", "className": "mr-2 h-4 w-4" },
+                  { "component": "span", "text": "Create Agent" }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "searchAndFilters": {
+        "structure": [
+          {
+            "component": "div",
+            "purpose": "Search and filters container",
+            "layout": "flex gap-4 items-center flex-wrap",
+            "children": [
+              {
+                "component": "div",
+                "purpose": "Search input wrapper",
+                "className": "relative flex-1 min-w-[300px]",
+                "children": [
+                  {
+                    "component": "Search icon",
+                    "className": "absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground"
+                  },
+                  {
+                    "component": "Input",
+                    "placeholder": "Search agents by name or description...",
+                    "className": "pl-10"
+                  }
+                ]
+              },
+              {
+                "component": "Select",
+                "purpose": "Status filter",
+                "placeholder": "All Statuses",
+                "options": ["All Statuses", "Online", "Offline", "Error"]
+              },
+              {
+                "component": "Select",
+                "purpose": "Model filter",
+                "placeholder": "All Models",
+                "options": ["All Models", "GPT-4", "Claude", "Copilot"]
+              },
+              {
+                "component": "Button",
+                "variant": "outline",
+                "size": "icon",
+                "children": [{ "component": "Filter icon" }]
+              }
+            ]
+          }
+        ]
+      },
+      "agentGrid": {
+        "layout": {
+          "desktop": "grid grid-cols-3 gap-6",
+          "tablet": "grid grid-cols-2 gap-4",
+          "mobile": "grid grid-cols-1 gap-4"
+        },
+        "agentCard": {
+          "component": "Card",
+          "className": "group relative overflow-hidden transition-all duration-200 hover:shadow-lg hover:-translate-y-0.5",
+          "structure": [
+            {
+              "component": "CardHeader",
+              "className": "pb-3",
+              "children": [
+                {
+                  "component": "div",
+                  "layout": "flex items-start justify-between",
+                  "children": [
+                    {
+                      "component": "div",
+                      "layout": "flex items-center gap-3",
+                      "children": [
+                        {
+                          "component": "Avatar",
+                          "size": "lg",
+                          "className": "h-12 w-12 border-2 border-border",
+                          "fallback": { "type": "initials", "text": "agent.name[0:2]" }
+                        },
+                        {
+                          "component": "div",
+                          "children": [
+                            {
+                              "component": "CardTitle",
+                              "className": "text-base font-semibold",
+                              "text": "agent.name"
+                            },
+                            {
+                              "component": "StatusPill",
+                              "variant": "agent.status",
+                              "pulse": "agent.status === 'online'",
+                              "className": "mt-1"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "component": "DropdownMenu",
+                      "purpose": "Quick actions",
+                      "children": [
+                        {
+                          "component": "DropdownMenuTrigger",
+                          "children": [
+                            {
+                              "component": "Button",
+                              "variant": "ghost",
+                              "size": "icon",
+                              "className": "h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity",
+                              "children": [{ "component": "MoreVertical icon" }]
+                            }
+                          ]
+                        },
+                        {
+                          "component": "DropdownMenuContent",
+                          "align": "end",
+                          "children": [
+                            { "component": "DropdownMenuItem", "icon": "Play", "text": "Test Agent" },
+                            { "component": "DropdownMenuItem", "icon": "Edit", "text": "Edit" },
+                            { "component": "DropdownMenuItem", "icon": "Copy", "text": "Clone" },
+                            { "component": "DropdownMenuSeparator" },
+                            { "component": "DropdownMenuItem", "icon": "Trash", "text": "Delete", "className": "text-destructive" }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "component": "CardContent",
+              "className": "pt-0",
+              "children": [
+                {
+                  "component": "p",
+                  "text": "agent.description",
+                  "className": "text-sm text-muted-foreground line-clamp-2 mb-4"
+                },
+                {
+                  "component": "div",
+                  "layout": "flex items-center gap-2 flex-wrap",
+                  "children": [
+                    {
+                      "component": "Badge",
+                      "variant": "secondary",
+                      "className": "text-xs",
+                      "text": "agent.model"
+                    },
+                    {
+                      "component": "Badge",
+                      "variant": "outline",
+                      "className": "text-xs",
+                      "text": "agent.provider"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "component": "CardFooter",
+              "className": "pt-3 border-t flex items-center justify-between text-xs text-muted-foreground",
+              "children": [
+                {
+                  "component": "div",
+                  "layout": "flex items-center gap-4",
+                  "children": [
+                    { "component": "span", "text": "12 sessions" },
+                    { "component": "span", "text": "342 memories" }
+                  ]
+                },
+                {
+                  "component": "span",
+                  "text": "Updated 2h ago"
+                }
+              ]
+            }
+          ],
+          "hoverEffects": {
+            "card": "hover:shadow-lg hover:-translate-y-0.5",
+            "actions": "opacity-0 group-hover:opacity-100 transition-opacity"
+          },
+          "clickTarget": "Entire card navigates to detail page"
+        }
+      },
+      "emptyState": {
+        "component": "div",
+        "layout": "flex flex-col items-center justify-center py-20 text-center",
+        "children": [
+          {
+            "component": "div",
+            "className": "rounded-full bg-muted p-6 mb-4",
+            "children": [
+              { "component": "Bot icon", "className": "h-12 w-12 text-muted-foreground" }
+            ]
+          },
+          {
+            "component": "h3",
+            "text": "No agents yet",
+            "className": "text-lg font-semibold"
+          },
+          {
+            "component": "p",
+            "text": "Create your first agent to get started with AI-powered workflows.",
+            "className": "text-sm text-muted-foreground max-w-sm mt-2 mb-6"
+          },
+          {
+            "component": "Button",
+            "variant": "default",
+            "children": [
+              { "component": "Plus icon", "className": "mr-2 h-4 w-4" },
+              { "component": "span", "text": "Create Agent" }
+            ]
+          }
+        ]
+      },
+      "loadingState": {
+        "component": "div",
+        "layout": "grid grid-cols-3 gap-6",
+        "children": [
+          {
+            "component": "Card",
+            "repeat": 6,
+            "children": [
+              { "component": "CardHeader", "children": [{ "component": "Skeleton", "className": "h-12 w-12 rounded-full" }] },
+              { "component": "CardContent", "children": [
+                { "component": "Skeleton", "className": "h-4 w-3/4 mb-2" },
+                { "component": "Skeleton", "className": "h-4 w-1/2" }
+              ]}
+            ]
+          }
+        ]
+      }
+    },
+    "agentDetail": {
+      "title": "Agent Detail Page",
+      "description": "Comprehensive agent management with hero header and tabbed interface",
+      "layout": {
+        "type": "pageWithTabs",
+        "fullBleed": false
+      },
+      "heroHeader": {
+        "structure": [
+          {
+            "component": "div",
+            "purpose": "Hero header container",
+            "className": "border-b bg-card",
+            "children": [
+              {
+                "component": "div",
+                "className": "container mx-auto px-6 py-8",
+                "children": [
+                  {
+                    "component": "div",
+                    "layout": "flex flex-col lg:flex-row lg:items-start lg:justify-between gap-6",
+                    "children": [
+                      {
+                        "component": "div",
+                        "layout": "flex items-start gap-4",
+                        "children": [
+                          {
+                            "component": "Avatar",
+                            "size": "xl",
+                            "className": "h-20 w-20 border-4 border-background shadow-lg",
+                            "fallback": { "type": "initials", "size": "text-2xl" }
+                          },
+                          {
+                            "component": "div",
+                            "className": "space-y-2",
+                            "children": [
+                              {
+                                "component": "div",
+                                "layout": "flex items-center gap-3 flex-wrap",
+                                "children": [
+                                  {
+                                    "component": "h1",
+                                    "text": "agent.name",
+                                    "className": "text-3xl font-bold tracking-tight"
+                                  },
+                                  {
+                                    "component": "StatusPill",
+                                    "variant": "agent.status",
+                                    "size": "lg",
+                                    "pulse": "agent.status === 'online'"
+                                  }
+                                ]
+                              },
+                              {
+                                "component": "div",
+                                "layout": "flex items-center gap-2 flex-wrap",
+                                "children": [
+                                  {
+                                    "component": "Badge",
+                                    "variant": "secondary",
+                                    "className": "font-mono text-xs",
+                                    "text": "agent.model"
+                                  },
+                                  {
+                                    "component": "Badge",
+                                    "variant": "outline",
+                                    "className": "text-xs",
+                                    "text": "agent.provider"
+                                  },
+                                  {
+                                    "component": "span",
+                                    "className": "text-sm text-muted-foreground",
+                                    "text": "ID: agent.id"
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      },
+                      {
+                        "component": "div",
+                        "layout": "flex items-center gap-2",
+                        "children": [
+                          {
+                            "component": "Button",
+                            "variant": "outline",
+                            "children": [
+                              { "component": "Play icon", "className": "mr-2 h-4 w-4" },
+                              { "component": "span", "text": "Test" }
+                            ]
+                          },
+                          {
+                            "component": "Button",
+                            "variant": "outline",
+                            "children": [
+                              { "component": "Edit icon", "className": "mr-2 h-4 w-4" },
+                              { "component": "span", "text": "Edit" }
+                            ]
+                          },
+                          {
+                            "component": "DropdownMenu",
+                            "children": [
+                              {
+                                "component": "DropdownMenuTrigger",
+                                "children": [
+                                  {
+                                    "component": "Button",
+                                    "variant": "outline",
+                                    "size": "icon",
+                                    "children": [{ "component": "MoreHorizontal icon" }]
+                                  }
+                                ]
+                              },
+                              {
+                                "component": "DropdownMenuContent",
+                                "align": "end",
+                                "children": [
+                                  { "component": "DropdownMenuItem", "icon": "Copy", "text": "Clone Agent" },
+                                  { "component": "DropdownMenuItem", "icon": "Download", "text": "Export Config" },
+                                  { "component": "DropdownMenuSeparator" },
+                                  { "component": "DropdownMenuItem", "icon": "Trash", "text": "Delete", "variant": "destructive" }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "component": "div",
+                    "layout": "grid grid-cols-2 md:grid-cols-4 gap-4 mt-8",
+                    "children": [
+                      {
+                        "component": "MetricCard",
+                        "compact": true,
+                        "icon": "MessageSquare",
+                        "label": "Sessions",
+                        "value": "24"
+                      },
+                      {
+                        "component": "MetricCard",
+                        "compact": true,
+                        "icon": "Brain",
+                        "label": "Memories",
+                        "value": "1,234"
+                      },
+                      {
+                        "component": "MetricCard",
+                        "compact": true,
+                        "icon": "FileText",
+                        "label": "Files",
+                        "value": "12"
+                      },
+                      {
+                        "component": "MetricCard",
+                        "compact": true,
+                        "icon": "Clock",
+                        "label": "Last Active",
+                        "value": "2m ago"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "tabs": {
+        "container": {
+          "component": "Tabs",
+          "defaultValue": "overview",
+          "className": "w-full"
+        },
+        "list": {
+          "component": "TabsList",
+          "className": "w-full justify-start rounded-none border-b bg-transparent p-0 h-12",
+          "sticky": true,
+          "stickyOffset": "0"
+        },
+        "trigger": {
+          "baseClassName": "rounded-none border-b-2 border-transparent px-6 py-3 data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none",
+          "withIcon": true
+        },
+        "items": [
+          {
+            "value": "overview",
+            "label": "Overview",
+            "icon": "LayoutDashboard",
+            "content": {
+              "layout": "space-y-6",
+              "sections": [
+                {
+                  "title": "Performance Stats",
+                  "component": "div",
+                  "layout": "grid grid-cols-1 md:grid-cols-3 gap-4",
+                  "children": [
+                    { "component": "MetricCard", "title": "Messages", "value": "1,234", "icon": "MessageSquare", "accent": "blue" },
+                    { "component": "MetricCard", "title": "Tokens Used", "value": "45.2K", "icon": "Coins", "accent": "violet" },
+                    { "component": "MetricCard", "title": "Avg Response", "value": "1.2s", "icon": "Timer", "accent": "green" }
+                  ]
+                },
+                {
+                  "title": "Recent Activity",
+                  "component": "Card",
+                  "children": [
+                    {
+                      "component": "CardHeader",
+                      "children": [
+                        { "component": "CardTitle", "text": "Recent Activity" },
+                        { "component": "CardDescription", "text": "Latest interactions and events" }
+                      ]
+                    },
+                    {
+                      "component": "CardContent",
+                      "children": [
+                        {
+                          "component": "div",
+                          "className": "space-y-4",
+                          "children": [
+                            {
+                              "component": "ActivityItem",
+                              "repeat": 5,
+                              "structure": [
+                                { "component": "div", "className": "flex gap-4", "children": [
+                                  { "component": "div", "className": "mt-1", "children": [
+                                    { "component": "StatusIndicator", "variant": "activity.type" }
+                                  ]},
+                                  { "component": "div", "className": "flex-1", "children": [
+                                    { "component": "p", "className": "text-sm font-medium", "text": "activity.title" },
+                                    { "component": "p", "className": "text-xs text-muted-foreground", "text": "activity.description" }
+                                  ]},
+                                  { "component": "span", "className": "text-xs text-muted-foreground", "text": "activity.time" }
+                                ]}
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "value": "files",
+            "label": "Files",
+            "icon": "FileText",
+            "content": {
+              "layout": "grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-300px)]",
+              "children": [
+                {
+                  "component": "Card",
+                  "className": "lg:col-span-1 overflow-hidden",
+                  "children": [
+                    {
+                      "component": "CardHeader",
+                      "className": "pb-3",
+                      "children": [
+                        { "component": "div", "className": "flex items-center gap-2", "children": [
+                          { "component": "Search icon", "className": "h-4 w-4 text-muted-foreground" },
+                          { "component": "Input", "placeholder": "Search files...", "className": "flex-1" }
+                        ]}
+                      ]
+                    },
+                    {
+                      "component": "ScrollArea",
+                      "className": "h-[calc(100%-80px)]",
+                      "children": [
+                        {
+                          "component": "div",
+                          "className": "space-y-1 p-4 pt-0",
+                          "children": [
+                            {
+                              "component": "FileTreeItem",
+                              "repeat": 10,
+                              "structure": [
+                                { "component": "div", "className": "flex items-center gap-2 p-2 rounded-md hover:bg-accent cursor-pointer", "children": [
+                                  { "component": "FileIcon", "className": "h-4 w-4 text-muted-foreground" },
+                                  { "component": "span", "className": "text-sm", "text": "file.name" }
+                                ]}
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "component": "Card",
+                  "className": "lg:col-span-2 overflow-hidden flex flex-col",
+                  "children": [
+                    {
+                      "component": "CardHeader",
+                      "className": "border-b pb-3",
+                      "children": [
+                        { "component": "div", "className": "flex items-center justify-between", "children": [
+                          { "component": "div", "className": "flex items-center gap-2", "children": [
+                            { "component": "span", "className": "font-mono text-sm", "text": "selectedFile.name" },
+                            { "component": "Badge", "variant": "outline", "className": "text-xs", "text": "selectedFile.type" }
+                          ]},
+                          { "component": "div", "className": "flex items-center gap-2", "children": [
+                            { "component": "Button", "variant": "ghost", "size": "icon", "children": [{ "component": "Save icon" }] },
+                            { "component": "Button", "variant": "ghost", "size": "icon", "children": [{ "component": "Download icon" }] }
+                          ]}
+                        ]}
+                      ]
+                    },
+                    {
+                      "component": "CardContent",
+                      "className": "flex-1 p-0",
+                      "children": [
+                        { "component": "Textarea", "className": "h-full w-full resize-none border-0 rounded-none font-mono text-sm", "placeholder": "Select a file to view or edit..." }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "value": "memory",
+            "label": "Memory",
+            "icon": "Brain",
+            "content": {
+              "layout": "space-y-4",
+              "children": [
+                {
+                  "component": "div",
+                  "className": "flex items-center gap-4",
+                  "children": [
+                    { "component": "div", "className": "relative flex-1", "children": [
+                      { "component": "Search icon", "className": "absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" },
+                      { "component": "Input", "placeholder": "Search memories...", "className": "pl-10" }
+                    ]},
+                    { "component": "Select", "placeholder": "All Types", "options": ["All Types", "Fact", "Preference", "Context", "Skill"] },
+                    { "component": "Button", "variant": "outline", "children": [
+                      { "component": "Plus icon", "className": "mr-2 h-4 w-4" },
+                      { "component": "span", "text": "Add Memory" }
+                    ]}
+                  ]
+                },
+                {
+                  "component": "div",
+                  "className": "grid grid-cols-1 md:grid-cols-2 gap-4",
+                  "children": [
+                    {
+                      "component": "MemoryCard",
+                      "repeat": 6,
+                      "structure": [
+                        { "component": "Card", "className": "hover:shadow-md transition-shadow", "children": [
+                          { "component": "CardHeader", "className": "pb-3", "children": [
+                            { "component": "div", "className": "flex items-start justify-between", "children": [
+                              { "component": "Badge", "variant": "secondary", "className": "text-xs", "text": "memory.type" },
+                              { "component": "DropdownMenu", "children": [
+                                { "component": "DropdownMenuTrigger", "children": [
+                                  { "component": "Button", "variant": "ghost", "size": "icon", "className": "h-8 w-8", "children": [{ "component": "MoreVertical icon" }] }
+                                ]},
+                                { "component": "DropdownMenuContent", "align": "end", "children": [
+                                  { "component": "DropdownMenuItem", "icon": "Edit", "text": "Edit" },
+                                  { "component": "DropdownMenuItem", "icon": "Trash", "text": "Delete", "className": "text-destructive" }
+                                ]}
+                              ]}
+                            ]}
+                          ]},
+                          { "component": "CardContent", "className": "pt-0", "children": [
+                            { "component": "p", "className": "text-sm", "text": "memory.content" },
+                            { "component": "p", "className": "text-xs text-muted-foreground mt-2", "text": "memory.timestamp" }
+                          ]}
+                        ]}
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "value": "sessions",
+            "label": "Sessions",
+            "icon": "MessageSquare",
+            "content": {
+              "layout": "space-y-4",
+              "children": [
+                {
+                  "component": "div",
+                  "className": "flex items-center justify-between",
+                  "children": [
+                    { "component": "div", "className": "flex items-center gap-4", "children": [
+                      { "component": "div", "className": "relative", "children": [
+                        { "component": "Search icon", "className": "absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" },
+                        { "component": "Input", "placeholder": "Search sessions...", "className": "pl-10 w-[300px]" }
+                      ]},
+                      { "component": "Select", "placeholder": "All Status", "options": ["All Status", "Active", "Completed", "Error"] }
+                    ]},
+                    { "component": "Button", "variant": "outline", "children": [
+                      { "component": "Plus icon", "className": "mr-2 h-4 w-4" },
+                      { "component": "span", "text": "New Session" }
+                    ]}
+                  ]
+                },
+                {
+                  "component": "Card",
+                  "children": [
+                    { "component": "CardContent", "className": "p-0", "children": [
+                      { "component": "Table", "children": [
+                        { "component": "TableHeader", "children": [
+                          { "component": "TableRow", "children": [
+                            { "component": "TableHead", "text": "Session" },
+                            { "component": "TableHead", "text": "Status" },
+                            { "component": "TableHead", "text": "Messages" },
+                            { "component": "TableHead", "text": "Duration" },
+                            { "component": "TableHead", "text": "Created" },
+                            { "component": "TableHead", "className": "w-[50px]" }
+                          ]}
+                        ]},
+                        { "component": "TableBody", "children": [
+                          { "component": "TableRow", "repeat": 10, "children": [
+                            { "component": "TableCell", "children": [
+                              { "component": "div", "className": "flex items-center gap-3", "children": [
+                                { "component": "MessageSquare icon", "className": "h-4 w-4 text-muted-foreground" },
+                                { "component": "div", "children": [
+                                  { "component": "p", "className": "font-medium text-sm", "text": "session.name" },
+                                  { "component": "p", "className": "text-xs text-muted-foreground", "text": "session.id" }
+                                ]}
+                              ]}
+                            ]},
+                            { "component": "TableCell", "children": [
+                              { "component": "StatusPill", "variant": "session.status" }
+                            ]},
+                            { "component": "TableCell", "text": "session.messageCount" },
+                            { "component": "TableCell", "text": "session.duration" },
+                            { "component": "TableCell", "text": "session.createdAt" },
+                            { "component": "TableCell", "children": [
+                              { "component": "Button", "variant": "ghost", "size": "icon", "children": [{ "component": "ChevronRight icon" }] }
+                            ]}
+                          ]}
+                        ]}
+                      ]}
+                    ]}
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "value": "test",
+            "label": "Test",
+            "icon": "Play",
+            "content": {
+              "layout": "h-[calc(100vh-280px)] flex flex-col",
+              "children": [
+                {
+                  "component": "Card",
+                  "className": "flex-1 overflow-hidden flex flex-col",
+                  "children": [
+                    {
+                      "component": "CardContent",
+                      "className": "flex-1 overflow-y-auto p-4 space-y-4",
+                      "children": [
+                        {
+                          "component": "ChatMessage",
+                          "repeat": 6,
+                          "structure": [
+                            { "component": "div", "className": "flex gap-4", "variants": [
+                              { "condition": "message.role === 'user'", "className": "flex-row-reverse" },
+                              { "condition": "message.role === 'assistant'", "className": "flex-row" }
+                            ], "children": [
+                              { "component": "Avatar", "className": "h-8 w-8", "fallback": { "type": "initials", "text": "message.role[0]" } },
+                              { "component": "div", "className": "max-w-[80%]", "children": [
+                                { "component": "div", "className": "rounded-lg p-3", "variants": [
+                                  { "condition": "message.role === 'user'", "className": "bg-primary text-primary-foreground" },
+                                  { "condition": "message.role === 'assistant'", "className": "bg-muted" }
+                                ], "children": [
+                                  { "component": "p", "className": "text-sm", "text": "message.content" }
+                                ]},
+                                { "component": "span", "className": "text-xs text-muted-foreground mt-1 block", "text": "message.timestamp" }
+                              ]}
+                            ]}
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "component": "div",
+                      "className": "border-t p-4",
+                      "children": [
+                        { "component": "div", "className": "flex gap-2", "children": [
+                          { "component": "Textarea", "placeholder": "Type your message...", "className": "flex-1 min-h-[80px] resize-none" },
+                          { "component": "div", "className": "flex flex-col gap-2", "children": [
+                            { "component": "Button", "size": "icon", "children": [{ "component": "Send icon" }] },
+                            { "component": "Button", "variant": "outline", "size": "icon", "children": [{ "component": "Paperclip icon" }] }
+                          ]}
+                        ]}
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          },
+          {
+            "value": "settings",
+            "label": "Settings",
+            "icon": "Settings",
+            "content": {
+              "layout": "max-w-3xl space-y-6",
+              "children": [
+                {
+                  "component": "FormSection",
+                  "title": "Basic Information",
+                  "description": "General agent settings and identification",
+                  "bordered": true,
+                  "children": [
+                    { "component": "FormField", "label": "Agent Name", "children": [{ "component": "Input", "placeholder": "My Assistant" }] },
+                    { "component": "FormField", "label": "Description", "children": [{ "component": "Textarea", "placeholder": "What does this agent do?" }] },
+                    { "component": "FormSectionGrid", "columns": 2, "children": [
+                      { "component": "FormField", "label": "Model", "children": [{ "component": "Select", "options": ["GPT-4", "Claude 3", "Copilot"] }] },
+                      { "component": "FormField", "label": "Provider", "children": [{ "component": "Select", "options": ["OpenAI", "Anthropic", "Copilot"] }] }
+                    ]}
+                  ]
+                },
+                {
+                  "component": "FormSection",
+                  "title": "Behavior",
+                  "description": "Configure how the agent behaves and responds",
+                  "bordered": true,
+                  "children": [
+                    { "component": "FormField", "label": "System Prompt", "children": [{ "component": "Textarea", "rows": 6, "placeholder": "Enter system instructions..." }] },
+                    { "component": "FormSectionGrid", "columns": 2, "children": [
+                      { "component": "FormField", "label": "Temperature", "children": [{ "component": "Slider", "min": 0, "max": 2, "step": 0.1 }] },
+                      { "component": "FormField", "label": "Max Tokens", "children": [{ "component": "Input", "type": "number" }] }
+                    ]}
+                  ]
+                },
+                {
+                  "component": "FormSection",
+                  "title": "Advanced",
+                  "description": "Advanced configuration options",
+                  "bordered": true,
+                  "children": [
+                    { "component": "div", "className": "flex items-center justify-between", "children": [
+                      { "component": "div", "children": [
+                        { "component": "Label", "text": "Auto-save memories" },
+                        { "component": "p", "className": "text-sm text-muted-foreground", "text": "Automatically save important information to memory" }
+                      ]},
+                      { "component": "Switch" }
+                    ]},
+                    { "component": "Separator" },
+                    { "component": "div", "className": "flex items-center justify-between", "children": [
+                      { "component": "div", "children": [
+                        { "component": "Label", "text": "Enable web search" },
+                        { "component": "p", "className": "text-sm text-muted-foreground", "text": "Allow the agent to search the web" }
+                      ]},
+                      { "component": "Switch" }
+                    ]}
+                  ]
+                },
+                {
+                  "component": "div",
+                  "className": "flex justify-end gap-4",
+                  "children": [
+                    { "component": "Button", "variant": "outline", "text": "Cancel" },
+                    { "component": "Button", "text": "Save Changes" }
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "statusPill": {
+      "description": "Status indicator with label and optional pulse animation",
+      "baseComponent": "StatusPill",
+      "variants": ["online", "offline", "error", "warning", "pending", "unknown"],
+      "props": {
+        "variant": "Status variant",
+        "pulse": "Boolean - enable pulse animation for live status",
+        "showLabel": "Boolean - show text label",
+        "label": "Custom label text"
+      },
+      "sizes": {
+        "default": "text-xs px-2.5 py-0.5",
+        "lg": "text-sm px-3 py-1"
+      }
+    },
+    "agentCard": {
+      "description": "Agent listing card with hover effects",
+      "baseComponent": "Card",
+      "interactions": {
+        "hover": {
+          "card": "shadow-lg -translate-y-0.5",
+          "duration": "200ms"
+        },
+        "focus": {
+          "ring": "2px solid ring color"
+        }
+      }
+    },
+    "metricCard": {
+      "description": "Stat display card with icon and trend",
+      "baseComponent": "MetricCard",
+      "accents": ["blue", "green", "violet", "amber", "rose", "emerald"]
+    },
+    "activityItem": {
+      "description": "Timeline activity entry",
+      "structure": "Icon + Content + Timestamp",
+      "iconVariants": {
+        "message": "MessageSquare",
+        "file": "FileText",
+        "memory": "Brain",
+        "error": "AlertCircle",
+        "success": "CheckCircle"
+      }
+    },
+    "fileTreeItem": {
+      "description": "File browser item with selection state",
+      "states": {
+        "default": "hover:bg-accent",
+        "selected": "bg-accent text-accent-foreground"
+      }
+    },
+    "memoryCard": {
+      "description": "Memory entry card with type badge",
+      "types": ["Fact", "Preference", "Context", "Skill"],
+      "actions": ["Edit", "Delete"]
+    },
+    "chatMessage": {
+      "description": "Chat bubble for test interface",
+      "variants": {
+        "user": "Primary background, right-aligned",
+        "assistant": "Muted background, left-aligned"
+      }
+    }
+  },
+  "interactions": {
+    "cardHover": {
+      "transform": "translateY(-2px)",
+      "shadow": "shadow-lg",
+      "duration": "200ms",
+      "easing": "cubic-bezier(0.4, 0, 0.2, 1)"
+    },
+    "buttonPress": {
+      "transform": "scale(0.98)",
+      "duration": "100ms"
+    },
+    "tabSwitch": {
+      "indicator": "Border-bottom highlight",
+      "content": "Fade in",
+      "duration": "200ms"
+    },
+    "dialogEnter": {
+      "overlay": "Fade in 200ms",
+      "content": "Scale in + fade 300ms",
+      "easing": "cubic-bezier(0.16, 1, 0.3, 1)"
+    },
+    "dialogExit": {
+      "overlay": "Fade out 150ms",
+      "content": "Scale out + fade 200ms"
+    },
+    "sheetEnter": {
+      "slide": "From right 300ms",
+      "overlay": "Fade in 200ms",
+      "easing": "cubic-bezier(0.16, 1, 0.3, 1)"
+    },
+    "skeletonPulse": {
+      "animation": "pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite",
+      "opacity": "0.5"
+    },
+    "statusPulse": {
+      "animation": "ping 2s cubic-bezier(0, 0, 0.2, 1) infinite",
+      "opacity": "0.75"
+    }
+  },
+  "accessibility": {
+    "focusVisible": {
+      "outline": "2px solid hsl(var(--ring))",
+      "outlineOffset": "2px",
+      "borderRadius": "inherit"
+    },
+    "keyboardNavigation": {
+      "card": "Enter to open, Tab to navigate",
+      "tabs": "Arrow keys to switch, Tab to enter content",
+      "dropdown": "Enter/Space to open, Arrow keys to navigate, Escape to close",
+      "dialog": "Tab cycles focus, Escape to close, initial focus on first input"
+    },
+    "screenReader": {
+      "agentCard": "aria-label: 'Agent {name}, status {status}'",
+      "statusPill": "role='status', aria-live='polite' for dynamic updates",
+      "tabList": "role='tablist', aria-orientation='horizontal'",
+      "tabTrigger": "role='tab', aria-selected, aria-controls panel id",
+      "tabPanel": "role='tabpanel', aria-labelledby trigger id"
+    },
+    "colorContrast": {
+      "normalText": "4.5:1 minimum",
+      "largeText": "3:1 minimum",
+      "uiComponents": "3:1 minimum",
+      "statusColors": "All variants meet AA standard"
+    }
+  },
+  "responsiveBehavior": {
+    "agentsList": {
+      "desktop": {
+        "gridColumns": 3,
+        "cardLayout": "Standard with all metadata",
+        "filters": "Horizontal row with search + 2 selects + button"
+      },
+      "tablet": {
+        "gridColumns": 2,
+        "cardLayout": "Compact with essential metadata only",
+        "filters": "Horizontal with search + 1 select"
+      },
+      "mobile": {
+        "gridColumns": 1,
+        "cardLayout": "Full width, actions always visible (no hover)",
+        "filters": "Stacked vertical, search on top"
+      }
+    },
+    "agentDetail": {
+      "desktop": {
+        "heroLayout": "Side-by-side: info left, actions right",
+        "statsGrid": "4 columns",
+        "filesTab": "Sidebar (1/3) + Editor (2/3)",
+        "memoryGrid": "2 columns",
+        "tabs": "Horizontal with icons and labels"
+      },
+      "tablet": {
+        "heroLayout": "Stacked: info on top, actions below",
+        "statsGrid": "2 columns",
+        "filesTab": "Sidebar (1/2) + Editor (1/2)",
+        "memoryGrid": "1 column",
+        "tabs": "Horizontal with icons only"
+      },
+      "mobile": {
+        "heroLayout": "Fully stacked, actions in overflow menu",
+        "statsGrid": "2 columns compact",
+        "filesTab": "Tab switcher between list and editor",
+        "memoryGrid": "1 column",
+        "tabs": "Scrollable horizontal, icon + label"
+      }
+    }
+  },
+  "darkMode": {
+    "strategy": "CSS variables with class-based switching",
+    "implementation": "next-themes with class attribute",
+    "componentSupport": "All components support dark mode via CSS variables",
+    "colorMapping": {
+      "background": "Switches to dark gray",
+      "card": "Slightly lighter than background",
+      "text": "High contrast white/gray",
+      "accents": "Saturated but dimmed for dark theme"
+    }
+  },
+  "fileStructure": {
+    "routes": {
+      "agentsList": "app/agents/page.tsx",
+      "agentDetail": "app/agents/[id]/page.tsx",
+      "agentCreate": "app/agents/new/page.tsx"
+    },
+    "features": {
+      "agents": "features/agents/",
+      "components": [
+        "agent-list.tsx",
+        "agent-card.tsx",
+        "agent-detail.tsx",
+        "agent-form.tsx",
+        "agent-stats.tsx",
+        "agent-activity.tsx",
+        "agent-files.tsx",
+        "agent-memory.tsx",
+        "agent-sessions.tsx",
+        "agent-test.tsx",
+        "agent-settings.tsx",
+        "agent-empty-state.tsx",
+        "agent-skeleton.tsx"
+      ]
+    }
+  },
+  "implementationNotes": {
+    "shadcnComponents": [
+      "Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter",
+      "Button (variants: default, outline, ghost, destructive)",
+      "Badge (variants: default, secondary, outline, destructive)",
+      "Input, Textarea, Select",
+      "Tabs, TabsList, TabsTrigger, TabsContent",
+      "Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter",
+      "Sheet, SheetTrigger, SheetContent, SheetHeader, SheetTitle",
+      "Skeleton",
+      "Avatar, AvatarImage, AvatarFallback",
+      "DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator",
+      "Table, TableHeader, TableBody, TableRow, TableHead, TableCell",
+      "ScrollArea",
+      "Separator",
+      "Switch",
+      "Slider",
+      "Label",
+      "Form, FormField, FormItem, FormLabel, FormControl, FormMessage"
+    ],
+    "customComponents": [
+      "StatusPill (with pulse animation)",
+      "Indicator (dot with optional pulse)",
+      "MetricCard (with accent colors)",
+      "FormSection (grouped form fields)"
+    ],
+    "hooks": [
+      "useAgents() - fetch agents list",
+      "useAgent(id) - fetch single agent",
+      "useAgentStats(id) - fetch agent metrics",
+      "useAgentSessions(id) - fetch sessions",
+      "useAgentMemory(id) - fetch memories",
+      "useAgentFiles(id) - fetch files"
+    ],
+    "tanstackQuery": {
+      "queryKeys": [
+        "['agents']",
+        "['agent', id]",
+        "['agent-stats', id]",
+        "['agent-sessions', id]",
+        "['agent-memory', id]",
+        "['agent-files', id]"
+      ]
+    }
+  }
+}

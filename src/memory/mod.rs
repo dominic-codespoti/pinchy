@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
+pub mod shared;
+
 /// A single memory entry.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryEntry {

@@ -6,6 +6,80 @@ export type { Memory, RawMemory } from '@/features/memories/types';
 export type { ApiError } from '@/shared/types/api';
 
 // ============================================================================
+// Receipt Types (moved from deleted api/receipts-api)
+// ============================================================================
+
+export interface ReceiptsListResponse {
+  receipts: TurnReceipt[];
+  total: number;
+}
+
+export interface ReceiptsBySessionResponse {
+  session_id: string;
+  receipts: TurnReceipt[];
+}
+
+// ============================================================================
+// Heartbeat Types
+// ============================================================================
+
+export interface RawHeartbeatStatus {
+  agent_id: string;
+  enabled: boolean;
+  health: string;
+  last_tick: string | null;
+  next_tick: string | null;
+  interval_secs: number | null;
+  message_preview?: string;
+  latest_session?: { id: string } | string;
+}
+
+export interface HeartbeatStatusData {
+  agentId: string;
+  enabled: boolean;
+  health: 'OK' | 'MISSED' | string;
+  lastTick: string | null;
+  nextTick: string | null;
+  intervalSecs: number | null;
+  messagePreview?: string;
+  latestSession?: { id: string };
+}
+
+// ============================================================================
+// Receipt / Turn Types
+// ============================================================================
+
+export interface ToolCallRecord {
+  tool: string;
+  success: boolean;
+  duration_ms?: number;
+  args_summary?: string;
+  error?: string;
+}
+
+export interface TokenInfo {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cached_tokens?: number;
+  reasoning_tokens?: number;
+}
+
+export interface TurnReceipt {
+  id: string;
+  started_at: string;
+  model_id?: string;
+  duration_ms?: number;
+  model_calls?: number;
+  tokens: TokenInfo;
+  estimated_cost_usd?: number;
+  user_prompt: string;
+  reply_summary?: string;
+  tool_calls: ToolCallRecord[];
+  status?: 'success' | 'error' | 'in_progress';
+}
+
+// ============================================================================
 // Agent Types
 // ============================================================================
 

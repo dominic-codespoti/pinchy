@@ -1,0 +1,139 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]:
+    - img [ref=e8]
+  - alert [ref=e11]
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]: Pinchy
+        - generic [ref=e16]:
+          - button "Notifications" [ref=e17] [cursor=pointer]:
+            - img
+          - button [ref=e18] [cursor=pointer]:
+            - img
+      - tablist [ref=e24]:
+        - tab "Dashboard" [selected] [ref=e25] [cursor=pointer]:
+          - img [ref=e26]
+          - text: Dashboard
+        - tab "Chat" [ref=e31] [cursor=pointer]:
+          - img [ref=e32]
+          - text: Chat
+        - tab "Agents" [ref=e34] [cursor=pointer]:
+          - img [ref=e35]
+          - text: Agents
+        - tab "Memories" [ref=e38] [cursor=pointer]:
+          - img [ref=e39]
+          - text: Memories
+        - tab "Cron" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+          - text: Cron
+        - tab "Skills" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+          - text: Skills
+        - tab "Logs" [ref=e53] [cursor=pointer]:
+          - img [ref=e54]
+          - text: Logs
+        - tab "Models" [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - text: Models
+        - tab "Settings" [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+          - text: Settings
+      - generic [ref=e65]:
+        - generic [ref=e71]: Connecting
+        - button "Toggle theme" [ref=e73] [cursor=pointer]:
+          - img
+          - generic [ref=e74]: Toggle theme
+        - paragraph [ref=e75]: Pinchy v0.1.19
+    - main [ref=e76]:
+      - generic [ref=e78]:
+        - generic [ref=e79]:
+          - generic [ref=e80]:
+            - heading "Administration" [level=1] [ref=e81]
+            - paragraph [ref=e82]: System management and maintenance
+          - generic [ref=e84]:
+            - img [ref=e85]
+            - text: v1.0.0
+        - generic [ref=e88]:
+          - generic [ref=e89]:
+            - generic [ref=e90]:
+              - generic [ref=e91]: Total Agents
+              - img [ref=e92]
+            - paragraph [ref=e97]: Active and inactive agents
+          - generic [ref=e98]:
+            - generic [ref=e99]:
+              - generic [ref=e100]: Total Sessions
+              - img [ref=e101]
+            - paragraph [ref=e107]: All recorded sessions
+          - generic [ref=e108]:
+            - generic [ref=e109]:
+              - generic [ref=e110]: Total Messages
+              - img [ref=e111]
+            - paragraph [ref=e115]: Messages across all sessions
+          - generic [ref=e116]:
+            - generic [ref=e117]:
+              - generic [ref=e118]: Storage Usage
+              - img [ref=e119]
+            - paragraph [ref=e125]: Database and file storage
+          - generic [ref=e126]:
+            - generic [ref=e127]:
+              - generic [ref=e128]: Uptime
+              - img [ref=e129]
+            - paragraph [ref=e134]: System uptime
+        - generic [ref=e135]:
+          - tablist [ref=e136]:
+            - tab "Database" [selected] [ref=e137] [cursor=pointer]:
+              - img [ref=e138]
+              - text: Database
+            - tab "Backups" [ref=e142] [cursor=pointer]:
+              - img [ref=e143]
+              - text: Backups
+            - tab "Logs" [ref=e145] [cursor=pointer]:
+              - img [ref=e146]
+              - text: Logs
+            - tab "Maintenance" [ref=e148] [cursor=pointer]:
+              - img [ref=e149]
+              - text: Maintenance
+          - tabpanel "Database" [ref=e152]:
+            - generic [ref=e153]:
+              - generic [ref=e155]:
+                - generic [ref=e156]:
+                  - img [ref=e157]
+                  - text: Database Overview
+                - generic [ref=e161]: Current database size and statistics
+              - generic [ref=e165]:
+                - generic [ref=e166]:
+                  - generic [ref=e167]: Table Details
+                  - generic [ref=e168]: Storage breakdown by table
+                - generic [ref=e170]:
+                  - generic [ref=e171]:
+                    - generic [ref=e172]:
+                      - generic [ref=e173]: agents
+                      - generic [ref=e174]: 12 rows
+                    - generic [ref=e175]: 50 KB
+                  - generic [ref=e176]:
+                    - generic [ref=e177]:
+                      - generic [ref=e178]: sessions
+                      - generic [ref=e179]: 156 rows
+                    - generic [ref=e180]: 2 MB
+                  - generic [ref=e181]:
+                    - generic [ref=e182]:
+                      - generic [ref=e183]: messages
+                      - generic [ref=e184]: 3,420 rows
+                    - generic [ref=e185]: 45 MB
+                  - generic [ref=e186]:
+                    - generic [ref=e187]:
+                      - generic [ref=e188]: cron_jobs
+                      - generic [ref=e189]: 8 rows
+                    - generic [ref=e190]: 10 KB
+                  - generic [ref=e191]:
+                    - generic [ref=e192]:
+                      - generic [ref=e193]: memories
+                      - generic [ref=e194]: 234 rows
+                    - generic [ref=e195]: 15 MB
+                  - generic [ref=e196]:
+                    - generic [ref=e197]:
+                      - generic [ref=e198]: skills
+                      - generic [ref=e199]: 25 rows
+                    - generic [ref=e200]: 500 KB
+  - region "Notifications alt+T"

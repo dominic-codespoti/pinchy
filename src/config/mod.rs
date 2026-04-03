@@ -9,6 +9,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
+pub mod shared_memory;
+
 static CONFIG_LOCK: Mutex<()> = Mutex::const_new(());
 
 /// Acquire an exclusive lock for config read-modify-write operations.
@@ -144,6 +146,9 @@ pub struct Config {
     /// MCP server definitions.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub mcp_servers: std::collections::HashMap<String, crate::mcp::McpServerConfig>,
+    /// Shared memory configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_memory: Option<shared_memory::SharedMemoryConfig>,
 }
 
 fn default_session_expiry_days() -> Option<u64> {

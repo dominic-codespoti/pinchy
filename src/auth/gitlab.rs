@@ -120,13 +120,15 @@ struct TokenResponse {
     access_token: String,
     refresh_token: Option<String>,
     expires_in: Option<u64>,
-    token_type: String,
+    #[serde(rename = "token_type")]
+    _token_type: String,
 }
 
 /// GitLab user info (for token validation).
 #[derive(Debug, Deserialize)]
 struct UserInfo {
-    id: u64,
+    #[serde(rename = "id")]
+    _id: u64,
     username: String,
 }
 

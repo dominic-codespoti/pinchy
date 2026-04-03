@@ -233,8 +233,8 @@ async fn check_provider_config(
     config_models: &[crate::config::ModelConfig],
     registry: Option<&crate::models_dev::ModelsDevRegistry>,
 ) -> ProviderStatus {
-    // Get provider metadata from models.dev if available
-    let registry_provider = registry.and_then(|r| r.provider(provider));
+    // Get provider metadata from models.dev if available (with alias fallback for openai-codex -> openai)
+    let registry_provider = registry.and_then(|r| r.provider_with_alias(provider));
     let env_vars = registry_provider.map(|p| p.env.as_slice()).unwrap_or(&[]);
     let display_name = registry_provider
         .map(|p| p.name.clone())
@@ -243,6 +243,11 @@ async fn check_provider_config(
     let model_count = registry_provider.map(|p| p.models.len()).unwrap_or(0);
 
     let env_var_name = env_var_for_provider_sync(provider);
+    let normalized = crate::models::providers::normalize_provider_id(provider);
+
+    // Check if provider is persistently disabled (survives restarts)
+    let is_disabled = crate::auth::store::is_provider_disabled(&normalized)
+        || crate::auth::store::is_provider_disabled(provider);
 
     // 1. Check environment variables
     let (env_ok, env_detail) = check_env_for_provider(provider, Some(env_vars)).await;
@@ -254,12 +259,16 @@ async fn check_provider_config(
         return ProviderStatus {
             provider: provider.to_string(),
             name: display_name,
-            configured: true,
+            configured: !is_disabled,
             has_api_key: provider != "copilot" && provider != "gitlab",
             env_var: env_var_name,
             env_vars: env_vars.to_vec(),
             details,
-            source: Some("env".to_string()),
+            source: if is_disabled {
+                None
+            } else {
+                Some("env".to_string())
+            },
             api: api_url,
             model_count,
         };
@@ -281,12 +290,16 @@ async fn check_provider_config(
             return ProviderStatus {
                 provider: provider.to_string(),
                 name: display_name,
-                configured: true,
+                configured: !is_disabled,
                 has_api_key: has_key,
                 env_var: env_var_name,
                 env_vars: env_vars.to_vec(),
                 details: Some("via auth store".to_string()),
-                source: Some("auth_store".to_string()),
+                source: if is_disabled {
+                    None
+                } else {
+                    Some("auth_store".to_string())
+                },
                 api: api_url,
                 model_count,
             };
@@ -305,12 +318,16 @@ async fn check_provider_config(
         return ProviderStatus {
             provider: provider.to_string(),
             name: display_name,
-            configured: true,
+            configured: !is_disabled,
             has_api_key: true,
             env_var: env_var_name,
             env_vars: env_vars.to_vec(),
             details: Some("via config.yaml".to_string()),
-            source: Some("config".to_string()),
+            source: if is_disabled {
+                None
+            } else {
+                Some("config".to_string())
+            },
             api: api_url,
             model_count,
         };
@@ -1125,6 +1142,11 @@ pub(crate) async fn api_auth_copilot_poll() -> impl IntoResponse {
                     warn!(error = %e, "failed to cache Copilot session token");
                 }
 
+                // Clear the disabled state since user is reconnecting this provider
+                if let Err(e) = crate::auth::store::enable_provider("copilot") {
+                    tracing::warn!(error = %e, "failed to clear disabled state for copilot");
+                }
+
                 // Update flow state.
                 {
                     let mut flow = DEVICE_FLOW.lock().await;
@@ -1247,6 +1269,14 @@ fn write_copilot_token_file(token: &str) {
 
 /// `DELETE /api/auth/:provider` — clear stored auth for a provider.
 pub(crate) async fn api_auth_clear(Path(provider): Path<String>) -> impl IntoResponse {
+    let normalized = crate::models::providers::normalize_provider_id(&provider);
+
+    // Persist the disabled state to auth.json so it survives restarts
+    // This is critical for local providers (ollama, lmstudio, vllm) which don't use auth store
+    if let Err(e) = crate::auth::store::disable_provider(&normalized) {
+        tracing::warn!(provider = %normalized, error = %e, "failed to persist disabled provider state");
+    }
+
     // Copilot has extra cleanup (keyring + token file)
     if provider == "copilot" {
         if let Err(e) = crate::auth::github_device::remove_token() {
@@ -1307,6 +1337,11 @@ pub(crate) async fn api_auth_save_key(
                 message: format!("failed to save key for {provider}: {e}"),
             }),
         );
+    }
+
+    // Clear the disabled state since user is reconnecting this provider
+    if let Err(e) = crate::auth::store::enable_provider(&provider) {
+        tracing::warn!(provider = %provider, error = %e, "failed to clear disabled state for provider");
     }
 
     (

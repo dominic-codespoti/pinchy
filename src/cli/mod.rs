@@ -601,6 +601,11 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                             Ok(ct) => {
                                 auth::copilot_token::cache_copilot_token(&ct).ok();
                                 println!("Copilot token obtained and cached.");
+
+                                // Clear the disabled state since user is reconnecting
+                                if let Err(e) = auth::store::enable_provider("copilot") {
+                                    eprintln!("Warning: failed to clear disabled state: {e}");
+                                }
                             }
                             Err(e) => {
                                 eprintln!("Warning: Copilot token exchange failed: {e}");

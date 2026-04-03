@@ -1,128 +1,214 @@
 'use client';
 
 import { useState } from 'react';
-import { AgentFile } from '../types';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { FilePreview } from './file-preview';
-import { FileActions } from './file-actions';
-import { FileText, FolderOpen } from 'lucide-react';
+import { Save, FileText, Wrench, Heart, RefreshCw } from 'lucide-react';
+import { Agent } from '../types';
 
-function formatDate(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+type FileType = 'soul' | 'tools' | 'heartbeat';
+
+interface FileConfig {
+  id: FileType;
+  name: string;
+  description: string;
+  icon: React.ReactNode;
+  placeholder: string;
 }
 
-interface FilesTabProps {
-  agentId: string;
-  files: AgentFile[];
+const FILE_CONFIGS: FileConfig[] = [
+  {
+    id: 'soul',
+    name: 'SOUL.md',
+    description: 'Agent personality and system prompt',
+    icon: <FileText className="h-4 w-4" />,
+    placeholder: 'You are a helpful AI assistant...',
+  },
+  {
+    id: 'tools',
+    name: 'TOOLS.md',
+    description: 'Tool usage instructions and guidelines',
+    icon: <Wrench className="h-4 w-4" />,
+    placeholder: '# Tool Instructions\n\n## read_file\nUse this to read files...',
+  },
+  {
+    id: 'heartbeat',
+    name: 'HEARTBEAT.md',
+    description: 'Heartbeat task description and goals',
+    icon: <Heart className="h-4 w-4" />,
+    placeholder: 'Check for new pull requests and review them...',
+  },
+];
+
+interface AgentFilesTabProps {
+  agent: Agent;
+  isLoading?: boolean;
+  onSave?: (fileType: FileType, content: string) => void;
 }
 
-export function FilesTab({ agentId, files }: FilesTabProps) {
-  const [previewFile, setPreviewFile] = useState<AgentFile | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
+export function AgentFilesTab({ agent, isLoading, onSave }: AgentFilesTabProps) {
+  const [selectedFile, setSelectedFile] = useState<FileType>('soul');
+  const [content, setContent] = useState<string>(agent.soul || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
-  const handleFileClick = (file: AgentFile) => {
-    setPreviewFile(file);
-    setPreviewOpen(true);
+  const currentFile = FILE_CONFIGS.find((f) => f.id === selectedFile)!;
+
+  const handleFileChange = (value: FileType) => {
+    setSelectedFile(value);
+    // Load content based on selected file
+    switch (value) {
+      case 'soul':
+        setContent(agent.soul || '');
+        break;
+      case 'tools':
+        setContent(agent.tools || '');
+        break;
+      case 'heartbeat':
+        setContent(agent.heartbeat || '');
+        break;
+    }
   };
 
-  if (files.length === 0) {
+  const handleSave = async () => {
+    setIsSaving(true);
+    try {
+      await onSave?.(selectedFile, content);
+      setLastSaved(new Date());
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const hasChanges = () => {
+    switch (selectedFile) {
+      case 'soul':
+        return content !== (agent.soul || '');
+      case 'tools':
+        return content !== (agent.tools || '');
+      case 'heartbeat':
+        return content !== (agent.heartbeat || '');
+      default:
+        return false;
+    }
+  };
+
+  if (isLoading) {
     return (
       <Card>
-        <CardContent className="flex flex-col items-center justify-center py-8 text-center">
-          <FolderOpen className="h-10 w-10 text-muted-foreground/50 mb-3" />
-          <p className="text-sm font-medium text-muted-foreground">
-            No files in workspace
-          </p>
-          <p className="text-xs text-muted-foreground/70 mt-1">
-            Files are created using the write_file tool
-          </p>
+        <CardHeader>
+          <Skeleton className="h-6 w-32" />
+          <Skeleton className="h-4 w-48" />
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-8 w-full mb-4" />
+          <Skeleton className="h-64 w-full" />
         </CardContent>
       </Card>
     );
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-medium">
-          Files ({files.length})
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="pt-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="text-xs">Name</TableHead>
-              <TableHead className="text-xs w-32">Modified</TableHead>
-              <TableHead className="text-xs w-24 text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {files.map((file) => (
-              <TableRow key={file.path}>
-                <TableCell>
-                  <button
-                    onClick={() => handleFileClick(file)}
-                    className="flex items-center gap-2 font-medium text-sm hover:underline text-left"
-                  >
-                    <FileText className="h-4 w-4 text-muted-foreground" />
-                    {file.name}
-                  </button>
-                </TableCell>
-                <TableCell className="text-muted-foreground text-xs">
-                  {formatDate(file.modifiedAt)}
-                </TableCell>
-                <TableCell className="text-right">
-                  <FileActions
-                    file={file}
-                    agentId={agentId}
-                    onPreview={() => handleFileClick(file)}
-                  />
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+    <div className="space-y-4">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                {currentFile.icon}
+                Agent Files
+              </CardTitle>
+              <CardDescription>Edit agent configuration files</CardDescription>
+            </div>
+            {lastSaved && (
+              <Badge variant="outline" className="gap-1">
+                <RefreshCw className="h-3 w-3" />
+                Saved {lastSaved.toLocaleTimeString()}
+              </Badge>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="file-select">Select File</Label>
+            <Select value={selectedFile} onValueChange={(v) => handleFileChange(v as FileType)}>
+              <SelectTrigger id="file-select">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {FILE_CONFIGS.map((file) => (
+                  <SelectItem key={file.id} value={file.id}>
+                    <div className="flex items-center gap-2">
+                      {file.icon}
+                      <span>{file.name}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">{currentFile.description}</p>
+          </div>
 
-        <FilePreview
-          file={previewFile}
-          agentId={agentId}
-          open={previewOpen}
-          onOpenChange={setPreviewOpen}
-        />
-      </CardContent>
-    </Card>
-  );
-}
+          <div className="space-y-2">
+            <Label htmlFor="file-content">Content</Label>
+            <Textarea
+              id="file-content"
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder={currentFile.placeholder}
+              className="min-h-[300px] font-mono text-sm"
+            />
+          </div>
+        </CardContent>
+        <CardFooter className="flex justify-between">
+          <div className="text-sm text-muted-foreground">
+            {hasChanges() ? (
+              <span className="text-amber-500">Unsaved changes</span>
+            ) : (
+              <span>Up to date</span>
+            )}
+          </div>
+          <Button onClick={handleSave} disabled={isSaving || !hasChanges()}>
+            <Save className="mr-2 h-4 w-4" />
+            {isSaving ? 'Saving...' : 'Save Changes'}
+          </Button>
+        </CardFooter>
+      </Card>
 
-export function FilesTabSkeleton() {
-  return (
-    <Card>
-      <CardHeader className="pb-3">
-        <Skeleton className="h-5 w-20" />
-      </CardHeader>
-      <CardContent className="pt-0">
-        <div className="space-y-2">
-          {[...Array(3)].map((_, i) => (
-            <Skeleton key={i} className="h-10 w-full" />
-          ))}
-        </div>
-      </CardContent>
-    </Card>
+      <div className="grid gap-4 sm:grid-cols-3">
+        {FILE_CONFIGS.map((file) => (
+          <Card
+            key={file.id}
+            className={`cursor-pointer transition-colors ${
+              selectedFile === file.id ? 'border-primary' : ''
+            }`}
+            onClick={() => handleFileChange(file.id)}
+          >
+            <CardContent className="p-4">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`flex h-10 w-10 items-center justify-center rounded-lg ${
+                    selectedFile === file.id ? 'bg-primary/10' : 'bg-muted'
+                  }`}
+                >
+                  {file.icon}
+                </div>
+                <div>
+                  <p className="font-medium">{file.name}</p>
+                  <p className="text-xs text-muted-foreground line-clamp-1">
+                    {file.description}
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
   );
 }

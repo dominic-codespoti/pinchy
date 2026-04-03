@@ -1,134 +1,141 @@
-import { Agent } from "../types";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
-import { Edit, Clock, Calendar, Activity } from "lucide-react";
-import { getHeartbeatStatus } from "@/shared/components/heartbeat-badge";
+'use client';
 
-interface OverviewTabProps {
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Separator } from '@/components/ui/separator';
+import {
+  Bot,
+  Heart,
+  Clock,
+  Zap,
+  Wrench,
+  Calendar,
+  Play,
+  Pencil,
+  Copy,
+  Trash2,
+} from 'lucide-react';
+import { Agent } from '../types';
+
+interface AgentOverviewTabProps {
   agent: Agent;
-  onEdit: () => void;
+  isLoading?: boolean;
 }
 
-export function OverviewTab({ agent, onEdit }: OverviewTabProps) {
-  const statusVariant = agent.status === 'active' ? 'default' : 'secondary';
-  const heartbeatStatus = getHeartbeatStatus(agent.hasHeartbeat, agent.lastHeartbeatAt);
-  const heartbeatVariant = heartbeatStatus === 'online' ? 'default' : heartbeatStatus === 'offline' ? 'destructive' : 'secondary';
+interface StatCardProps {
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+  subtext?: string;
+}
 
+function StatCard({ icon, label, value, subtext }: StatCardProps) {
   return (
     <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base">Agent Overview</CardTitle>
-          <Button variant="outline" size="sm" onClick={onEdit}>
-            <Edit className="h-3.5 w-3.5 mr-1.5" />
+      <CardContent className="p-4">
+        <div className="flex items-start gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-muted">
+            {icon}
+          </div>
+          <div>
+            <p className="text-sm text-muted-foreground">{label}</p>
+            <p className="text-lg font-semibold">{value}</p>
+            {subtext && <p className="text-xs text-muted-foreground">{subtext}</p>}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function QuickActions({ agent }: { agent: Agent }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Quick Actions</CardTitle>
+        <CardDescription>Common operations for this agent</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" className="gap-2">
+            <Play className="h-4 w-4" />
+            Test Agent
+          </Button>
+          <Button variant="outline" className="gap-2">
+            <Pencil className="h-4 w-4" />
             Edit
           </Button>
+          <Button variant="outline" className="gap-2">
+            <Copy className="h-4 w-4" />
+            Clone
+          </Button>
+          <Button variant="outline" className="gap-2 hover:text-destructive">
+            <Trash2 className="h-4 w-4" />
+            Delete
+          </Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AgentInfo({ agent }: { agent: Agent }) {
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Configuration</CardTitle>
+        <CardDescription>Current agent settings</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Section 1: Agent Status */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="flex items-center gap-2">
-            <Badge variant={statusVariant} className="capitalize text-xs">
-              {agent.status}
-            </Badge>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">Agent ID</p>
+            <p className="text-sm font-mono">{agent.id}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <Activity className="h-3.5 w-3.5 text-muted-foreground" />
-            <Badge variant={heartbeatVariant} className="capitalize text-xs">
-              {heartbeatStatus}
-            </Badge>
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">Provider</p>
+            <Badge variant="outline">{agent.config.provider}</Badge>
           </div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Calendar className="h-3.5 w-3.5" />
-            <span>{new Date(agent.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">Model</p>
+            <p className="text-sm">{agent.config.model || 'Default'}</p>
           </div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Clock className="h-3.5 w-3.5" />
-            <span>
-              {agent.lastHeartbeatAt
-                ? new Date(agent.lastHeartbeatAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
-                : 'Never'}
-            </span>
+          <div>
+            <p className="text-sm font-medium text-muted-foreground">Timezone</p>
+            <p className="text-sm">{agent.timezone || 'UTC'}</p>
           </div>
         </div>
-
-        {agent.description && (
-          <p className="text-sm text-muted-foreground">{agent.description}</p>
-        )}
-
-        {agent.heartbeatInterval && (
-          <p className="text-xs text-muted-foreground">
-            Heartbeat interval: {agent.heartbeatInterval}s
-          </p>
-        )}
 
         <Separator />
 
-        {/* Section 2: Configuration */}
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">Model</span>
-              <span className="font-medium">{agent.config.model || 'Default'}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-muted-foreground">Provider</span>
-              <span className="font-medium">{agent.config.provider}</span>
-            </div>
-            {agent.maxTurns !== undefined && agent.maxTurns !== null && (
-              <div className="flex items-center gap-2">
-                <span className="text-muted-foreground">Max Turns</span>
-                <span className="font-medium">{agent.maxTurns}</span>
-              </div>
-            )}
-          </div>
-
-          {agent.enabledSkills && agent.enabledSkills.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-muted-foreground">Skills</span>
-              {agent.enabledSkills.map((skill) => (
-                <Badge key={skill} variant="outline" className="text-xs">
-                  {skill}
-                </Badge>
-              ))}
-            </div>
-          )}
-
-          {agent.watchPaths && agent.watchPaths.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-muted-foreground">Watch</span>
-              {agent.watchPaths.map((path) => (
-                <Badge key={path} variant="outline" className="text-xs font-mono">
-                  {path}
-                </Badge>
-              ))}
-            </div>
-          )}
-
-          {agent.config.toolsEnabled.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-muted-foreground">Tools</span>
-              {agent.config.toolsEnabled.map((tool) => (
-                <Badge key={tool} variant="secondary" className="text-xs">
+        <div>
+          <p className="text-sm font-medium text-muted-foreground mb-2">Enabled Tools</p>
+          <div className="flex flex-wrap gap-1">
+            {agent.config.toolsEnabled.length > 0 ? (
+              agent.config.toolsEnabled.map((tool) => (
+                <Badge key={tool} variant="secondary">
                   {tool}
                 </Badge>
-              ))}
-            </div>
-          )}
+              ))
+            ) : (
+              <span className="text-sm text-muted-foreground">No tools enabled</span>
+            )}
+          </div>
         </div>
 
-        {/* Section 3: System Prompt */}
-        {agent.config.systemPrompt && (
+        {agent.enabledSkills && agent.enabledSkills.length > 0 && (
           <>
             <Separator />
-            <div className="space-y-2">
-              <span className="text-sm text-muted-foreground">System Prompt</span>
-              <div className="text-sm bg-muted p-3 rounded-md line-clamp-4">
-                {agent.config.systemPrompt}
+            <div>
+              <p className="text-sm font-medium text-muted-foreground mb-2">Enabled Skills</p>
+              <div className="flex flex-wrap gap-1">
+                {agent.enabledSkills.map((skill) => (
+                  <Badge key={skill} variant="outline">
+                    {skill}
+                  </Badge>
+                ))}
               </div>
             </div>
           </>
@@ -138,33 +145,100 @@ export function OverviewTab({ agent, onEdit }: OverviewTabProps) {
   );
 }
 
-export function OverviewTabSkeleton() {
+function RecentActivity() {
   return (
     <Card>
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <Skeleton className="h-5 w-32" />
-          <Skeleton className="h-8 w-16" />
-        </div>
+      <CardHeader>
+        <CardTitle>Recent Activity</CardTitle>
+        <CardDescription>Latest sessions and events</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {[...Array(4)].map((_, i) => (
-            <Skeleton key={i} className="h-5 w-20" />
-          ))}
-        </div>
-        <Skeleton className="h-4 w-full" />
-        <Skeleton className="h-px w-full" />
-        <div className="flex gap-4">
-          <Skeleton className="h-4 w-24" />
-          <Skeleton className="h-4 w-24" />
-        </div>
-        <div className="flex gap-2">
-          <Skeleton className="h-5 w-16" />
-          <Skeleton className="h-5 w-16" />
-          <Skeleton className="h-5 w-16" />
+      <CardContent>
+        <div className="space-y-3">
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+              <Zap className="h-4 w-4 text-primary" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium">Session completed</p>
+              <p className="text-xs text-muted-foreground">Processed 5 tool calls</p>
+            </div>
+            <span className="text-xs text-muted-foreground">2m ago</span>
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10">
+              <Heart className="h-4 w-4 text-primary" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium">Heartbeat triggered</p>
+              <p className="text-xs text-muted-foreground">Ran scheduled check</p>
+            </div>
+            <span className="text-xs text-muted-foreground">1h ago</span>
+          </div>
+          <div className="flex items-center gap-3 p-3 rounded-lg bg-muted/50">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-muted">
+              <Wrench className="h-4 w-4" />
+            </div>
+            <div className="flex-1">
+              <p className="text-sm font-medium">Configuration updated</p>
+              <p className="text-xs text-muted-foreground">Changed model settings</p>
+            </div>
+            <span className="text-xs text-muted-foreground">3h ago</span>
+          </div>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+export function AgentOverviewTab({ agent, isLoading }: AgentOverviewTabProps) {
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} className="h-24 w-full" />
+          ))}
+        </div>
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          icon={<Zap className="h-4 w-4 text-primary" />}
+          label="Sessions"
+          value={agent.sessionCount || 0}
+          subtext="Total conversations"
+        />
+        <StatCard
+          icon={<Bot className="h-4 w-4 text-primary" />}
+          label="Provider"
+          value={agent.config.provider}
+          subtext={agent.config.model || 'Default model'}
+        />
+        <StatCard
+          icon={<Wrench className="h-4 w-4 text-primary" />}
+          label="Tools"
+          value={agent.config.toolsEnabled.length}
+          subtext="Enabled capabilities"
+        />
+        <StatCard
+          icon={<Heart className="h-4 w-4 text-primary" />}
+          label="Heartbeat"
+          value={agent.hasHeartbeat ? 'On' : 'Off'}
+          subtext={agent.heartbeatInterval ? `${agent.heartbeatInterval}s interval` : undefined}
+        />
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <AgentInfo agent={agent} />
+        <RecentActivity />
+      </div>
+
+      <QuickActions agent={agent} />
+    </div>
   );
 }

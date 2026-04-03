@@ -1,41 +1,69 @@
-// Agent CRUD operations
+// Agent API barrel file
 export {
   getAgents,
   getAgent,
   createAgent,
   updateAgent,
   deleteAgent,
-  transformAgent,
-  isNotFoundError,
-  type ApiError as AgentApiError,
-} from './agents-api';
+  cloneAgent,
+} from './agents';
 
-// Session operations
-export {
-  getAgentSessions,
-  createSession,
-  deleteSession,
-  transformSession,
-} from './sessions-api';
-
-// Memory operations
-export {
-  getAgentMemories,
-  searchMemories,
-  addMemory,
-  updateMemory,
-  deleteMemory,
-} from './memory-api';
-
-// File operations
 export {
   getAgentFiles,
-  getAgentFileContent,
-  saveAgentFileContent,
-  uploadAgentFile,
-  deleteAgentFile,
-  downloadAgentFile,
-} from './files-api';
+  getAgentFile,
+  saveAgentFile,
+  getAllAgentFiles,
+  ALLOWED_AGENT_FILES,
+  isAllowedFilename,
+  type AllowedAgentFile,
+  type AgentFileData,
+} from './files';
 
-// Test message
-export { sendTestMessage } from './files-api';
+export {
+  getAgentMemories,
+  searchAgentMemories,
+  deleteAgentMemory,
+  saveAgentMemory,
+} from './memory';
+
+export {
+  getAgentSessions,
+  getAgentSession,
+  getAgentCurrentSession,
+  updateAgentSession,
+  deleteAgentSession,
+} from './sessions';
+
+export {
+  getAgentHeartbeat,
+  getAllAgentsHeartbeat,
+  getAgentsHeartbeat,
+  isHeartbeatHealthy,
+  isHeartbeatMissed,
+  getTimeToNextHeartbeat,
+  formatHeartbeatInterval,
+} from './heartbeat';
+
+export {
+  testAgent,
+  testAgentWithAssistant,
+  testAgentWithPinchy,
+  sendTestMessage,
+  type TestAgentOptions,
+  type TestAgentResult,
+} from './test';
+
+export {
+  fetchApi,
+  isNotFoundError,
+  isNetworkError,
+  isServerError,
+  isClientError,
+  isConflictError,
+  isBadRequestError,
+  getErrorMessage,
+  fetchWithRetry,
+  type ApiResponse,
+  type ApiErrorResponse,
+  type RetryOptions,
+} from './client';

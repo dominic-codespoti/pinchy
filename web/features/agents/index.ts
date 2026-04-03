@@ -1,81 +1,213 @@
-// Types
-export type {
-  Agent,
-  RawAgent,
-  AgentGroup,
-  AgentFile,
-  Session,
-  RawSession,
-  Memory,
-  RawMemory,
-  CreateAgentInput,
-  UpdateAgentInput,
-  CloneAgentOptions,
-  CloneAgentResult,
-  ApiError,
-  SendTestMessageResponse,
-} from './types';
+/**
+ * Agents Feature - Main Export File
+ *
+ * Re-exports everything from sub-modules for convenient imports.
+ */
 
-// API
+// ============================================================================
+// Components
+// ============================================================================
+
 export {
-  // Agents
+  AgentCard,
+  AgentDetail,
+  AgentsList,
+} from './components';
+
+// ============================================================================
+// Hooks
+// ============================================================================
+
+export {
+  // Query hooks
+  useAgent,
+  useAgents,
+  useAgentFile,
+  useAgentFiles,
+  useAgentMemories,
+  type UseAgentResult,
+  type UseAgentsResult,
+  type UseAgentFileResult,
+  type UseAgentFilesResult,
+  type UseAgentMemoriesResult,
+  // URL state hooks
+  useAgentUrlState,
+  useAgentTab,
+  useAgentSearch,
+  useAgentViewMode,
+  useSyncAgentUrlToStore,
+  type UrlStateSyncProps,
+  // Derived state hooks
+  useFilteredAgents,
+  useFilteredAgentsFromStore,
+  useGroupedAgents,
+  useAgentStats,
+  useAgentCount,
+  useActiveAgentCount,
+  useAgentWithHeartbeatCount,
+  useAgentProviderStats,
+  useAgentStatusDistribution,
+  type UseFilteredAgentsOptions,
+  type UseFilteredAgentsResult,
+  type GroupedAgents,
+  type UseGroupedAgentsResult,
+  type UseAgentStatsOptions,
+  type UseAgentStatsResult,
+  type ProviderStat,
+  type StatusDistribution,
+} from './hooks';
+
+// ============================================================================
+// Store
+// ============================================================================
+
+export {
+  // Main store
+  useAgentStore,
+  selectAgentSelection,
+  selectAgentListState,
+  selectAgentUIState,
+  selectAgentGroups,
+  selectAgentEditingState,
+  // Test store
+  useAgentTestStore,
+  selectTestMessages,
+  selectTestInput,
+  selectTestStatus,
+  selectTestSession,
+  createUserMessage,
+  createAgentMessage,
+  createSystemMessage,
+  createErrorMessage,
+  // Types
+  type AgentStore,
+  type AgentTestStore,
+  type AgentStatusFilter,
+  type AgentFilters,
+  type AgentSortField,
+  type AgentSortDirection,
+  type AgentSortConfig,
+  type AgentViewMode,
+  type AgentDetailTab,
+  type AgentsListTab,
+  type AgentModalState,
+  type AgentUrlState,
+  type AgentStats,
+  type FilteredAgentsResult,
+  type TestMessage,
+  type TestMessageRole,
+  type TestInputMode,
+} from './store';
+
+// ============================================================================
+// API
+// ============================================================================
+
+export {
+  // Agent CRUD
   getAgents,
   getAgent,
   createAgent,
   updateAgent,
   deleteAgent,
-  transformAgent,
-  isNotFoundError,
-  // Sessions
-  getAgentSessions,
-  createSession,
-  deleteSession,
-  transformSession,
-  // Memories
-  getAgentMemories,
-  searchMemories,
-  updateMemory,
-  deleteMemory,
+  cloneAgent,
   // Files
   getAgentFiles,
-  getAgentFileContent,
-  saveAgentFileContent,
-  uploadAgentFile,
-  deleteAgentFile,
-  downloadAgentFile,
+  getAgentFile,
+  saveAgentFile,
+  getAllAgentFiles,
+  ALLOWED_AGENT_FILES,
+  isAllowedFilename,
+  // Memories
+  getAgentMemories,
+  searchAgentMemories,
+  deleteAgentMemory,
+  saveAgentMemory,
+  // Sessions
+  getAgentSessions,
+  getAgentSession,
+  getAgentCurrentSession,
+  updateAgentSession,
+  deleteAgentSession,
+  // Heartbeat
+  getAgentHeartbeat,
+  getAllAgentsHeartbeat,
+  getAgentsHeartbeat,
+  isHeartbeatHealthy,
+  isHeartbeatMissed,
+  getTimeToNextHeartbeat,
+  formatHeartbeatInterval,
   // Test
+  testAgent,
+  testAgentWithAssistant,
+  testAgentWithPinchy,
   sendTestMessage,
+  // Client utilities
+  fetchApi,
+  isNotFoundError,
+  isNetworkError,
+  isServerError,
+  isClientError,
+  isConflictError,
+  isBadRequestError,
+  getErrorMessage,
+  fetchWithRetry,
+  type AllowedAgentFile,
+  type AgentFileData,
+  type ApiResponse,
+  type ApiErrorResponse,
+  type RetryOptions,
+  type TestAgentOptions,
+  type TestAgentResult,
 } from './api';
 
-// Clone API
+// ============================================================================
+// Utilities
+// ============================================================================
+
 export {
-  cloneAgent,
-  generateCloneName,
-  getClonePreview,
-} from './api/clone-api';
+  transformAgent,
+  transformAgentDetail,
+} from './utils';
 
-// Hooks
+// ============================================================================
+// Query Keys
+// ============================================================================
+
 export {
-  // Queries
-  useAgents,
-  useAgent,
-  useAgentSessions,
-  useAgentMemories,
-  useAgentFiles,
-  // Mutations
-  useCreateAgent,
-  useUpdateAgent,
-  useDeleteAgent,
-  useCloneAgent,
-  useUpdateMemory,
-  useDeleteMemory,
-  useSendTestMessage,
-} from './hooks';
+  agentKeys,
+  agentMutationKeys,
+} from './lib/query-keys';
 
-// Group Hooks
-export { useAgentGroups } from './hooks/use-agent-groups';
+// ============================================================================
+// Types
+// ============================================================================
 
-// Page Components
-export { AgentsPage } from './components/agents-page';
-export { AgentDetailPage } from './components/agent-detail-page';
-export { AgentTestPage } from './components/agent-test-page';
+export type {
+  Agent,
+  AgentGroup,
+  RawAgent,
+  CreateAgentInput,
+  UpdateAgentInput,
+  AgentFile,
+  SendTestMessageResponse,
+  CloneAgentOptions,
+  CloneAgentResult,
+  ToolCallRecord,
+  TokenInfo,
+  TurnReceipt,
+  ReceiptsListResponse,
+  ReceiptsBySessionResponse,
+  RawHeartbeatStatus,
+  HeartbeatStatusData,
+} from './types';
+
+// ============================================================================
+// Constants
+// ============================================================================
+
+export {
+  GROUP_COLORS,
+  DEFAULT_GROUP_COLOR_VALUES,
+  MEMORY_CATEGORIES,
+} from './constants';

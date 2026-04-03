@@ -194,6 +194,31 @@ pub fn remove_token() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Check if a token exists in either keyring or fallback file.
+pub fn has_token() -> bool {
+    // Check keyring first
+    if let Ok(entry) = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
+        if let Ok(Some(_)) = entry.get_password().map(Some).or_else(|e| {
+            if matches!(e, keyring::Error::NoEntry) {
+                Ok(None)
+            } else {
+                Err(e)
+            }
+        }) {
+            return true;
+        }
+    }
+
+    // Check file fallback
+    if let Ok(path) = fallback_path() {
+        if path.exists() {
+            return true;
+        }
+    }
+
+    false
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------

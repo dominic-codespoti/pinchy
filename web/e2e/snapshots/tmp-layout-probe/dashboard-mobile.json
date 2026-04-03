@@ -1,0 +1,4390 @@
+{
+  "page": "dashboard",
+  "viewport": "mobile",
+  "timestamp": "2026-04-01T02:25:02.071Z",
+  "url": "http://localhost:3000/dashboard",
+  "title": "Pinchy - Agent Operations Console",
+  "headings": [
+    {
+      "level": 1,
+      "text": "Dashboard",
+      "boundingBox": {
+        "x": 16,
+        "y": 24,
+        "width": 119.96875,
+        "height": 32,
+        "top": 24,
+        "right": 135.96875,
+        "bottom": 56,
+        "left": 16
+      },
+      "tag": "h1",
+      "classNames": [
+        "text-2xl",
+        "font-bold",
+        "tracking-tight"
+      ]
+    },
+    {
+      "level": 3,
+      "text": "Total Agents",
+      "boundingBox": {
+        "x": 41,
+        "y": 106,
+        "width": 72.078125,
+        "height": 20,
+        "top": 106,
+        "right": 113.078125,
+        "bottom": 126,
+        "left": 41
+      },
+      "tag": "h3",
+      "classNames": [
+        "tracking-tight",
+        "text-sm",
+        "font-medium",
+        "text-muted-foreground"
+      ]
+    },
+    {
+      "level": 3,
+      "text": "Online Agents",
+      "boundingBox": {
+        "x": 41,
+        "y": 274,
+        "width": 82.625,
+        "height": 20,
+        "top": 274,
+        "right": 123.625,
+        "bottom": 294,
+        "left": 41
+      },
+      "tag": "h3",
+      "classNames": [
+        "tracking-tight",
+        "text-sm",
+        "font-medium",
+        "text-muted-foreground"
+      ]
+    },
+    {
+      "level": 3,
+      "text": "Active Jobs",
+      "boundingBox": {
+        "x": 41,
+        "y": 442,
+        "width": 67.75,
+        "height": 20,
+        "top": 442,
+        "right": 108.75,
+        "bottom": 462,
+        "left": 41
+      },
+      "tag": "h3",
+      "classNames": [
+        "tracking-tight",
+        "text-sm",
+        "font-medium",
+        "text-muted-foreground"
+      ]
+    },
+    {
+      "level": 3,
+      "text": "System Status",
+      "boundingBox": {
+        "x": 41,
+        "y": 610,
+        "width": 85.71875,
+        "height": 20,
+        "top": 610,
+        "right": 126.71875,
+        "bottom": 630,
+        "left": 41
+      },
+      "tag": "h3",
+      "classNames": [
+        "tracking-tight",
+        "text-sm",
+        "font-medium",
+        "text-muted-foreground"
+      ]
+    },
+    {
+      "level": 2,
+      "text": "Recent Agents",
+      "boundingBox": {
+        "x": 41,
+        "y": 791,
+        "width": 106.234375,
+        "height": 16,
+        "top": 791,
+        "right": 147.234375,
+        "bottom": 807,
+        "left": 41
+      },
+      "tag": "h2",
+      "classNames": [
+        "font-semibold",
+        "leading-none",
+        "tracking-tight"
+      ]
+    },
+    {
+      "level": 2,
+      "text": "Top Agents",
+      "boundingBox": {
+        "x": 41,
+        "y": 1030.5,
+        "width": 82.21875,
+        "height": 16,
+        "top": 1030.5,
+        "right": 123.21875,
+        "bottom": 1046.5,
+        "left": 41
+      },
+      "tag": "h2",
+      "classNames": [
+        "font-semibold",
+        "leading-none",
+        "tracking-tight"
+      ]
+    },
+    {
+      "level": 2,
+      "text": "Model Distribution",
+      "boundingBox": {
+        "x": 41,
+        "y": 1268,
+        "width": 293,
+        "height": 16,
+        "top": 1268,
+        "right": 334,
+        "bottom": 1284,
+        "left": 41
+      },
+      "tag": "h2",
+      "classNames": [
+        "font-semibold",
+        "leading-none",
+        "tracking-tight"
+      ]
+    },
+    {
+      "level": 2,
+      "text": "Agent Overview",
+      "boundingBox": {
+        "x": 41,
+        "y": 1496,
+        "width": 293,
+        "height": 16,
+        "top": 1496,
+        "right": 334,
+        "bottom": 1512,
+        "left": 41
+      },
+      "tag": "h2",
+      "classNames": [
+        "font-semibold",
+        "leading-none",
+        "tracking-tight"
+      ]
+    },
+    {
+      "level": 2,
+      "text": "Recent Activity",
+      "boundingBox": {
+        "x": 41,
+        "y": 1712,
+        "width": 205.453125,
+        "height": 16,
+        "top": 1712,
+        "right": 246.453125,
+        "bottom": 1728,
+        "left": 41
+      },
+      "tag": "h2",
+      "classNames": [
+        "font-semibold",
+        "leading-none",
+        "tracking-tight"
+      ]
+    }
+  ],
+  "buttons": [
+    {
+      "index": 0,
+      "tag": "button",
+      "text": "Open navigation menu",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "gap-2",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "transition-all",
+        "duration-150",
+        "focus-visible:outline-none",
+        "focus-visible:ring-1",
+        "focus-visible:ring-ring",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "[&_svg]:pointer-events-none",
+        "[&_svg]:size-4",
+        "[&_svg]:shrink-0",
+        "hover:bg-accent",
+        "hover:text-accent-foreground",
+        "h-11",
+        "w-11",
+        "fixed",
+        "left-4",
+        "top-4",
+        "z-40",
+        "lg:hidden"
+      ],
+      "boundingBox": {
+        "x": 16,
+        "y": 16,
+        "width": 44,
+        "height": 44,
+        "top": 16,
+        "right": 60,
+        "bottom": 60,
+        "left": 16
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 44,
+        "clientWidth": 44,
+        "scrollHeight": 44,
+        "clientHeight": 44
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "flex h-screen overflow-hidden"
+    },
+    {
+      "index": 1,
+      "tag": "button",
+      "text": "Notifications",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "gap-2",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "transition-all",
+        "duration-150",
+        "focus-visible:outline-none",
+        "focus-visible:ring-1",
+        "focus-visible:ring-ring",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "[&_svg]:pointer-events-none",
+        "[&_svg]:size-4",
+        "[&_svg]:shrink-0",
+        "hover:bg-accent",
+        "hover:text-accent-foreground",
+        "h-11",
+        "w-11",
+        "relative"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "flex items-center gap-1"
+    },
+    {
+      "index": 2,
+      "tag": "button",
+      "text": "",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "transition-all",
+        "duration-150",
+        "focus-visible:outline-none",
+        "focus-visible:ring-1",
+        "focus-visible:ring-ring",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "[&_svg]:pointer-events-none",
+        "[&_svg]:size-4",
+        "[&_svg]:shrink-0",
+        "hover:bg-accent",
+        "hover:text-accent-foreground",
+        "h-11",
+        "w-11",
+        "gap-2"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "flex items-center gap-1"
+    },
+    {
+      "index": 3,
+      "tag": "a",
+      "text": "",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "ring-offset-background",
+        "transition-all",
+        "duration-200",
+        "focus-visible:outline-none",
+        "focus-visible:ring-2",
+        "focus-visible:ring-ring",
+        "focus-visible:ring-offset-2",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "data-[state=active]:text-foreground",
+        "w-full",
+        "justify-start",
+        "gap-3",
+        "px-4",
+        "py-2.5",
+        "data-[state=active]:bg-secondary",
+        "data-[state=active]:shadow-none"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 10,
+        "paddingRight": 16,
+        "paddingBottom": 10,
+        "paddingLeft": 16,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "rounded-lg text-muted-foreground flex h-auto w-full flex-col items-stretch justify-start gap-1 bg-transparent p-0"
+    },
+    {
+      "index": 4,
+      "tag": "a",
+      "text": "",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "ring-offset-background",
+        "transition-all",
+        "duration-200",
+        "focus-visible:outline-none",
+        "focus-visible:ring-2",
+        "focus-visible:ring-ring",
+        "focus-visible:ring-offset-2",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "data-[state=active]:text-foreground",
+        "w-full",
+        "justify-start",
+        "gap-3",
+        "px-4",
+        "py-2.5",
+        "data-[state=active]:bg-secondary",
+        "data-[state=active]:shadow-none"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 10,
+        "paddingRight": 16,
+        "paddingBottom": 10,
+        "paddingLeft": 16,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "rounded-lg text-muted-foreground flex h-auto w-full flex-col items-stretch justify-start gap-1 bg-transparent p-0"
+    },
+    {
+      "index": 5,
+      "tag": "a",
+      "text": "",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "ring-offset-background",
+        "transition-all",
+        "duration-200",
+        "focus-visible:outline-none",
+        "focus-visible:ring-2",
+        "focus-visible:ring-ring",
+        "focus-visible:ring-offset-2",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "data-[state=active]:text-foreground",
+        "w-full",
+        "justify-start",
+        "gap-3",
+        "px-4",
+        "py-2.5",
+        "data-[state=active]:bg-secondary",
+        "data-[state=active]:shadow-none"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 10,
+        "paddingRight": 16,
+        "paddingBottom": 10,
+        "paddingLeft": 16,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "rounded-lg text-muted-foreground flex h-auto w-full flex-col items-stretch justify-start gap-1 bg-transparent p-0"
+    },
+    {
+      "index": 6,
+      "tag": "a",
+      "text": "",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "ring-offset-background",
+        "transition-all",
+        "duration-200",
+        "focus-visible:outline-none",
+        "focus-visible:ring-2",
+        "focus-visible:ring-ring",
+        "focus-visible:ring-offset-2",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "data-[state=active]:text-foreground",
+        "w-full",
+        "justify-start",
+        "gap-3",
+        "px-4",
+        "py-2.5",
+        "data-[state=active]:bg-secondary",
+        "data-[state=active]:shadow-none"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 10,
+        "paddingRight": 16,
+        "paddingBottom": 10,
+        "paddingLeft": 16,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "rounded-lg text-muted-foreground flex h-auto w-full flex-col items-stretch justify-start gap-1 bg-transparent p-0"
+    },
+    {
+      "index": 7,
+      "tag": "a",
+      "text": "",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "ring-offset-background",
+        "transition-all",
+        "duration-200",
+        "focus-visible:outline-none",
+        "focus-visible:ring-2",
+        "focus-visible:ring-ring",
+        "focus-visible:ring-offset-2",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "data-[state=active]:text-foreground",
+        "w-full",
+        "justify-start",
+        "gap-3",
+        "px-4",
+        "py-2.5",
+        "data-[state=active]:bg-secondary",
+        "data-[state=active]:shadow-none"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 10,
+        "paddingRight": 16,
+        "paddingBottom": 10,
+        "paddingLeft": 16,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "rounded-lg text-muted-foreground flex h-auto w-full flex-col items-stretch justify-start gap-1 bg-transparent p-0"
+    },
+    {
+      "index": 8,
+      "tag": "a",
+      "text": "",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "ring-offset-background",
+        "transition-all",
+        "duration-200",
+        "focus-visible:outline-none",
+        "focus-visible:ring-2",
+        "focus-visible:ring-ring",
+        "focus-visible:ring-offset-2",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "data-[state=active]:text-foreground",
+        "w-full",
+        "justify-start",
+        "gap-3",
+        "px-4",
+        "py-2.5",
+        "data-[state=active]:bg-secondary",
+        "data-[state=active]:shadow-none"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 10,
+        "paddingRight": 16,
+        "paddingBottom": 10,
+        "paddingLeft": 16,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "rounded-lg text-muted-foreground flex h-auto w-full flex-col items-stretch justify-start gap-1 bg-transparent p-0"
+    },
+    {
+      "index": 9,
+      "tag": "a",
+      "text": "",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "ring-offset-background",
+        "transition-all",
+        "duration-200",
+        "focus-visible:outline-none",
+        "focus-visible:ring-2",
+        "focus-visible:ring-ring",
+        "focus-visible:ring-offset-2",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "data-[state=active]:text-foreground",
+        "w-full",
+        "justify-start",
+        "gap-3",
+        "px-4",
+        "py-2.5",
+        "data-[state=active]:bg-secondary",
+        "data-[state=active]:shadow-none"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 10,
+        "paddingRight": 16,
+        "paddingBottom": 10,
+        "paddingLeft": 16,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "rounded-lg text-muted-foreground flex h-auto w-full flex-col items-stretch justify-start gap-1 bg-transparent p-0"
+    },
+    {
+      "index": 10,
+      "tag": "a",
+      "text": "",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "ring-offset-background",
+        "transition-all",
+        "duration-200",
+        "focus-visible:outline-none",
+        "focus-visible:ring-2",
+        "focus-visible:ring-ring",
+        "focus-visible:ring-offset-2",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "data-[state=active]:text-foreground",
+        "w-full",
+        "justify-start",
+        "gap-3",
+        "px-4",
+        "py-2.5",
+        "data-[state=active]:bg-secondary",
+        "data-[state=active]:shadow-none"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 10,
+        "paddingRight": 16,
+        "paddingBottom": 10,
+        "paddingLeft": 16,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "rounded-lg text-muted-foreground flex h-auto w-full flex-col items-stretch justify-start gap-1 bg-transparent p-0"
+    },
+    {
+      "index": 11,
+      "tag": "a",
+      "text": "",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "ring-offset-background",
+        "transition-all",
+        "duration-200",
+        "focus-visible:outline-none",
+        "focus-visible:ring-2",
+        "focus-visible:ring-ring",
+        "focus-visible:ring-offset-2",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "data-[state=active]:text-foreground",
+        "w-full",
+        "justify-start",
+        "gap-3",
+        "px-4",
+        "py-2.5",
+        "data-[state=active]:bg-secondary",
+        "data-[state=active]:shadow-none"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 10,
+        "paddingRight": 16,
+        "paddingBottom": 10,
+        "paddingLeft": 16,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "rounded-lg text-muted-foreground flex h-auto w-full flex-col items-stretch justify-start gap-1 bg-transparent p-0"
+    },
+    {
+      "index": 12,
+      "tag": "button",
+      "text": "Toggle theme",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "gap-2",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm",
+        "font-medium",
+        "transition-all",
+        "duration-150",
+        "focus-visible:outline-none",
+        "focus-visible:ring-1",
+        "focus-visible:ring-ring",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "[&_svg]:pointer-events-none",
+        "[&_svg]:size-4",
+        "[&_svg]:shrink-0",
+        "hover:bg-accent",
+        "hover:text-accent-foreground",
+        "h-11",
+        "w-11"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "flex items-center justify-center"
+    },
+    {
+      "index": 13,
+      "tag": "a",
+      "text": "default",
+      "classNames": [
+        "font-medium",
+        "hover:underline"
+      ],
+      "boundingBox": {
+        "x": 49,
+        "y": 887.5,
+        "width": 42.046875,
+        "height": 16,
+        "top": 887.5,
+        "right": 91.046875,
+        "bottom": 903.5,
+        "left": 49
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "td",
+      "parentClass": "p-2 align-middle [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]"
+    },
+    {
+      "index": 14,
+      "tag": "a",
+      "text": "researcher",
+      "classNames": [
+        "font-medium",
+        "hover:underline"
+      ],
+      "boundingBox": {
+        "x": 49,
+        "y": 924.5,
+        "width": 66.921875,
+        "height": 16,
+        "top": 924.5,
+        "right": 115.921875,
+        "bottom": 940.5,
+        "left": 49
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "td",
+      "parentClass": "p-2 align-middle [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]"
+    },
+    {
+      "index": 15,
+      "tag": "a",
+      "text": "default",
+      "classNames": [
+        "font-medium",
+        "hover:underline"
+      ],
+      "boundingBox": {
+        "x": 49,
+        "y": 1128,
+        "width": 42.046875,
+        "height": 16,
+        "top": 1128,
+        "right": 91.046875,
+        "bottom": 1144,
+        "left": 49
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "td",
+      "parentClass": "p-2 align-middle [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]"
+    },
+    {
+      "index": 16,
+      "tag": "a",
+      "text": "researcher",
+      "classNames": [
+        "font-medium",
+        "hover:underline"
+      ],
+      "boundingBox": {
+        "x": 49,
+        "y": 1167,
+        "width": 66.921875,
+        "height": 16,
+        "top": 1167,
+        "right": 115.921875,
+        "bottom": 1183,
+        "left": 49
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "td",
+      "parentClass": "p-2 align-middle [&:has([role=checkbox])]:pr-0 [&>[role=checkbox]]:translate-y-[2px]"
+    },
+    {
+      "index": 17,
+      "tag": "a",
+      "text": "Dashboard",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "text-sm",
+        "font-medium",
+        "hover:bg-muted",
+        "hover:text-muted-foreground",
+        "focus-visible:outline-none",
+        "focus-visible:ring-1",
+        "focus-visible:ring-ring",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "bg-transparent",
+        "h-full",
+        "flex-1",
+        "rounded-none",
+        "border-0",
+        "p-0",
+        "transition-colors",
+        "duration-200",
+        "data-[state=on]:bg-transparent",
+        "data-[state=on]:text-primary",
+        "flex"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 749,
+        "width": 59.15625,
+        "height": 63,
+        "top": 749,
+        "right": 59.15625,
+        "bottom": 812,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 59,
+        "clientWidth": 59,
+        "scrollHeight": 63,
+        "clientHeight": 63
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "flex items-center justify-center gap-1 fixed bottom-0 left-0 right-0 z-50 lg:hidden h-16 w-full rounded-none border-t bg-background p-0 data-[state=open]:bg-accent"
+    },
+    {
+      "index": 18,
+      "tag": "a",
+      "text": "Chat",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "text-sm",
+        "font-medium",
+        "hover:bg-muted",
+        "hover:text-muted-foreground",
+        "focus-visible:outline-none",
+        "focus-visible:ring-1",
+        "focus-visible:ring-ring",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "bg-transparent",
+        "h-full",
+        "flex-1",
+        "rounded-none",
+        "border-0",
+        "p-0",
+        "transition-colors",
+        "duration-200",
+        "data-[state=on]:bg-transparent",
+        "data-[state=on]:text-primary",
+        "flex"
+      ],
+      "boundingBox": {
+        "x": 63.15625,
+        "y": 749,
+        "width": 59.171875,
+        "height": 63,
+        "top": 749,
+        "right": 122.328125,
+        "bottom": 812,
+        "left": 63.15625
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 59,
+        "clientWidth": 59,
+        "scrollHeight": 63,
+        "clientHeight": 63
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "flex items-center justify-center gap-1 fixed bottom-0 left-0 right-0 z-50 lg:hidden h-16 w-full rounded-none border-t bg-background p-0 data-[state=open]:bg-accent"
+    },
+    {
+      "index": 19,
+      "tag": "a",
+      "text": "Agents",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "text-sm",
+        "font-medium",
+        "hover:bg-muted",
+        "hover:text-muted-foreground",
+        "focus-visible:outline-none",
+        "focus-visible:ring-1",
+        "focus-visible:ring-ring",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "bg-transparent",
+        "h-full",
+        "flex-1",
+        "rounded-none",
+        "border-0",
+        "p-0",
+        "transition-colors",
+        "duration-200",
+        "data-[state=on]:bg-transparent",
+        "data-[state=on]:text-primary",
+        "flex"
+      ],
+      "boundingBox": {
+        "x": 126.328125,
+        "y": 749,
+        "width": 59.15625,
+        "height": 63,
+        "top": 749,
+        "right": 185.484375,
+        "bottom": 812,
+        "left": 126.328125
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 59,
+        "clientWidth": 59,
+        "scrollHeight": 63,
+        "clientHeight": 63
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "flex items-center justify-center gap-1 fixed bottom-0 left-0 right-0 z-50 lg:hidden h-16 w-full rounded-none border-t bg-background p-0 data-[state=open]:bg-accent"
+    },
+    {
+      "index": 20,
+      "tag": "a",
+      "text": "Memories",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "text-sm",
+        "font-medium",
+        "hover:bg-muted",
+        "hover:text-muted-foreground",
+        "focus-visible:outline-none",
+        "focus-visible:ring-1",
+        "focus-visible:ring-ring",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "bg-transparent",
+        "h-full",
+        "flex-1",
+        "rounded-none",
+        "border-0",
+        "p-0",
+        "transition-colors",
+        "duration-200",
+        "data-[state=on]:bg-transparent",
+        "data-[state=on]:text-primary",
+        "flex"
+      ],
+      "boundingBox": {
+        "x": 189.484375,
+        "y": 749,
+        "width": 59.171875,
+        "height": 63,
+        "top": 749,
+        "right": 248.65625,
+        "bottom": 812,
+        "left": 189.484375
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 59,
+        "clientWidth": 59,
+        "scrollHeight": 63,
+        "clientHeight": 63
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "flex items-center justify-center gap-1 fixed bottom-0 left-0 right-0 z-50 lg:hidden h-16 w-full rounded-none border-t bg-background p-0 data-[state=open]:bg-accent"
+    },
+    {
+      "index": 21,
+      "tag": "a",
+      "text": "Cron",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "text-sm",
+        "font-medium",
+        "hover:bg-muted",
+        "hover:text-muted-foreground",
+        "focus-visible:outline-none",
+        "focus-visible:ring-1",
+        "focus-visible:ring-ring",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "bg-transparent",
+        "h-full",
+        "flex-1",
+        "rounded-none",
+        "border-0",
+        "p-0",
+        "transition-colors",
+        "duration-200",
+        "data-[state=on]:bg-transparent",
+        "data-[state=on]:text-primary",
+        "flex"
+      ],
+      "boundingBox": {
+        "x": 252.65625,
+        "y": 749,
+        "width": 59.171875,
+        "height": 63,
+        "top": 749,
+        "right": 311.828125,
+        "bottom": 812,
+        "left": 252.65625
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 59,
+        "clientWidth": 59,
+        "scrollHeight": 63,
+        "clientHeight": 63
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "flex items-center justify-center gap-1 fixed bottom-0 left-0 right-0 z-50 lg:hidden h-16 w-full rounded-none border-t bg-background p-0 data-[state=open]:bg-accent"
+    },
+    {
+      "index": 22,
+      "tag": "button",
+      "text": "More navigation options",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "gap-2",
+        "whitespace-nowrap",
+        "text-sm",
+        "font-medium",
+        "transition-all",
+        "duration-150",
+        "focus-visible:outline-none",
+        "focus-visible:ring-1",
+        "focus-visible:ring-ring",
+        "disabled:pointer-events-none",
+        "disabled:opacity-50",
+        "[&_svg]:pointer-events-none",
+        "[&_svg]:size-4",
+        "[&_svg]:shrink-0",
+        "h-full",
+        "flex-1",
+        "rounded-none",
+        "p-0",
+        "hover:bg-accent",
+        "hover:text-accent-foreground"
+      ],
+      "boundingBox": {
+        "x": 315.828125,
+        "y": 749,
+        "width": 59.171875,
+        "height": 63,
+        "top": 749,
+        "right": 375,
+        "bottom": 812,
+        "left": 315.828125
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 14,
+        "lineHeight": 20,
+        "scrollWidth": 59,
+        "clientWidth": 59,
+        "scrollHeight": 63,
+        "clientHeight": 63
+      },
+      "hasOverflow": false,
+      "overflowX": 0,
+      "overflowY": 0,
+      "parentTag": "div",
+      "parentClass": "flex items-center justify-center gap-1 fixed bottom-0 left-0 right-0 z-50 lg:hidden h-16 w-full rounded-none border-t bg-background p-0 data-[state=open]:bg-accent"
+    }
+  ],
+  "buttonSummary": {
+    "total": 23,
+    "withOverflow": 0,
+    "tooSmall": 16,
+    "tinyPadding": 14
+  },
+  "cards": [
+    {
+      "index": 0,
+      "tag": "div",
+      "classNames": [
+        "border",
+        "bg-card",
+        "text-card-foreground",
+        "transition-shadow",
+        "duration-200",
+        "hidden",
+        "lg:flex",
+        "h-screen",
+        "w-64",
+        "flex-col",
+        "sticky",
+        "top-0",
+        "rounded-none",
+        "border-r",
+        "border-y-0",
+        "border-l-0",
+        "shadow-none"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasCardTitle": false,
+      "childCount": 3
+    },
+    {
+      "index": 1,
+      "tag": "div",
+      "classNames": [
+        "rounded-xl",
+        "border",
+        "bg-card",
+        "text-card-foreground",
+        "shadow",
+        "hover:shadow-lg",
+        "hover:-translate-y-0.5",
+        "transition-all",
+        "duration-200"
+      ],
+      "boundingBox": {
+        "x": 16,
+        "y": 80,
+        "width": 343,
+        "height": 152,
+        "top": 80,
+        "right": 359,
+        "bottom": 232,
+        "left": 16
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 341,
+        "clientWidth": 341,
+        "scrollHeight": 150,
+        "clientHeight": 150
+      },
+      "hasCardTitle": true,
+      "titleText": "Total Agents",
+      "titleTag": "h3",
+      "childCount": 2
+    },
+    {
+      "index": 2,
+      "tag": "div",
+      "classNames": [
+        "rounded-xl",
+        "border",
+        "bg-card",
+        "text-card-foreground",
+        "shadow",
+        "hover:shadow-lg",
+        "hover:-translate-y-0.5",
+        "transition-all",
+        "duration-200"
+      ],
+      "boundingBox": {
+        "x": 16,
+        "y": 248,
+        "width": 343,
+        "height": 152,
+        "top": 248,
+        "right": 359,
+        "bottom": 400,
+        "left": 16
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 341,
+        "clientWidth": 341,
+        "scrollHeight": 150,
+        "clientHeight": 150
+      },
+      "hasCardTitle": true,
+      "titleText": "Online Agents",
+      "titleTag": "h3",
+      "childCount": 2
+    },
+    {
+      "index": 3,
+      "tag": "div",
+      "classNames": [
+        "rounded-xl",
+        "border",
+        "bg-card",
+        "text-card-foreground",
+        "shadow",
+        "hover:shadow-lg",
+        "hover:-translate-y-0.5",
+        "transition-all",
+        "duration-200"
+      ],
+      "boundingBox": {
+        "x": 16,
+        "y": 416,
+        "width": 343,
+        "height": 152,
+        "top": 416,
+        "right": 359,
+        "bottom": 568,
+        "left": 16
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 341,
+        "clientWidth": 341,
+        "scrollHeight": 150,
+        "clientHeight": 150
+      },
+      "hasCardTitle": true,
+      "titleText": "Active Jobs",
+      "titleTag": "h3",
+      "childCount": 2
+    },
+    {
+      "index": 4,
+      "tag": "div",
+      "classNames": [
+        "rounded-xl",
+        "border",
+        "bg-card",
+        "text-card-foreground",
+        "shadow",
+        "hover:shadow-lg",
+        "hover:-translate-y-0.5",
+        "transition-all",
+        "duration-200"
+      ],
+      "boundingBox": {
+        "x": 16,
+        "y": 584,
+        "width": 343,
+        "height": 152,
+        "top": 584,
+        "right": 359,
+        "bottom": 736,
+        "left": 16
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 341,
+        "clientWidth": 341,
+        "scrollHeight": 150,
+        "clientHeight": 150
+      },
+      "hasCardTitle": true,
+      "titleText": "System Status",
+      "titleTag": "h3",
+      "childCount": 2
+    },
+    {
+      "index": 5,
+      "tag": "div",
+      "classNames": [
+        "rounded-xl",
+        "border",
+        "bg-card",
+        "text-card-foreground",
+        "shadow",
+        "transition-shadow",
+        "duration-200"
+      ],
+      "boundingBox": {
+        "x": 16,
+        "y": 760,
+        "width": 343,
+        "height": 215.5,
+        "top": 760,
+        "right": 359,
+        "bottom": 975.5,
+        "left": 16
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 341,
+        "clientWidth": 341,
+        "scrollHeight": 214,
+        "clientHeight": 214
+      },
+      "hasCardTitle": true,
+      "titleText": "Recent Agents",
+      "titleTag": "h2",
+      "childCount": 2
+    },
+    {
+      "index": 6,
+      "tag": "div",
+      "classNames": [
+        "rounded-xl",
+        "border",
+        "bg-card",
+        "text-card-foreground",
+        "shadow",
+        "transition-shadow",
+        "duration-200"
+      ],
+      "boundingBox": {
+        "x": 16,
+        "y": 999.5,
+        "width": 343,
+        "height": 219.5,
+        "top": 999.5,
+        "right": 359,
+        "bottom": 1219,
+        "left": 16
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 341,
+        "clientWidth": 341,
+        "scrollHeight": 218,
+        "clientHeight": 218
+      },
+      "hasCardTitle": true,
+      "titleText": "Top Agents",
+      "titleTag": "h2",
+      "childCount": 2
+    },
+    {
+      "index": 7,
+      "tag": "div",
+      "classNames": [
+        "rounded-xl",
+        "border",
+        "bg-card",
+        "text-card-foreground",
+        "shadow",
+        "transition-shadow",
+        "duration-200"
+      ],
+      "boundingBox": {
+        "x": 16,
+        "y": 1243,
+        "width": 343,
+        "height": 204,
+        "top": 1243,
+        "right": 359,
+        "bottom": 1447,
+        "left": 16
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 341,
+        "clientWidth": 341,
+        "scrollHeight": 202,
+        "clientHeight": 202
+      },
+      "hasCardTitle": true,
+      "titleText": "Model Distribution",
+      "titleTag": "h2",
+      "childCount": 2
+    },
+    {
+      "index": 8,
+      "tag": "div",
+      "classNames": [
+        "rounded-xl",
+        "border",
+        "bg-card",
+        "text-card-foreground",
+        "shadow",
+        "transition-shadow",
+        "duration-200"
+      ],
+      "boundingBox": {
+        "x": 16,
+        "y": 1471,
+        "width": 343,
+        "height": 192,
+        "top": 1471,
+        "right": 359,
+        "bottom": 1663,
+        "left": 16
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 341,
+        "clientWidth": 341,
+        "scrollHeight": 190,
+        "clientHeight": 190
+      },
+      "hasCardTitle": true,
+      "titleText": "Agent Overview",
+      "titleTag": "h2",
+      "childCount": 2
+    },
+    {
+      "index": 9,
+      "tag": "div",
+      "classNames": [
+        "rounded-xl",
+        "border",
+        "bg-card",
+        "text-card-foreground",
+        "shadow",
+        "transition-shadow",
+        "duration-200"
+      ],
+      "boundingBox": {
+        "x": 16,
+        "y": 1687,
+        "width": 343,
+        "height": 410,
+        "top": 1687,
+        "right": 359,
+        "bottom": 2097,
+        "left": 16
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 341,
+        "clientWidth": 341,
+        "scrollHeight": 408,
+        "clientHeight": 408
+      },
+      "hasCardTitle": true,
+      "titleText": "Recent Activity",
+      "titleTag": "h2",
+      "childCount": 2
+    },
+    {
+      "index": 10,
+      "tag": "div",
+      "classNames": [
+        "rounded-lg",
+        "text-muted-foreground",
+        "flex",
+        "h-auto",
+        "w-full",
+        "flex-col",
+        "items-stretch",
+        "justify-start",
+        "gap-1",
+        "bg-transparent",
+        "p-0"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 0,
+        "paddingRight": 0,
+        "paddingBottom": 0,
+        "paddingLeft": 0,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasCardTitle": false,
+      "childCount": 9
+    },
+    {
+      "index": 11,
+      "tag": "span",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "gap-1.5",
+        "rounded-full",
+        "border",
+        "px-2.5",
+        "py-0.5",
+        "text-xs",
+        "font-medium",
+        "transition-colors",
+        "focus:outline-none",
+        "focus:ring-2",
+        "focus:ring-ring",
+        "focus:ring-offset-2",
+        "border-slate-500/20",
+        "bg-slate-100",
+        "text-slate-700",
+        "dark:border-slate-500/30",
+        "dark:bg-slate-500/10",
+        "dark:text-slate-400"
+      ],
+      "boundingBox": {
+        "x": 0,
+        "y": 0,
+        "width": 0,
+        "height": 0,
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      },
+      "computed": {
+        "paddingTop": 2,
+        "paddingRight": 10,
+        "paddingBottom": 2,
+        "paddingLeft": 10,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 0,
+        "clientWidth": 0,
+        "scrollHeight": 0,
+        "clientHeight": 0
+      },
+      "hasCardTitle": false,
+      "childCount": 2
+    },
+    {
+      "index": 12,
+      "tag": "div",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "rounded-md",
+        "border",
+        "px-2.5",
+        "py-0.5",
+        "text-xs",
+        "font-semibold",
+        "transition-all",
+        "duration-150",
+        "focus:outline-none",
+        "focus:ring-2",
+        "focus:ring-ring",
+        "focus:ring-offset-2",
+        "border-transparent",
+        "bg-secondary",
+        "text-secondary-foreground",
+        "hover:bg-secondary/80"
+      ],
+      "boundingBox": {
+        "x": 277.3125,
+        "y": 791,
+        "width": 56.6875,
+        "height": 22,
+        "top": 791,
+        "right": 334,
+        "bottom": 813,
+        "left": 277.3125
+      },
+      "computed": {
+        "paddingTop": 2,
+        "paddingRight": 10,
+        "paddingBottom": 2,
+        "paddingLeft": 10,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 55,
+        "clientWidth": 55,
+        "scrollHeight": 20,
+        "clientHeight": 20
+      },
+      "hasCardTitle": false,
+      "childCount": 0
+    },
+    {
+      "index": 13,
+      "tag": "div",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "rounded-md",
+        "border",
+        "px-2.5",
+        "py-0.5",
+        "text-xs",
+        "font-semibold",
+        "transition-all",
+        "duration-150",
+        "focus:outline-none",
+        "focus:ring-2",
+        "focus:ring-ring",
+        "focus:ring-offset-2",
+        "border-transparent",
+        "bg-secondary",
+        "text-secondary-foreground",
+        "hover:bg-secondary/80"
+      ],
+      "boundingBox": {
+        "x": 256.640625,
+        "y": 1030.5,
+        "width": 77.359375,
+        "height": 22,
+        "top": 1030.5,
+        "right": 334,
+        "bottom": 1052.5,
+        "left": 256.640625
+      },
+      "computed": {
+        "paddingTop": 2,
+        "paddingRight": 10,
+        "paddingBottom": 2,
+        "paddingLeft": 10,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 75,
+        "clientWidth": 75,
+        "scrollHeight": 20,
+        "clientHeight": 20
+      },
+      "hasCardTitle": false,
+      "childCount": 0
+    },
+    {
+      "index": 14,
+      "tag": "div",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "rounded-md",
+        "border",
+        "px-2.5",
+        "py-0.5",
+        "text-xs",
+        "font-semibold",
+        "transition-all",
+        "duration-150",
+        "focus:outline-none",
+        "focus:ring-2",
+        "focus:ring-ring",
+        "focus:ring-offset-2",
+        "border-transparent",
+        "bg-primary",
+        "text-primary-foreground",
+        "shadow",
+        "hover:bg-primary/80"
+      ],
+      "boundingBox": {
+        "x": 195.6875,
+        "y": 1125,
+        "width": 58.03125,
+        "height": 22,
+        "top": 1125,
+        "right": 253.71875,
+        "bottom": 1147,
+        "left": 195.6875
+      },
+      "computed": {
+        "paddingTop": 2,
+        "paddingRight": 10,
+        "paddingBottom": 2,
+        "paddingLeft": 10,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 56,
+        "clientWidth": 56,
+        "scrollHeight": 20,
+        "clientHeight": 20
+      },
+      "hasCardTitle": false,
+      "childCount": 0
+    },
+    {
+      "index": 15,
+      "tag": "div",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "rounded-md",
+        "border",
+        "px-2.5",
+        "py-0.5",
+        "text-xs",
+        "font-semibold",
+        "transition-all",
+        "duration-150",
+        "focus:outline-none",
+        "focus:ring-2",
+        "focus:ring-ring",
+        "focus:ring-offset-2",
+        "border-transparent",
+        "bg-secondary",
+        "text-secondary-foreground",
+        "hover:bg-secondary/80"
+      ],
+      "boundingBox": {
+        "x": 195.6875,
+        "y": 1164,
+        "width": 66.703125,
+        "height": 22,
+        "top": 1164,
+        "right": 262.390625,
+        "bottom": 1186,
+        "left": 195.6875
+      },
+      "computed": {
+        "paddingTop": 2,
+        "paddingRight": 10,
+        "paddingBottom": 2,
+        "paddingLeft": 10,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 65,
+        "clientWidth": 65,
+        "scrollHeight": 20,
+        "clientHeight": 20
+      },
+      "hasCardTitle": false,
+      "childCount": 0
+    },
+    {
+      "index": 16,
+      "tag": "div",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "rounded-md",
+        "border",
+        "px-2.5",
+        "py-0.5",
+        "font-semibold",
+        "transition-all",
+        "duration-150",
+        "focus:outline-none",
+        "focus:ring-2",
+        "focus:ring-ring",
+        "focus:ring-offset-2",
+        "border-transparent",
+        "bg-secondary",
+        "text-secondary-foreground",
+        "hover:bg-secondary/80",
+        "text-xs"
+      ],
+      "boundingBox": {
+        "x": 154.171875,
+        "y": 1334,
+        "width": 28.6875,
+        "height": 22,
+        "top": 1334,
+        "right": 182.859375,
+        "bottom": 1356,
+        "left": 154.171875
+      },
+      "computed": {
+        "paddingTop": 2,
+        "paddingRight": 10,
+        "paddingBottom": 2,
+        "paddingLeft": 10,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 27,
+        "clientWidth": 27,
+        "scrollHeight": 20,
+        "clientHeight": 20
+      },
+      "hasCardTitle": false,
+      "childCount": 0
+    },
+    {
+      "index": 17,
+      "tag": "div",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "rounded-md",
+        "border",
+        "px-2.5",
+        "py-0.5",
+        "font-semibold",
+        "transition-all",
+        "duration-150",
+        "focus:outline-none",
+        "focus:ring-2",
+        "focus:ring-ring",
+        "focus:ring-offset-2",
+        "border-transparent",
+        "bg-secondary",
+        "text-secondary-foreground",
+        "hover:bg-secondary/80",
+        "text-xs"
+      ],
+      "boundingBox": {
+        "x": 242.109375,
+        "y": 1368,
+        "width": 28.6875,
+        "height": 22,
+        "top": 1368,
+        "right": 270.796875,
+        "bottom": 1390,
+        "left": 242.109375
+      },
+      "computed": {
+        "paddingTop": 2,
+        "paddingRight": 10,
+        "paddingBottom": 2,
+        "paddingLeft": 10,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 27,
+        "clientWidth": 27,
+        "scrollHeight": 20,
+        "clientHeight": 20
+      },
+      "hasCardTitle": false,
+      "childCount": 0
+    },
+    {
+      "index": 18,
+      "tag": "div",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "rounded-md",
+        "border",
+        "px-2.5",
+        "py-0.5",
+        "text-xs",
+        "font-semibold",
+        "transition-all",
+        "duration-150",
+        "focus:outline-none",
+        "focus:ring-2",
+        "focus:ring-ring",
+        "focus:ring-offset-2",
+        "border-transparent",
+        "bg-secondary",
+        "text-secondary-foreground",
+        "hover:bg-secondary/80"
+      ],
+      "boundingBox": {
+        "x": 250.609375,
+        "y": 1722,
+        "width": 83.390625,
+        "height": 22,
+        "top": 1722,
+        "right": 334,
+        "bottom": 1744,
+        "left": 250.609375
+      },
+      "computed": {
+        "paddingTop": 2,
+        "paddingRight": 10,
+        "paddingBottom": 2,
+        "paddingLeft": 10,
+        "fontSize": 0,
+        "lineHeight": 0,
+        "scrollWidth": 81,
+        "clientWidth": 81,
+        "scrollHeight": 20,
+        "clientHeight": 20
+      },
+      "hasCardTitle": false,
+      "childCount": 0
+    }
+  ],
+  "cardSummary": {
+    "total": 19,
+    "withoutTitle": 10,
+    "inconsistentPadding": 0
+  },
+  "containers": [
+    {
+      "selector": "div.flex.h-screen.overflow-hidden",
+      "tag": "div",
+      "classNames": [
+        "flex",
+        "h-screen",
+        "overflow-hidden"
+      ],
+      "display": "flex",
+      "childCount": 3,
+      "children": [
+        {
+          "index": 0,
+          "tag": "button",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "justify-center",
+            "gap-2",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "transition-all",
+            "duration-150",
+            "focus-visible:outline-none",
+            "focus-visible:ring-1",
+            "focus-visible:ring-ring",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "[&_svg]:pointer-events-none",
+            "[&_svg]:size-4",
+            "[&_svg]:shrink-0",
+            "hover:bg-accent",
+            "hover:text-accent-foreground",
+            "h-11",
+            "w-11",
+            "fixed",
+            "left-4",
+            "top-4",
+            "z-40",
+            "lg:hidden"
+          ],
+          "boundingBox": {
+            "x": 16,
+            "y": 16,
+            "width": 44,
+            "height": 44,
+            "top": 16,
+            "right": 60,
+            "bottom": 60,
+            "left": 16
+          },
+          "widthRatio": 0.2100238663484487,
+          "heightRatio": 0.102803738317757,
+          "isOutlier": true
+        },
+        {
+          "index": 1,
+          "tag": "div",
+          "classNames": [
+            "border",
+            "bg-card",
+            "text-card-foreground",
+            "transition-shadow",
+            "duration-200",
+            "hidden",
+            "lg:flex",
+            "h-screen",
+            "w-64",
+            "flex-col",
+            "sticky",
+            "top-0",
+            "rounded-none",
+            "border-r",
+            "border-y-0",
+            "border-l-0",
+            "shadow-none"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 0,
+          "heightRatio": 0,
+          "isOutlier": true
+        },
+        {
+          "index": 2,
+          "tag": "main",
+          "classNames": [
+            "flex-1",
+            "overflow-auto"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 375,
+            "height": 812,
+            "top": 0,
+            "right": 375,
+            "bottom": 812,
+            "left": 0
+          },
+          "widthRatio": 1.7899761336515514,
+          "heightRatio": 1.897196261682243,
+          "isOutlier": true
+        }
+      ],
+      "hasOutliers": true,
+      "maxWidthDeviation": 1,
+      "maxHeightDeviation": 1
+    },
+    {
+      "selector": "button.inline-flex.items-center.justify-center",
+      "tag": "button",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "gap-2",
+        "whitespace-nowrap"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-menu"
+          ],
+          "boundingBox": {
+            "x": 30,
+            "y": 30,
+            "width": 16,
+            "height": 16,
+            "top": 30,
+            "right": 46,
+            "bottom": 46,
+            "left": 30
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "div.space-y-1.5.p-6.flex",
+      "tag": "div",
+      "classNames": [
+        "space-y-1.5",
+        "p-6",
+        "flex",
+        "h-14",
+        "flex-row"
+      ],
+      "display": "flex",
+      "childCount": 2,
+      "children": [
+        {
+          "index": 0,
+          "tag": "div",
+          "classNames": [
+            "tracking-tight",
+            "text-base",
+            "font-semibold"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 1,
+          "tag": "div",
+          "classNames": [
+            "flex",
+            "items-center",
+            "gap-1"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "div.flex.items-center.gap-1",
+      "tag": "div",
+      "classNames": [
+        "flex",
+        "items-center",
+        "gap-1"
+      ],
+      "display": "flex",
+      "childCount": 2,
+      "children": [
+        {
+          "index": 0,
+          "tag": "button",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "justify-center",
+            "gap-2",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "transition-all",
+            "duration-150",
+            "focus-visible:outline-none",
+            "focus-visible:ring-1",
+            "focus-visible:ring-ring",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "[&_svg]:pointer-events-none",
+            "[&_svg]:size-4",
+            "[&_svg]:shrink-0",
+            "hover:bg-accent",
+            "hover:text-accent-foreground",
+            "h-11",
+            "w-11",
+            "relative"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 1,
+          "tag": "button",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "justify-center",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "transition-all",
+            "duration-150",
+            "focus-visible:outline-none",
+            "focus-visible:ring-1",
+            "focus-visible:ring-ring",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "[&_svg]:pointer-events-none",
+            "[&_svg]:size-4",
+            "[&_svg]:shrink-0",
+            "hover:bg-accent",
+            "hover:text-accent-foreground",
+            "h-11",
+            "w-11",
+            "gap-2"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "button.inline-flex.items-center.justify-center",
+      "tag": "button",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "gap-2",
+        "whitespace-nowrap"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-bell",
+            "h-5",
+            "w-5"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "button.inline-flex.items-center.justify-center",
+      "tag": "button",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "whitespace-nowrap",
+        "rounded-md"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-search",
+            "h-4",
+            "w-4"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "div.rounded-lg.text-muted-foreground.flex",
+      "tag": "div",
+      "classNames": [
+        "rounded-lg",
+        "text-muted-foreground",
+        "flex",
+        "h-auto",
+        "w-full"
+      ],
+      "display": "flex",
+      "childCount": 9,
+      "children": [
+        {
+          "index": 0,
+          "tag": "a",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "ring-offset-background",
+            "transition-all",
+            "duration-200",
+            "focus-visible:outline-none",
+            "focus-visible:ring-2",
+            "focus-visible:ring-ring",
+            "focus-visible:ring-offset-2",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "data-[state=active]:text-foreground",
+            "w-full",
+            "justify-start",
+            "gap-3",
+            "px-4",
+            "py-2.5",
+            "data-[state=active]:bg-secondary",
+            "data-[state=active]:shadow-none"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 1,
+          "tag": "a",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "ring-offset-background",
+            "transition-all",
+            "duration-200",
+            "focus-visible:outline-none",
+            "focus-visible:ring-2",
+            "focus-visible:ring-ring",
+            "focus-visible:ring-offset-2",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "data-[state=active]:text-foreground",
+            "w-full",
+            "justify-start",
+            "gap-3",
+            "px-4",
+            "py-2.5",
+            "data-[state=active]:bg-secondary",
+            "data-[state=active]:shadow-none"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 2,
+          "tag": "a",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "ring-offset-background",
+            "transition-all",
+            "duration-200",
+            "focus-visible:outline-none",
+            "focus-visible:ring-2",
+            "focus-visible:ring-ring",
+            "focus-visible:ring-offset-2",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "data-[state=active]:text-foreground",
+            "w-full",
+            "justify-start",
+            "gap-3",
+            "px-4",
+            "py-2.5",
+            "data-[state=active]:bg-secondary",
+            "data-[state=active]:shadow-none"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 3,
+          "tag": "a",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "ring-offset-background",
+            "transition-all",
+            "duration-200",
+            "focus-visible:outline-none",
+            "focus-visible:ring-2",
+            "focus-visible:ring-ring",
+            "focus-visible:ring-offset-2",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "data-[state=active]:text-foreground",
+            "w-full",
+            "justify-start",
+            "gap-3",
+            "px-4",
+            "py-2.5",
+            "data-[state=active]:bg-secondary",
+            "data-[state=active]:shadow-none"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 4,
+          "tag": "a",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "ring-offset-background",
+            "transition-all",
+            "duration-200",
+            "focus-visible:outline-none",
+            "focus-visible:ring-2",
+            "focus-visible:ring-ring",
+            "focus-visible:ring-offset-2",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "data-[state=active]:text-foreground",
+            "w-full",
+            "justify-start",
+            "gap-3",
+            "px-4",
+            "py-2.5",
+            "data-[state=active]:bg-secondary",
+            "data-[state=active]:shadow-none"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 5,
+          "tag": "a",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "ring-offset-background",
+            "transition-all",
+            "duration-200",
+            "focus-visible:outline-none",
+            "focus-visible:ring-2",
+            "focus-visible:ring-ring",
+            "focus-visible:ring-offset-2",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "data-[state=active]:text-foreground",
+            "w-full",
+            "justify-start",
+            "gap-3",
+            "px-4",
+            "py-2.5",
+            "data-[state=active]:bg-secondary",
+            "data-[state=active]:shadow-none"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 6,
+          "tag": "a",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "ring-offset-background",
+            "transition-all",
+            "duration-200",
+            "focus-visible:outline-none",
+            "focus-visible:ring-2",
+            "focus-visible:ring-ring",
+            "focus-visible:ring-offset-2",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "data-[state=active]:text-foreground",
+            "w-full",
+            "justify-start",
+            "gap-3",
+            "px-4",
+            "py-2.5",
+            "data-[state=active]:bg-secondary",
+            "data-[state=active]:shadow-none"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 7,
+          "tag": "a",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "ring-offset-background",
+            "transition-all",
+            "duration-200",
+            "focus-visible:outline-none",
+            "focus-visible:ring-2",
+            "focus-visible:ring-ring",
+            "focus-visible:ring-offset-2",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "data-[state=active]:text-foreground",
+            "w-full",
+            "justify-start",
+            "gap-3",
+            "px-4",
+            "py-2.5",
+            "data-[state=active]:bg-secondary",
+            "data-[state=active]:shadow-none"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 8,
+          "tag": "a",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "ring-offset-background",
+            "transition-all",
+            "duration-200",
+            "focus-visible:outline-none",
+            "focus-visible:ring-2",
+            "focus-visible:ring-ring",
+            "focus-visible:ring-offset-2",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "data-[state=active]:text-foreground",
+            "w-full",
+            "justify-start",
+            "gap-3",
+            "px-4",
+            "py-2.5",
+            "data-[state=active]:bg-secondary",
+            "data-[state=active]:shadow-none"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "a#radix-_r_4_-trigger-dashboard.inline-flex.items-center.whitespace-nowrap",
+      "tag": "a",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-layout-dashboard"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "a#radix-_r_4_-trigger-chat.inline-flex.items-center.whitespace-nowrap",
+      "tag": "a",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-message-square"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "a#radix-_r_4_-trigger-agents.inline-flex.items-center.whitespace-nowrap",
+      "tag": "a",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-bot"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "a#radix-_r_4_-trigger-memories.inline-flex.items-center.whitespace-nowrap",
+      "tag": "a",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-brain"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "a#radix-_r_4_-trigger-cron.inline-flex.items-center.whitespace-nowrap",
+      "tag": "a",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-calendar"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "a#radix-_r_4_-trigger-skills.inline-flex.items-center.whitespace-nowrap",
+      "tag": "a",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-lightbulb"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "a#radix-_r_4_-trigger-logs.inline-flex.items-center.whitespace-nowrap",
+      "tag": "a",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-scroll-text"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "a#radix-_r_4_-trigger-models.inline-flex.items-center.whitespace-nowrap",
+      "tag": "a",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-cpu"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "a#radix-_r_4_-trigger-settings.inline-flex.items-center.whitespace-nowrap",
+      "tag": "a",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "whitespace-nowrap",
+        "rounded-md",
+        "text-sm"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-settings"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "div.flex.flex-col.items-stretch",
+      "tag": "div",
+      "classNames": [
+        "flex",
+        "flex-col",
+        "items-stretch",
+        "gap-4",
+        "p-4"
+      ],
+      "display": "flex",
+      "childCount": 4,
+      "children": [
+        {
+          "index": 0,
+          "tag": "div",
+          "classNames": [
+            "shrink-0",
+            "bg-border",
+            "h-[1px]",
+            "w-full"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 1,
+          "tag": "div",
+          "classNames": [
+            "flex",
+            "items-center",
+            "gap-2"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 2,
+          "tag": "div",
+          "classNames": [
+            "flex",
+            "items-center",
+            "justify-center"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 3,
+          "tag": "p",
+          "classNames": [
+            "text-center",
+            "text-xs",
+            "text-muted-foreground"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "div.flex.items-center.gap-2",
+      "tag": "div",
+      "classNames": [
+        "flex",
+        "items-center",
+        "gap-2"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "span",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "gap-1.5",
+            "rounded-full",
+            "border",
+            "px-2.5",
+            "py-0.5",
+            "text-xs",
+            "font-medium",
+            "transition-colors",
+            "focus:outline-none",
+            "focus:ring-2",
+            "focus:ring-ring",
+            "focus:ring-offset-2",
+            "border-slate-500/20",
+            "bg-slate-100",
+            "text-slate-700",
+            "dark:border-slate-500/30",
+            "dark:bg-slate-500/10",
+            "dark:text-slate-400"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "span.inline-flex.items-center.gap-1.5",
+      "tag": "span",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "gap-1.5",
+        "rounded-full",
+        "border"
+      ],
+      "display": "flex",
+      "childCount": 2,
+      "children": [
+        {
+          "index": 0,
+          "tag": "span",
+          "classNames": [
+            "relative",
+            "inline-flex",
+            "h-1.5",
+            "w-1.5"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 1,
+          "tag": "span",
+          "classNames": [],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "span.relative.inline-flex.h-1.5",
+      "tag": "span",
+      "classNames": [
+        "relative",
+        "inline-flex",
+        "h-1.5",
+        "w-1.5"
+      ],
+      "display": "flex",
+      "childCount": 2,
+      "children": [
+        {
+          "index": 0,
+          "tag": "span",
+          "classNames": [
+            "absolute",
+            "inset-0"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 1,
+          "tag": "span",
+          "classNames": [
+            "relative",
+            "inline-flex",
+            "h-1.5",
+            "w-1.5",
+            "rounded-full",
+            "bg-slate-500"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "span.relative.inline-flex.h-1.5",
+      "tag": "span",
+      "classNames": [
+        "relative",
+        "inline-flex",
+        "h-1.5",
+        "w-1.5",
+        "rounded-full"
+      ],
+      "display": "flex",
+      "childCount": 0,
+      "children": [],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "div.flex.items-center.justify-center",
+      "tag": "div",
+      "classNames": [
+        "flex",
+        "items-center",
+        "justify-center"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "button",
+          "classNames": [
+            "inline-flex",
+            "items-center",
+            "justify-center",
+            "gap-2",
+            "whitespace-nowrap",
+            "rounded-md",
+            "text-sm",
+            "font-medium",
+            "transition-all",
+            "duration-150",
+            "focus-visible:outline-none",
+            "focus-visible:ring-1",
+            "focus-visible:ring-ring",
+            "disabled:pointer-events-none",
+            "disabled:opacity-50",
+            "[&_svg]:pointer-events-none",
+            "[&_svg]:size-4",
+            "[&_svg]:shrink-0",
+            "hover:bg-accent",
+            "hover:text-accent-foreground",
+            "h-11",
+            "w-11"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "button#radix-_r_f_.inline-flex.items-center.justify-center",
+      "tag": "button",
+      "classNames": [
+        "inline-flex",
+        "items-center",
+        "justify-center",
+        "gap-2",
+        "whitespace-nowrap"
+      ],
+      "display": "flex",
+      "childCount": 2,
+      "children": [
+        {
+          "index": 0,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-sun",
+            "h-[1.2rem]",
+            "w-[1.2rem]",
+            "rotate-0",
+            "scale-100",
+            "transition-all",
+            "dark:-rotate-90",
+            "dark:scale-0"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 1,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-moon",
+            "absolute",
+            "h-[1.2rem]",
+            "w-[1.2rem]",
+            "rotate-90",
+            "scale-0",
+            "transition-all",
+            "dark:rotate-0",
+            "dark:scale-100"
+          ],
+          "boundingBox": {
+            "x": 0,
+            "y": 0,
+            "width": 0,
+            "height": 0,
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "div.flex.items-center.justify-between",
+      "tag": "div",
+      "classNames": [
+        "flex",
+        "items-center",
+        "justify-between"
+      ],
+      "display": "flex",
+      "childCount": 1,
+      "children": [
+        {
+          "index": 0,
+          "tag": "h1",
+          "classNames": [
+            "text-2xl",
+            "font-bold",
+            "tracking-tight"
+          ],
+          "boundingBox": {
+            "x": 16,
+            "y": 24,
+            "width": 119.96875,
+            "height": 32,
+            "top": 24,
+            "right": 135.96875,
+            "bottom": 56,
+            "left": 16
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "section.grid.gap-4.sm:grid-cols-2",
+      "tag": "section",
+      "classNames": [
+        "grid",
+        "gap-4",
+        "sm:grid-cols-2",
+        "lg:grid-cols-4"
+      ],
+      "display": "grid",
+      "childCount": 4,
+      "children": [
+        {
+          "index": 0,
+          "tag": "div",
+          "classNames": [
+            "rounded-xl",
+            "border",
+            "bg-card",
+            "text-card-foreground",
+            "shadow",
+            "hover:shadow-lg",
+            "hover:-translate-y-0.5",
+            "transition-all",
+            "duration-200"
+          ],
+          "boundingBox": {
+            "x": 16,
+            "y": 80,
+            "width": 343,
+            "height": 152,
+            "top": 80,
+            "right": 359,
+            "bottom": 232,
+            "left": 16
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 1,
+          "tag": "div",
+          "classNames": [
+            "rounded-xl",
+            "border",
+            "bg-card",
+            "text-card-foreground",
+            "shadow",
+            "hover:shadow-lg",
+            "hover:-translate-y-0.5",
+            "transition-all",
+            "duration-200"
+          ],
+          "boundingBox": {
+            "x": 16,
+            "y": 248,
+            "width": 343,
+            "height": 152,
+            "top": 248,
+            "right": 359,
+            "bottom": 400,
+            "left": 16
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 2,
+          "tag": "div",
+          "classNames": [
+            "rounded-xl",
+            "border",
+            "bg-card",
+            "text-card-foreground",
+            "shadow",
+            "hover:shadow-lg",
+            "hover:-translate-y-0.5",
+            "transition-all",
+            "duration-200"
+          ],
+          "boundingBox": {
+            "x": 16,
+            "y": 416,
+            "width": 343,
+            "height": 152,
+            "top": 416,
+            "right": 359,
+            "bottom": 568,
+            "left": 16
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        },
+        {
+          "index": 3,
+          "tag": "div",
+          "classNames": [
+            "rounded-xl",
+            "border",
+            "bg-card",
+            "text-card-foreground",
+            "shadow",
+            "hover:shadow-lg",
+            "hover:-translate-y-0.5",
+            "transition-all",
+            "duration-200"
+          ],
+          "boundingBox": {
+            "x": 16,
+            "y": 584,
+            "width": 343,
+            "height": 152,
+            "top": 584,
+            "right": 359,
+            "bottom": 736,
+            "left": 16
+          },
+          "widthRatio": 1,
+          "heightRatio": 1,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0
+    },
+    {
+      "selector": "div.space-y-1.5.p-6.flex",
+      "tag": "div",
+      "classNames": [
+        "space-y-1.5",
+        "p-6",
+        "flex",
+        "flex-row",
+        "items-center"
+      ],
+      "display": "flex",
+      "childCount": 2,
+      "children": [
+        {
+          "index": 0,
+          "tag": "h3",
+          "classNames": [
+            "tracking-tight",
+            "text-sm",
+            "font-medium",
+            "text-muted-foreground"
+          ],
+          "boundingBox": {
+            "x": 41,
+            "y": 106,
+            "width": 72.078125,
+            "height": 20,
+            "top": 106,
+            "right": 113.078125,
+            "bottom": 126,
+            "left": 41
+          },
+          "widthRatio": 1.6366861805925137,
+          "heightRatio": 1.1111111111111112,
+          "isOutlier": true
+        },
+        {
+          "index": 1,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-bot",
+            "size-4",
+            "text-muted-foreground"
+          ],
+          "boundingBox": {
+            "x": 318,
+            "y": 111,
+            "width": 16,
+            "height": 16,
+            "top": 111,
+            "right": 334,
+            "bottom": 127,
+            "left": 318
+          },
+          "widthRatio": 0.36331381940748625,
+          "heightRatio": 0.8888888888888888,
+          "isOutlier": true
+        }
+      ],
+      "hasOutliers": true,
+      "maxWidthDeviation": 0.6366861805925137,
+      "maxHeightDeviation": 0.11111111111111116
+    },
+    {
+      "selector": "div.space-y-1.5.p-6.flex",
+      "tag": "div",
+      "classNames": [
+        "space-y-1.5",
+        "p-6",
+        "flex",
+        "flex-row",
+        "items-center"
+      ],
+      "display": "flex",
+      "childCount": 2,
+      "children": [
+        {
+          "index": 0,
+          "tag": "h3",
+          "classNames": [
+            "tracking-tight",
+            "text-sm",
+            "font-medium",
+            "text-muted-foreground"
+          ],
+          "boundingBox": {
+            "x": 41,
+            "y": 274,
+            "width": 82.625,
+            "height": 20,
+            "top": 274,
+            "right": 123.625,
+            "bottom": 294,
+            "left": 41
+          },
+          "widthRatio": 1.6755386565272496,
+          "heightRatio": 1.1111111111111112,
+          "isOutlier": true
+        },
+        {
+          "index": 1,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-activity",
+            "size-4",
+            "text-muted-foreground"
+          ],
+          "boundingBox": {
+            "x": 318,
+            "y": 279,
+            "width": 16,
+            "height": 16,
+            "top": 279,
+            "right": 334,
+            "bottom": 295,
+            "left": 318
+          },
+          "widthRatio": 0.3244613434727503,
+          "heightRatio": 0.8888888888888888,
+          "isOutlier": true
+        }
+      ],
+      "hasOutliers": true,
+      "maxWidthDeviation": 0.6755386565272496,
+      "maxHeightDeviation": 0.11111111111111116
+    },
+    {
+      "selector": "div.space-y-1.5.p-6.flex",
+      "tag": "div",
+      "classNames": [
+        "space-y-1.5",
+        "p-6",
+        "flex",
+        "flex-row",
+        "items-center"
+      ],
+      "display": "flex",
+      "childCount": 2,
+      "children": [
+        {
+          "index": 0,
+          "tag": "h3",
+          "classNames": [
+            "tracking-tight",
+            "text-sm",
+            "font-medium",
+            "text-muted-foreground"
+          ],
+          "boundingBox": {
+            "x": 41,
+            "y": 442,
+            "width": 67.75,
+            "height": 20,
+            "top": 442,
+            "right": 108.75,
+            "bottom": 462,
+            "left": 41
+          },
+          "widthRatio": 1.617910447761194,
+          "heightRatio": 1.1111111111111112,
+          "isOutlier": true
+        },
+        {
+          "index": 1,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-clock",
+            "size-4",
+            "text-muted-foreground"
+          ],
+          "boundingBox": {
+            "x": 318,
+            "y": 447,
+            "width": 16,
+            "height": 16,
+            "top": 447,
+            "right": 334,
+            "bottom": 463,
+            "left": 318
+          },
+          "widthRatio": 0.382089552238806,
+          "heightRatio": 0.8888888888888888,
+          "isOutlier": true
+        }
+      ],
+      "hasOutliers": true,
+      "maxWidthDeviation": 0.6179104477611941,
+      "maxHeightDeviation": 0.11111111111111116
+    },
+    {
+      "selector": "div.space-y-1.5.p-6.flex",
+      "tag": "div",
+      "classNames": [
+        "space-y-1.5",
+        "p-6",
+        "flex",
+        "flex-row",
+        "items-center"
+      ],
+      "display": "flex",
+      "childCount": 2,
+      "children": [
+        {
+          "index": 0,
+          "tag": "h3",
+          "classNames": [
+            "tracking-tight",
+            "text-sm",
+            "font-medium",
+            "text-muted-foreground"
+          ],
+          "boundingBox": {
+            "x": 41,
+            "y": 610,
+            "width": 85.71875,
+            "height": 20,
+            "top": 610,
+            "right": 126.71875,
+            "bottom": 630,
+            "left": 41
+          },
+          "widthRatio": 1.6854070660522273,
+          "heightRatio": 1.1111111111111112,
+          "isOutlier": true
+        },
+        {
+          "index": 1,
+          "tag": "svg",
+          "classNames": [
+            "lucide",
+            "lucide-server",
+            "size-4",
+            "text-muted-foreground"
+          ],
+          "boundingBox": {
+            "x": 318,
+            "y": 615,
+            "width": 16,
+            "height": 16,
+            "top": 615,
+            "right": 334,
+            "bottom": 631,
+            "left": 318
+          },
+          "widthRatio": 0.31459293394777266,
+          "heightRatio": 0.8888888888888888,
+          "isOutlier": true
+        }
+      ],
+      "hasOutliers": true,
+      "maxWidthDeviation": 0.6854070660522273,
+      "maxHeightDeviation": 0.11111111111111116
+    },
+    {
+      "selector": "div.grid.gap-6.lg:grid-cols-2",
+      "tag": "div",
+      "classNames": [
+        "grid",
+        "gap-6",
+        "lg:grid-cols-2"
+      ],
+      "display": "grid",
+      "childCount": 2,
+      "children": [
+        {
+          "index": 0,
+          "tag": "section",
+          "classNames": [],
+          "boundingBox": {
+            "x": 16,
+            "y": 760,
+            "width": 343,
+            "height": 215.5,
+            "top": 760,
+            "right": 359,
+            "bottom": 975.5,
+            "left": 16
+          },
+          "widthRatio": 1,
+          "heightRatio": 0.9908045977011494,
+          "isOutlier": false
+        },
+        {
+          "index": 1,
+          "tag": "section",
+          "classNames": [],
+          "boundingBox": {
+            "x": 16,
+            "y": 999.5,
+            "width": 343,
+            "height": 219.5,
+            "top": 999.5,
+            "right": 359,
+            "bottom": 1219,
+            "left": 16
+          },
+          "widthRatio": 1,
+          "heightRatio": 1.0091954022988505,
+          "isOutlier": false
+        }
+      ],
+      "hasOutliers": false,
+      "maxWidthDeviation": 0,
+      "maxHeightDeviation": 0.00919540229885063
+    }
+  ],
+  "invalidNesting": [],
+  "textCollisions": [
+    {
+      "element": "a.font-medium.hover:underline",
+      "text": "default",
+      "availableWidth": 42,
+      "textWidth": 42,
+      "collisionRatio": 1,
+      "severity": "minor"
+    },
+    {
+      "element": "a.font-medium.hover:underline",
+      "text": "researcher",
+      "availableWidth": 66.9,
+      "textWidth": 66.9,
+      "collisionRatio": 1,
+      "severity": "minor"
+    },
+    {
+      "element": "a.font-medium.hover:underline",
+      "text": "default",
+      "availableWidth": 42,
+      "textWidth": 42,
+      "collisionRatio": 1,
+      "severity": "minor"
+    },
+    {
+      "element": "a.font-medium.hover:underline",
+      "text": "researcher",
+      "availableWidth": 66.9,
+      "textWidth": 66.9,
+      "collisionRatio": 1,
+      "severity": "minor"
+    }
+  ],
+  "criticalIssues": [],
+  "warnings": [
+    "16 buttons smaller than 44×44px (touch target size)",
+    "14 buttons with padding < 4px",
+    "5 flex/grid containers with size outliers (>10% deviation)"
+  ]
+}

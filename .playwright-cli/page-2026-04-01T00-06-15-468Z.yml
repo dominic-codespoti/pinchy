@@ -1,0 +1,132 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]:
+    - img [ref=e8]
+  - alert [ref=e11]
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]: Pinchy
+        - generic [ref=e16]:
+          - button "Notifications" [ref=e17] [cursor=pointer]:
+            - img
+          - button [ref=e18] [cursor=pointer]:
+            - img
+      - tablist [ref=e24]:
+        - tab "Dashboard" [ref=e25] [cursor=pointer]:
+          - img [ref=e26]
+          - text: Dashboard
+        - tab "Chat" [ref=e31] [cursor=pointer]:
+          - img [ref=e32]
+          - text: Chat
+        - tab "Agents" [selected] [ref=e34] [cursor=pointer]:
+          - img [ref=e35]
+          - text: Agents
+        - tab "Memories" [ref=e38] [cursor=pointer]:
+          - img [ref=e39]
+          - text: Memories
+        - tab "Cron" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+          - text: Cron
+        - tab "Skills" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+          - text: Skills
+        - tab "Logs" [ref=e53] [cursor=pointer]:
+          - img [ref=e54]
+          - text: Logs
+        - tab "Models" [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - text: Models
+        - tab "Settings" [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+          - text: Settings
+      - generic [ref=e65]:
+        - generic [ref=e71]: Error
+        - button "Toggle theme" [ref=e73] [cursor=pointer]:
+          - img
+          - generic [ref=e74]: Toggle theme
+        - paragraph [ref=e75]: Pinchy v0.1.19
+    - main [ref=e76]:
+      - generic [ref=e78]:
+        - generic [ref=e79]:
+          - heading "Agents" [level=1] [ref=e80]
+          - generic [ref=e81]:
+            - button "Hide Groups" [ref=e82] [cursor=pointer]:
+              - img
+              - text: Hide Groups
+            - button "Export" [ref=e83] [cursor=pointer]
+            - button "New Agent" [ref=e84] [cursor=pointer]:
+              - img
+              - text: New Agent
+        - generic [ref=e85]:
+          - complementary [ref=e86]:
+            - generic [ref=e88]:
+              - button "Groups" [expanded] [ref=e89] [cursor=pointer]:
+                - generic [ref=e90]:
+                  - img
+                  - generic [ref=e91]: Groups
+                - img
+              - generic [ref=e93]:
+                - button "All Agents (0)" [ref=e94] [cursor=pointer]:
+                  - img
+                  - generic [ref=e95]: All Agents
+                  - generic [ref=e96]: (0)
+                - button "Ungrouped (0)" [ref=e97] [cursor=pointer]:
+                  - generic [ref=e99]: Ungrouped
+                  - generic [ref=e100]: (0)
+                - status [ref=e101]
+                - button "New Group" [ref=e102] [cursor=pointer]:
+                  - img
+                  - text: New Group
+          - main [ref=e103]:
+            - table [ref=e109]:
+              - rowgroup [ref=e110]:
+                - row [ref=e111]:
+                  - columnheader [ref=e112]
+                  - columnheader [ref=e114]
+                  - columnheader [ref=e116]
+                  - columnheader [ref=e118]
+                  - columnheader [ref=e120]
+                  - columnheader [ref=e122]
+                  - columnheader [ref=e124]
+              - rowgroup [ref=e126]:
+                - row [ref=e127]:
+                  - cell [ref=e128]
+                  - cell [ref=e130]
+                  - cell [ref=e132]
+                  - cell [ref=e134]
+                  - cell [ref=e136]
+                  - cell [ref=e138]
+                  - cell [ref=e140]
+                - row [ref=e142]:
+                  - cell [ref=e143]
+                  - cell [ref=e145]
+                  - cell [ref=e147]
+                  - cell [ref=e149]
+                  - cell [ref=e151]
+                  - cell [ref=e153]
+                  - cell [ref=e155]
+                - row [ref=e157]:
+                  - cell [ref=e158]
+                  - cell [ref=e160]
+                  - cell [ref=e162]
+                  - cell [ref=e164]
+                  - cell [ref=e166]
+                  - cell [ref=e168]
+                  - cell [ref=e170]
+                - row [ref=e172]:
+                  - cell [ref=e173]
+                  - cell [ref=e175]
+                  - cell [ref=e177]
+                  - cell [ref=e179]
+                  - cell [ref=e181]
+                  - cell [ref=e183]
+                  - cell [ref=e185]
+                - row [ref=e187]:
+                  - cell [ref=e188]
+                  - cell [ref=e190]
+                  - cell [ref=e192]
+                  - cell [ref=e194]
+                  - cell [ref=e196]
+                  - cell [ref=e198]
+                  - cell [ref=e200]
+  - region "Notifications alt+T"
