@@ -134,7 +134,7 @@ export const ProviderStatusSchema = z.object({
   env_vars: z.array(z.string()),
   details: z.string().optional(),
   source: z.string().optional(),
-  api: z.string().optional(),
+  api: z.string().nullable().optional(),
   model_count: z.number(),
 });
 
@@ -188,22 +188,22 @@ export const ModelInfoSchema = z.object({
   id: z.string(),
   name: z.string(),
   provider: z.string(),
-  description: z.string().optional(),
-  input_price: z.number().optional(),
-  output_price: z.number().optional(),
-  context_window: z.number().optional(),
-  max_output: z.number().optional(),
-  tool_call: z.boolean().optional(),
-  reasoning: z.boolean().optional(),
-  attachment: z.boolean().optional(),
-  family: z.string().optional(),
-  cache_read_price: z.number().optional(),
-  cache_write_price: z.number().optional(),
-  modalities: z.array(z.string()).optional(),
+  description: z.string().nullable().optional(),
+  input_price: z.number().nullable().optional(),
+  output_price: z.number().nullable().optional(),
+  context_window: z.number().nullable().optional(),
+  max_output: z.number().nullable().optional(),
+  tool_call: z.boolean().default(false),
+  reasoning: z.boolean().default(false),
+  attachment: z.boolean().default(false),
+  family: z.string().nullable().optional(),
+  cache_read_price: z.number().nullable().optional(),
+  cache_write_price: z.number().nullable().optional(),
+  modalities: z.array(z.string()).nullable().optional(),
 });
 
 export const ModelsListResponseSchema = z.object({
-  models: z.array(ModelInfoSchema).optional(),
+  models: z.array(ModelInfoSchema).nullable().optional(),
 });
 
 // ============================================================================

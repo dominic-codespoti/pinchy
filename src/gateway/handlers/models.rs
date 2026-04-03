@@ -12,6 +12,8 @@ use axum::{
     Json,
 };
 
+use crate::models::ModelProvider;
+
 use super::super::types::*;
 use super::super::AppState;
 
@@ -279,6 +281,65 @@ pub(crate) async fn api_all_models(State(state): State<AppState>) -> impl IntoRe
         .collect::<std::collections::HashSet<_>>()
         .into_iter()
         .collect();
+
+    // Try live discovery for Copilot if authenticated and not already in registry
+    if !already_checked.iter().any(|p| p == "copilot") {
+        let copilot_auth = std::env::var("COPILOT_TOKEN")
+            .ok()
+            .or_else(|| crate::auth::github_device::retrieve_token().ok().flatten())
+            .or_else(|| {
+                dirs::home_dir()
+                    .map(|h| h.join(".pinchy/copilot-token"))
+                    .filter(|p| p.exists())
+                    .and_then(|p| std::fs::read_to_string(&p).ok())
+            });
+
+        if copilot_auth.is_some() {
+            let copilot_provider = crate::models::CopilotProvider::new();
+            let timeout_duration = std::time::Duration::from_secs(10);
+
+            match tokio::time::timeout(timeout_duration, copilot_provider.list_models()).await {
+                Ok(Ok(Some(models))) => {
+                    for model in models {
+                        // Convert provider ModelInfo to gateway ModelInfo
+                        all_models.push(ModelInfo {
+                            id: model.id.clone(),
+                            name: model.name.clone(),
+                            provider: "copilot".to_string(),
+                            description: model.vendor.clone(),
+                            input_price: model.input_price,
+                            output_price: model.output_price,
+                            context_window: model.max_tokens.map(|t| t as u64),
+                            max_output: None,
+                            tool_call: model
+                                .supported_endpoints
+                                .iter()
+                                .any(|e: &String| e.contains("chat")),
+                            reasoning: false,
+                            attachment: false,
+                            family: None,
+                            cache_read_price: None,
+                            cache_write_price: None,
+                            modalities: None,
+                        });
+                    }
+                    tracing::debug!(
+                        model_count = all_models.len(),
+                        "added models from Copilot live discovery"
+                    );
+                }
+                Ok(Ok(None)) => {
+                    tracing::debug!("Copilot provider does not support model discovery");
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(error = %e, "Copilot live model discovery failed");
+                }
+                Err(_) => {
+                    tracing::warn!("Copilot live model discovery timed out");
+                }
+            }
+        }
+    }
 
     // Also try live discovery for local providers not in models.dev
     try_local_providers(&mut all_models, &already_checked, &cfg, timeout_duration).await;

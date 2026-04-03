@@ -46,7 +46,7 @@ async function fetchDiscoveredModels(): Promise<ModelInfo[]> {
       family?: string;
       cache_read_price?: number;
       cache_write_price?: number;
-      modalities?: { input?: string[]; output?: string[] };
+      modalities?: string[];
     }> }>('/api/models');
     return (response.models || []).map(m => ({
       id: m.id,

@@ -29,12 +29,12 @@ const ModelsRegistryResponseSchema = z.object({
     id: z.string(),
     name: z.string(),
     env: z.array(z.string()).default([]),
-    api: z.string().optional(),
-    doc: z.string().optional(),
+    api: z.string().nullable().optional(),
+    doc: z.string().nullable().optional(),
     models: z.array(z.object({
       id: z.string(),
       name: z.string(),
-      description: z.string().optional(),
+      description: z.string().nullable().optional(),
     })).default([]),
   })),
 });

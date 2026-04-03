@@ -31,21 +31,18 @@ export interface ProviderCatalogItem {
   name: string;
   providerId: string;
   providerName: string;
-  description?: string;
-  input_price?: number;
-  output_price?: number;
-  context_window?: number;
-  max_output?: number;
+  description?: string | null;
+  input_price?: number | null;
+  output_price?: number | null;
+  context_window?: number | null;
+  max_output?: number | null;
   tool_call?: boolean;
   reasoning?: boolean;
   attachment?: boolean;
-  family?: string;
-  cache_read_price?: number;
-  cache_write_price?: number;
-  modalities?: {
-    input?: string[];
-    output?: string[];
-  };
+  family?: string | null;
+  cache_read_price?: number | null;
+  cache_write_price?: number | null;
+  modalities?: string[] | null;
 }
 
 export interface ConfigModelInfo {
@@ -99,18 +96,18 @@ export interface ModelInfo {
   id: string;
   name: string;
   provider: string;
-  description?: string;
-  input_price?: number;
-  output_price?: number;
-  context_window?: number;
-  max_output?: number;
+  description?: string | null;
+  input_price?: number | null;
+  output_price?: number | null;
+  context_window?: number | null;
+  max_output?: number | null;
   tool_call?: boolean;
   reasoning?: boolean;
   attachment?: boolean;
-  family?: string;
-  cache_read_price?: number;
-  cache_write_price?: number;
-  modalities?: string[];
+  family?: string | null;
+  cache_read_price?: number | null;
+  cache_write_price?: number | null;
+  modalities?: string[] | null;
 }
 
 export interface ProviderConfig {

@@ -103,6 +103,32 @@ import {
 import { PROVIDERS, providerFromModelsDevData, getProviderBadgeColor, getProviderTextColor } from './provider-constants';
 
 // ============================================================================
+// Conversion Utility: ModelInfo -> ModelsDevModel
+// ============================================================================
+
+function modelInfoToDevModel(model: ModelInfo): ModelsDevModel {
+  return {
+    id: model.id,
+    name: model.name,
+    family: model.family || model.provider,
+    attachment: model.attachment ?? false,
+    reasoning: model.reasoning ?? false,
+    tool_call: model.tool_call ?? false,
+    cost: (model.input_price !== undefined || model.output_price !== undefined) ? {
+      input: model.input_price,
+      output: model.output_price,
+      cache_read: model.cache_read_price,
+      cache_write: model.cache_write_price,
+    } : undefined,
+    limit: (model.context_window || model.max_output) ? {
+      context: model.context_window,
+      output: model.max_output,
+    } : undefined,
+    modalities: model.modalities,
+  };
+}
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -431,6 +457,7 @@ function DefaultModelCard({
 
 interface ConnectedProviderRowProps {
   provider: EnhancedProviderStatus;
+  liveModels: ModelInfo[];
   onEdit: () => void;
   onTest: () => Promise<ProviderTestResult>;
   onDisconnect: () => void;
@@ -438,6 +465,7 @@ interface ConnectedProviderRowProps {
 
 function ConnectedProviderRow({
   provider,
+  liveModels,
   onEdit,
   onTest,
   onDisconnect,
@@ -456,7 +484,20 @@ function ConnectedProviderRow({
     }
   };
 
-  const models = provider.modelsDevData?.models || [];
+  // Merge live models with registry models, avoiding duplicates
+  const registryModels = provider.modelsDevData?.models || [];
+  const registryModelIds = new Set(registryModels.map(m => m.id));
+  
+  // Filter live models for this provider that aren't already in registry
+  const providerLiveModels = liveModels.filter(
+    m => m.provider === provider.id && !registryModelIds.has(m.id)
+  );
+  
+  // Convert live models to ModelsDevModel format and merge
+  const mergedModels: ModelsDevModel[] = [
+    ...registryModels,
+    ...providerLiveModels.map(modelInfoToDevModel),
+  ];
 
   return (
     <Collapsible open={isExpanded} onOpenChange={setIsExpanded}>
@@ -483,7 +524,7 @@ function ConnectedProviderRow({
               {provider.modelsDevData?.name || provider.id}
             </p>
             <p className="text-xs text-muted-foreground">
-              {models.length > 0 ? `${models.length} models` : 'No models loaded'}
+              {mergedModels.length > 0 ? `${mergedModels.length} models` : 'No models loaded'}
               {testResult?.latencyMs && ` · ${testResult.latencyMs}ms`}
             </p>
           </div>
@@ -536,9 +577,9 @@ function ConnectedProviderRow({
 
       <CollapsibleContent>
         <div className="rounded-b-lg border border-t-0 bg-card/50">
-          {models.length > 0 ? (
+          {mergedModels.length > 0 ? (
             <div className="max-h-48 overflow-y-auto divide-y">
-              {models.map((model) => (
+              {mergedModels.map((model) => (
                 <div
                   key={model.id}
                   className="flex items-center justify-between px-4 py-2 text-sm"
@@ -571,6 +612,7 @@ function ConnectedProviderRow({
 
 interface ConnectedProvidersCardProps {
   providers: EnhancedProviderStatus[];
+  liveModels: ModelInfo[];
   onConnect: (provider: EnhancedProviderStatus) => void;
   onDisconnect: (providerId: string) => void;
   onTest: (providerId: string) => Promise<ProviderTestResult>;
@@ -580,6 +622,7 @@ interface ConnectedProvidersCardProps {
 
 function ConnectedProvidersCard({
   providers,
+  liveModels,
   onConnect,
   onDisconnect,
   onTest,
@@ -619,6 +662,7 @@ function ConnectedProvidersCard({
             <ConnectedProviderRow
               key={provider.id}
               provider={provider}
+              liveModels={liveModels}
               onEdit={() => onConnect(provider)}
               onTest={() => onTest(provider.id)}
               onDisconnect={() => onDisconnect(provider.id)}
@@ -765,6 +809,7 @@ interface ModelPickerSheetProps {
   isOpen: boolean;
   onClose: () => void;
   providers: EnhancedProviderStatus[];
+  liveModels: ModelInfo[];
   currentModel: string;
   onSelectModel: (modelId: string) => void;
 }
@@ -841,6 +886,7 @@ function ModelPickerSheet({
   isOpen,
   onClose,
   providers,
+  liveModels,
   currentModel,
   onSelectModel,
 }: ModelPickerSheetProps) {
@@ -860,25 +906,47 @@ function ModelPickerSheet({
     [providers]
   );
 
-  // Flatten all models from registry - only compute when sheet is open
+  // Flatten all models from registry and live models - only compute when sheet is open
   const allModels = React.useMemo((): FlattenedModel[] => {
     // Skip expensive computation when sheet is closed
     if (!isOpen) return [];
 
     const models: FlattenedModel[] = [];
+    const seenModelIds = new Set<string>();
 
+    // Add models from registry
     for (const provider of providers) {
       if (provider.modelsDevData?.models) {
         for (const model of provider.modelsDevData.models) {
-          models.push({
-            id: model.id,
-            name: model.name,
-            providerId: provider.id,
-            providerName: provider.modelsDevData.name || provider.id,
-            model,
-            isConnected: provider.configured,
-          });
+          if (!seenModelIds.has(model.id)) {
+            seenModelIds.add(model.id);
+            models.push({
+              id: model.id,
+              name: model.name,
+              providerId: provider.id,
+              providerName: provider.modelsDevData.name || provider.id,
+              model,
+              isConnected: provider.configured,
+            });
+          }
         }
+      }
+    }
+
+    // Add live models not already in registry
+    for (const liveModel of liveModels) {
+      if (!seenModelIds.has(liveModel.id)) {
+        seenModelIds.add(liveModel.id);
+        const provider = providers.find(p => p.id === liveModel.provider);
+        const devModel = modelInfoToDevModel(liveModel);
+        models.push({
+          id: liveModel.id,
+          name: liveModel.name,
+          providerId: liveModel.provider,
+          providerName: provider?.modelsDevData?.name || liveModel.provider,
+          model: devModel,
+          isConnected: provider?.configured ?? false,
+        });
       }
     }
 
@@ -888,7 +956,7 @@ function ModelPickerSheet({
       if (!a.isConnected && b.isConnected) return 1;
       return a.name.localeCompare(b.name);
     });
-  }, [providers, isOpen]);
+  }, [providers, liveModels, isOpen]);
 
   // Filter models - uses deferredSearch for performance
   const filteredModels = React.useMemo(() => {
@@ -1413,6 +1481,7 @@ export function ModelsPage() {
       {/* Section B: Connected Providers */}
       <ConnectedProvidersCard
         providers={enhancedProviders}
+        liveModels={availableModels}
         onConnect={handleConnect}
         onDisconnect={handleDisconnect}
         onTest={handleTest}
@@ -1448,6 +1517,7 @@ export function ModelsPage() {
         isOpen={modelPickerOpen}
         onClose={() => setModelPickerOpen(false)}
         providers={enhancedProviders}
+        liveModels={availableModels}
         currentModel={settings.defaultModel}
         onSelectModel={handleModelChange}
       />
