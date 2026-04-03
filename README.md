@@ -42,6 +42,7 @@ channels:
 agents:
   - id: assistant
     model: default
+    root: "agents/assistant"
     heartbeat_secs: 300
 ```
 
@@ -52,7 +53,20 @@ agents:
 | OpenAI | `openai` | Default endpoint `api.openai.com` |
 | Azure OpenAI | `azure-openai` | Requires `endpoint`, `api_version`, optional `embedding_deployment` |
 | GitHub Copilot | `copilot` | Device-flow auth via `pinchy copilot login` |
-| OpenAI-compatible | `openai-compat` | Works with OpenRouter, Ollama, Groq, Together, Fireworks, Mistral, LM Studio, vLLM, DeepSeek, xAI |
+| Anthropic | `anthropic` | Claude models via Messages API |
+| AWS Bedrock | `bedrock` | AWS credential chain or bearer token auth |
+| OpenRouter | `openrouter` | Unified API for multiple models |
+| Ollama | `ollama` | Local LLM server |
+| Groq | `groq` | Fast inference API |
+| Together | `together` | Together AI inference |
+| Fireworks | `fireworks` | Fireworks AI inference |
+| Mistral | `mistral` | Mistral AI API |
+| LM Studio | `lmstudio` | Local server mode |
+| vLLM | `vllm` | Local inference server |
+| DeepSeek | `deepseek` | DeepSeek API |
+| xAI | `xai` | Grok models via xAI API |
+
+All providers are configured in `models` with `provider: <id>`.
 
 Fallback chains are supported: configure `fallback_models` on an agent and the
 `ProviderManager` will retry through them automatically. A built-in
@@ -66,7 +80,7 @@ Fallback chains are supported: configure `fallback_models` on an agent and the
 | `AZURE_OPENAI_API_KEY` | Azure OpenAI key |
 | `AZURE_OPENAI_ENDPOINT` | Azure OpenAI endpoint URL |
 | `DISCORD_TOKEN` | Discord bot token |
-| `PINCHY_HOME` | Root directory (default: CWD) |
+| `PINCHY_HOME` | Root directory (default: $HOME/.pinchy) |
 | `PINCHY_GATEWAY_ADDR` | Gateway listen address (default `0.0.0.0:3131`) |
 | `PINCHY_GATEWAY` | Set `"0"` to disable the gateway |
 | `PINCHY_API_TOKEN` | Bearer token for API auth |
@@ -88,12 +102,12 @@ pinchy update                       Pull + rebuild (--restart to restart service
 pinchy agent new <id>               Scaffold a new agent
 pinchy agent list                   List agents
 pinchy agent show <id>              Display agent config
-pinchy agent set-model <id>         Change agent model
+pinchy agent set-model <id> <model>     Change agent model
 pinchy agent edit <id> <section>    Edit SOUL/TOOLS/HEARTBEAT
 pinchy agent apply <id> <manifest>  Apply YAML manifest
 pinchy agent configure <id>         Interactive agent config
 
-pinchy debug run                    Run a single agent turn
+pinchy debug run --agent <id> --message <text>  Run a single agent turn
 
 pinchy copilot login                GitHub device-flow auth
 pinchy copilot logout               Remove stored Copilot token
@@ -103,6 +117,10 @@ pinchy secrets set <key>            Store an encrypted secret
 pinchy service install|uninstall    Manage systemd service
 pinchy service start|stop|restart   Control service
 pinchy service status|logs          View service state
+
+pinchy backup                       Backup configuration and data
+pinchy restore <path>               Restore from backup
+pinchy config validate              Validate config file
 ```
 
 ## Tools
@@ -158,18 +176,18 @@ When the daemon is running, a REST + WebSocket gateway is served (default `:3131
 
 Key endpoints:
 
-| Method | Path | Description |
+| Category | Endpoints | Description |
 |---|---|---|
-| `GET` | `/api/status` | Daemon status |
-| `GET` | `/api/health` | Health check |
-| `GET/PUT` | `/api/config` | Read/update config |
-| `GET/POST` | `/api/agents` | List/create agents |
-| `GET/PUT/DELETE` | `/api/agents/:id` | Agent CRUD |
-| `GET/POST` | `/api/cron/jobs` | Cron job management |
-| `GET` | `/api/skills` | List skills |
-| `POST` | `/api/webhook/:agent_id` | Webhook ingest |
-| `GET` | `/ws` | WebSocket event stream |
-| `GET` | `/ws/logs` | Live log streaming |
+| **System** | `GET /api/status`, `GET /api/health` | Daemon status and health checks |
+| **Config** | `GET/PUT /api/config`, `GET /api/config/schema` | Config management and schema |
+| **Agents** | `GET/POST /api/agents`, `GET/PUT/DELETE /api/agents/:id`, `GET /api/agents/:id/cron`, `GET/PUT /api/agents/:id/files/:filename` | Agent CRUD and file management |
+| **Sessions & Receipts** | `GET /api/agents/:id/session/current`, `GET/POST/DELETE /api/agents/:id/sessions`, `GET /api/agents/:id/receipts` | Session and receipt tracking |
+| **Cron** | `GET/POST /api/cron/jobs`, `GET /api/cron/jobs/:agent_id`, `POST /api/cron/jobs/:job_id/trigger` | Scheduled job management |
+| **Memory** | `GET /api/agents/:id/memory`, `DELETE /api/agents/:id/memory/:key` | Agent memory operations |
+| **Skills** | `GET/POST /api/skills`, `GET/PUT/DELETE /api/skills/:name` | Skill management |
+| **Models & Providers** | `GET /api/models`, `GET /api/models/registry`, `GET /api/providers/status`, `POST /api/providers/:id/test` | Provider and model info |
+| **Auth** | `POST /api/auth/copilot/start`, `POST /api/auth/copilot/poll`, `GET/POST/DELETE /api/auth/:provider`, `GET /api/auth/:provider/masked` | Authentication flows |
+| **WebSocket** | `GET /ws`, `GET /ws/logs` | Real-time event and log streaming |
 
 React admin UI served at `/` (built from `web/`).
 

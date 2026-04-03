@@ -1,36 +1,160 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Pinchy Web UI
+
+React/Next.js admin interface for the Pinchy agent daemon.
+
+In production, the Rust gateway (Axum) serves these files as static assets from `static/react/`. In development, the Next.js dev server runs on `:3000` and proxies API calls to the Rust backend at `:3131`.
 
 ## Getting Started
 
-First, run the development server:
+Install dependencies (from repo root):
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cd web && npm install --legacy-peer-deps
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Start full dev mode (backend + frontend):
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+make dev  # From repo root; starts Rust + Next.js concurrently
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Start frontend only (backend already running on `:3131`):
 
-## Learn More
+```bash
+npm run dev  # Inside web/
+```
 
-To learn more about Next.js, take a look at the following resources:
+Build for production:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm run build  # Outputs to ../static/react (see next.config.ts)
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Project Structure
 
-## Deploy on Vercel
+| Path | Purpose |
+|------|---------|
+| `app/` | Next.js App Router pages: dashboard, agents, chat, settings, cron jobs, models, etc. |
+| `components/ui/` | shadcn/ui primitives and local wrappers: Card, Button, Dialog, Badge, Table, etc. |
+| `lib/validation/schemas.ts` | Zod schemas for API response validation; types exported via `z.infer<typeof Schema>` |
+| `shared/api/client.ts` | Centralized `fetchApi` wrapper with base URL handling, error parsing, and optional Zod validation |
+| `features/*/api/` | Feature-specific API modules (agents, cron, chat, settings, etc.) |
+| `shared/providers/query-provider.tsx` | TanStack Query client configuration |
+| `shared/providers/websocket.tsx` | WebSocket context for real-time events |
+| `next.config.ts` | Dev proxy rewrites (`/api/*` → `:3131`) and static export config |
+| `tsconfig.json` | Strict TypeScript mode enabled |
+| `tailwind.config.ts` | Tailwind with shadcn theme tokens |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Key Patterns
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### API Client
+
+All backend calls go through `fetchApi` in `shared/api/client.ts`:
+
+```typescript
+import { fetchApi } from '@/shared/api/client';
+import { AgentSchema } from '@/lib/validation/schemas';
+
+const agent = await fetchApi('/api/agents/123', {}, AgentSchema);
+```
+
+The client handles:
+- Base URL resolution (same-origin in production, proxied in dev)
+- Error parsing into `ApiError` objects
+- Optional Zod schema validation
+- Empty response handling (204 No Content)
+
+### Data Fetching
+
+Uses TanStack React Query with the provider in `shared/providers/query-provider.tsx`:
+
+```typescript
+import { useQuery, useMutation } from '@tanstack/react-query';
+
+const { data, isLoading } = useQuery({
+  queryKey: ['agents'],
+  queryFn: () => fetchApi('/api/agents', {}, AgentListSchema),
+});
+```
+
+### Validation
+
+Zod schemas in `lib/validation/schemas.ts` must stay in sync with Rust structs in `src/gateway/types.rs`. Example:
+
+```typescript
+export const AgentSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().optional(),
+  max_turns: z.number().nullable().optional(),
+});
+
+export type Agent = z.infer<typeof AgentSchema>;
+```
+
+Use `unknown` (never `any`) for truly dynamic data like tool arguments or log metadata.
+
+### TypeScript
+
+Strict mode is enabled in `tsconfig.json`. Never use `any`. Use proper typing for all function parameters and return values.
+
+### UI Components
+
+Always use shadcn primitives from `components/ui/`. Never build custom buttons, cards, or inputs with raw `<div>` elements and Tailwind classes. Import from the UI index:
+
+```typescript
+import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+```
+
+### WebSocket
+
+Real-time events are handled in `shared/providers/websocket.tsx`. The provider debounces query invalidation to prevent excessive refetches:
+
+```typescript
+import { useWebSocket } from '@/shared/providers/websocket';
+
+const { status, send } = useWebSocket();
+```
+
+## Build & Export
+
+Production builds use Next.js static export:
+
+- `output: 'export'` in `next.config.ts`
+- `distDir: '../static/react'` — places files where the Rust binary expects them
+- The Axum server in `src/gateway/` embeds and serves these files at `/`
+
+Dev mode uses rewrites to proxy API requests:
+
+```typescript
+// next.config.ts (devConfig)
+async rewrites() {
+  return [
+    {
+      source: '/api/:path*',
+      destination: 'http://127.0.0.1:3131/api/:path*',
+    },
+  ];
+}
+```
+
+## Scripts Reference
+
+| Command | Purpose |
+|---------|---------|
+| `npm run dev` | Start Next.js dev server with HMR (proxies `/api/*` to `:3131`) |
+| `npm run build` | Static export to `../static/react` |
+| `npm run type-check` | Run `tsc --noEmit` |
+| `npm run lint` | Run ESLint on TypeScript files |
+| `npm run serve` | Serve the built static files (for testing) |
+
+## Type Safety Check
+
+Before committing changes that touch API types or paths:
+
+```bash
+cd web && npx tsc --noEmit
+```
+
+Ensure no `any` types are introduced and all API responses match their Zod schemas.

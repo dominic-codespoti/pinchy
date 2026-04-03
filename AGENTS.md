@@ -227,7 +227,7 @@ Single-binary Rust daemon:
 | `tools/builtins/` | Tool implementations |
 | `skills/` | Skill registry — `SKILL.md` manifests |
 | `memory/` | SQLite + FTS5 persistent memory |
-| `session/` | Session store (`pinchy.db`) |
+| `session/` | Session store (`pinchy.db`). JSONL fallback files in this dir. |
 | `context/` | Context window management |
 | `scheduler/` | Cron jobs, retries, dependencies |
 | `gateway/` | Axum routes + WebSocket + static files |
@@ -251,8 +251,6 @@ Budget-based using `tiktoken-rs` (`o200k_base`):
 `.github/workflows/ci.yml`:
 1. `cargo fmt -- --check` + `cargo clippy --no-default-features`
 2. `cargo test --no-default-features --lib`
-3. Cross-platform release builds
-4. Auto-tag, GitHub Release, crates.io publish
 
 ## MCP Best Practices
 
@@ -266,12 +264,13 @@ See `src/skills/default_skills/` for examples.
 
 ## Agent Workspaces
 
-Each agent gets `agents/<id>/workspace/`:
-- `SOUL.md` — personality / system prompt
-- `TOOLS.md` — tool usage instructions
-- `HEARTBEAT.md` — heartbeat prompt
-- `memory.db` — SQLite memory
-- `skills/*/SKILL.md` — skill manifests
+Each agent gets:
+- `agents/<id>/workspace/`:
+  - `SOUL.md` — personality / system prompt
+  - `TOOLS.md` — tool usage instructions
+  - `HEARTBEAT.md` — heartbeat prompt
+  - `memory.db` — SQLite memory
+- `agents/<id>/skills/*/SKILL.md` — skill manifests
 
 Sessions, receipts, cron jobs live in `pinchy.db` (shared).
 
@@ -306,12 +305,14 @@ All providers are configured in `config.yaml` under the `models` key. Auth statu
 | AWS Bedrock | `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` | AWS credential chain or bearer token |
 | Azure OpenAI | `AZURE_OPENAI_ENDPOINT` + `AZURE_OPENAI_API_KEY` | Deployment-based routing |
 | GitHub Copilot | `COPILOT_TOKEN` or `~/.pinchy/copilot-token` | GitHub device-flow via `pinchy copilot login` |
-| GitLab | `GITLAB_TOKEN` | PAT for GitLab integration |
-| Discord | `DISCORD_TOKEN` | Bot token for gateway connector |
+
+**Discord Gateway:** `DISCORD_TOKEN` (set under `channels.discord.token`, not `models`)
+
+**GitLab Integration:** `GITLAB_TOKEN` — used for integration features, not a model provider
 
 **Backend API:** `GET /api/providers/status` returns auth status for all configured and common providers.
 
-**Config validation:** `pinchy start` warns about models missing API keys (except `copilot`, `ollama`, `lmstudio`, `vllm`, `anthropic` which use env vars).
+**Config validation:** `pinchy config validate` warns about models missing API keys (except `copilot`, `ollama`, `lmstudio`, `vllm`, `anthropic` which use env vars).
 
 ## Development
 
