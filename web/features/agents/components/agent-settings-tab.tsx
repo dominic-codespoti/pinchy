@@ -407,6 +407,18 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
     }
   }, [models, modelsSource]);
 
+  // Validate model when models load - reset if current model is invalid
+  useEffect(() => {
+    if (models && models.length > 0 && formData.model) {
+      const validModelIds = models.map(m => m.id);
+      if (!validModelIds.includes(formData.model)) {
+        console.log(`[AgentSettings] Invalid model '${formData.model}' not in available models, resetting to '${models[0].id}'`);
+        setFormData(prev => ({ ...prev, model: models[0].id }));
+        setHasChanges(true);
+      }
+    }
+  }, [models, formData.model]);
+
   const handleChange = (field: string, value: string | number | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     setHasChanges(true);
