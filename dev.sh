@@ -8,6 +8,11 @@ WEB="$ROOT/web"
 echo "🧹 Cleaning static/react for dev mode..."
 rm -rf "$ROOT/static/react"
 
+# Create minimal placeholder for Rust embed in dev mode
+echo "📝 Creating placeholder for Rust embed..."
+mkdir -p "$ROOT/static/react"
+echo '<!DOCTYPE html><html><head><title>Pinchy Dev</title></head><body>Dev Mode - see localhost:3000</body></html>' >"$ROOT/static/react/index.html"
+
 echo "🧹 Cleaning up stale processes…"
 # Kill any existing pinchy processes
 pkill -f "target/debug/pinchy" 2>/dev/null || true
