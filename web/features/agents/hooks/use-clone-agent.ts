@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { fetchApi } from '@/shared/api/client';
 import { toast } from 'sonner';
 import { CloneAgentOptions, CloneAgentResult } from '../types';
+import { agentsKeys } from '../query-keys';
 
 interface CloneAgentRequest {
   new_id: string;
@@ -43,7 +44,7 @@ export function useCloneAgent(): UseCloneAgentResult {
     mutationFn: cloneAgent,
     onSuccess: (data, variables) => {
       // Invalidate agents list to include cloned agent
-      queryClient.invalidateQueries({ queryKey: ['agents'] });
+      queryClient.invalidateQueries({ queryKey: agentsKeys.lists() });
       toast.success(`Agent cloned as ${data.id} successfully`);
       // Navigate to cloned agent
       router.push(`/agents/${data.id}`);

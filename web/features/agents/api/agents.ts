@@ -3,8 +3,7 @@
  * Endpoints from src/gateway/handlers/agents.rs
  */
 
-import { fetchApi, type ApiError } from '@/shared/api/client';
-import { getErrorMessage } from './client';
+import { fetchApi, getErrorMessage, type ApiError } from '@/shared/api/client';
 import type {
   Agent,
   RawAgent,
@@ -85,7 +84,7 @@ function transformRawAgent(raw: RawAgent): Agent {
     },
     createdAt: raw.created_at || new Date().toISOString(),
     hasHeartbeat: raw.has_heartbeat,
-    lastHeartbeatAt: raw.last_heartbeat_at,
+    lastHeartbeatAt: raw.last_heartbeat_at ? new Date(raw.last_heartbeat_at * 1000).toISOString() : undefined,
     heartbeatInterval: raw.heartbeat_secs || undefined,
     maxTurns: raw.max_turns,
     historyMessages: raw.history_messages,

@@ -1,4 +1,5 @@
-// Agent API barrel file
+// Agent API barrel file - re-exports from sub-modules
+// API client utilities should be imported from @/shared/api/client directly
 export {
   getAgents,
   getAgent,
@@ -52,18 +53,3 @@ export {
   type TestAgentOptions,
   type TestAgentResult,
 } from './test';
-
-export {
-  fetchApi,
-  isNotFoundError,
-  isNetworkError,
-  isServerError,
-  isClientError,
-  isConflictError,
-  isBadRequestError,
-  getErrorMessage,
-  fetchWithRetry,
-  type ApiResponse,
-  type ApiErrorResponse,
-  type RetryOptions,
-} from './client';

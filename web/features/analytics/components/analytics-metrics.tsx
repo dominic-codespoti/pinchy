@@ -22,7 +22,6 @@ export function AnalyticsMetrics({ metrics, timeRange, loading }: AnalyticsMetri
         icon={Activity}
         accent="blue"
         loading={loading}
-        trend={{ direction: 'up', value: '12.5%', positive: true }}
       />
       <MetricCard
         title="Tokens Used"
@@ -31,7 +30,6 @@ export function AnalyticsMetrics({ metrics, timeRange, loading }: AnalyticsMetri
         icon={Zap}
         accent="violet"
         loading={loading}
-        trend={{ direction: 'up', value: '8.2%', positive: true }}
       />
       <MetricCard
         title="Est. Cost"
@@ -40,7 +38,6 @@ export function AnalyticsMetrics({ metrics, timeRange, loading }: AnalyticsMetri
         icon={Coins}
         accent="amber"
         loading={loading}
-        trend={{ direction: 'down', value: '3.1%', positive: true }}
       />
       <MetricCard
         title="Avg Response Time"
@@ -49,7 +46,6 @@ export function AnalyticsMetrics({ metrics, timeRange, loading }: AnalyticsMetri
         icon={Clock}
         accent="emerald"
         loading={loading}
-        trend={{ direction: 'down', value: '5.3%', positive: true }}
       />
     </div>
   );

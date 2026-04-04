@@ -5,8 +5,9 @@ import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Bot, Activity, Clock, Server } from 'lucide-react';
 import { STALE_TIME } from '@/lib/query-config';
-import { getDashboardAgents, getDashboardCronJobs } from './api';
-import { StatItem, DashboardAgent } from './types';
+import { getDashboardAgents, getDashboardCronJobs, getHealth } from './api';
+import { StatItem, DashboardAgent, HealthResponse } from './types';
+import { dashboardKeys } from './query-keys';
 
 // Helper to get heartbeat status (duplicated from shared for feature isolation)
 function getHeartbeatStatus(
@@ -28,7 +29,7 @@ function getHeartbeatStatus(
 
 export function useDashboardAgents() {
   const { data, isLoading, error } = useQuery<DashboardAgent[], Error>({
-    queryKey: ['dashboard', 'agents'],
+    queryKey: dashboardKeys.agents(),
     queryFn: getDashboardAgents,
     staleTime: STALE_TIME.SHORT,
   });
@@ -53,7 +54,7 @@ export function useDashboardCronJobs() {
     }>,
     Error
   >({
-    queryKey: ['dashboard', 'cron'],
+    queryKey: dashboardKeys.cronJobs(),
     queryFn: getDashboardCronJobs,
     staleTime: STALE_TIME.SHORT,
   });
@@ -67,11 +68,29 @@ export function useDashboardCronJobs() {
   return { data, isLoading, error };
 }
 
+export function useHealth() {
+  const { data, isLoading, error } = useQuery<HealthResponse, Error>({
+    queryKey: dashboardKeys.health(),
+    queryFn: getHealth,
+    staleTime: STALE_TIME.SHORT,
+    retry: 1,
+  });
+
+  useEffect(() => {
+    if (error) {
+      toast.error(`Failed to load system health: ${error.message}`);
+    }
+  }, [error]);
+
+  return { data, isLoading, error };
+}
+
 export function useDashboardStats() {
   const { data: agents, isLoading: agentsLoading } = useDashboardAgents();
   const { data: cronJobs, isLoading: cronJobsLoading } = useDashboardCronJobs();
+  const { data: health, isLoading: healthLoading, error: healthError } = useHealth();
 
-  const isLoading = agentsLoading || cronJobsLoading;
+  const isLoading = agentsLoading || cronJobsLoading || healthLoading;
 
   const stats = useMemo(() => {
     const totalAgents = agents?.length ?? 0;
@@ -84,14 +103,40 @@ export function useDashboardStats() {
     const totalCronJobs = cronJobs?.length ?? 0;
     const activeCronJobs = cronJobs?.filter((c) => c.lastStatus).length ?? 0;
 
+    // Determine health status from API or error state
+    let healthStatus: string;
+    let healthTone: 'success' | 'warning' | 'danger' | 'default';
+    let healthDescription: string;
+
+    if (healthError) {
+      healthStatus = 'Error';
+      healthTone = 'danger';
+      healthDescription = 'Failed to check system status';
+    } else if (!health) {
+      healthStatus = 'Unknown';
+      healthTone = 'warning';
+      healthDescription = 'Status unavailable';
+    } else if (health.status === 'ok') {
+      healthStatus = 'Healthy';
+      healthTone = 'success';
+      healthDescription = 'All services operational';
+    } else {
+      healthStatus = 'Degraded';
+      healthTone = 'warning';
+      healthDescription = 'Some services may be affected';
+    }
+
     return {
       totalAgents,
       activeAgents,
       onlineAgents,
       totalCronJobs,
       activeCronJobs,
+      healthStatus,
+      healthTone,
+      healthDescription,
     };
-  }, [agents, cronJobs]);
+  }, [agents, cronJobs, health, healthError]);
 
   const statItems: StatItem[] = useMemo(
     () => [
@@ -120,10 +165,10 @@ export function useDashboardStats() {
       {
         id: 'system-status',
         title: 'System Status',
-        value: 'Healthy',
-        description: 'All services operational',
+        value: stats.healthStatus,
+        description: stats.healthDescription,
         icon: Server,
-        tone: 'success',
+        tone: stats.healthTone,
       },
     ],
     [stats]

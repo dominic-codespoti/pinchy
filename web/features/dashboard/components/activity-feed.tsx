@@ -15,34 +15,20 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { cn } from '@/shared/lib/utils';
+import { getRelativeTime } from '@/shared/lib/date-utils';
 import { useQuery } from '@tanstack/react-query';
+import { STALE_TIME } from '@/lib/query-config';
 import { getDashboardSessions, DashboardSession } from '../api';
 
 interface ActivityFeedProps extends React.HTMLAttributes<HTMLDivElement> {
   loading?: boolean;
 }
 
-function getRelativeTime(timestamp: number): string {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffSecs = Math.floor(diffMs / 1000);
-  const diffMins = Math.floor(diffSecs / 60);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffSecs < 60) return 'just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return date.toLocaleDateString();
-}
-
 function useDashboardSessions() {
   return useQuery<DashboardSession[], Error>({
     queryKey: ['dashboard', 'sessions'],
     queryFn: getDashboardSessions,
-    staleTime: 5000,
+    staleTime: STALE_TIME.SHORT,
   });
 }
 

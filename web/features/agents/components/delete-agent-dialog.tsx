@@ -17,16 +17,30 @@ import { Loader2, Trash2 } from 'lucide-react';
 import { Agent } from '../types';
 
 interface DeleteAgentDialogProps {
-  agent: Agent;
+  agent: Agent | null;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   onDelete?: (agentId: string) => Promise<void>;
   trigger?: React.ReactNode;
 }
 
-export function DeleteAgentDialog({ agent, onDelete, trigger }: DeleteAgentDialogProps) {
-  const [open, setOpen] = useState(false);
+export function DeleteAgentDialog({ 
+  agent, 
+  open: controlledOpen, 
+  onOpenChange, 
+  onDelete, 
+  trigger 
+}: DeleteAgentDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (value: boolean) => {
+    setInternalOpen(value);
+    onOpenChange?.(value);
+  };
   const [isDeleting, setIsDeleting] = useState(false);
 
   const handleDelete = async () => {
+    if (!agent) return;
     setIsDeleting(true);
     try {
       await onDelete?.(agent.id);
@@ -38,24 +52,24 @@ export function DeleteAgentDialog({ agent, onDelete, trigger }: DeleteAgentDialo
     }
   };
 
+  // Don't render if no agent and no trigger (controlled mode)
+  if (!agent && !trigger) return null;
+
   return (
     <AlertDialog open={open} onOpenChange={setOpen}>
-      <AlertDialogTrigger asChild>
-        {trigger || (
-          <Button variant="destructive" size="sm">
-            <Trash2 className="mr-2 h-4 w-4" />
-            Delete
-          </Button>
-        )}
-      </AlertDialogTrigger>
+      {trigger && (
+        <AlertDialogTrigger asChild>
+          {trigger}
+        </AlertDialogTrigger>
+      )}
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle className="text-destructive">
-            Delete {agent.name}?
+            Delete {agent?.name || 'Agent'}?
           </AlertDialogTitle>
           <AlertDialogDescription>
             This action cannot be undone. This will permanently delete the agent{' '}
-            <strong>{agent.id}</strong> and all associated data including:
+            <strong>{agent?.id || ''}</strong> and all associated data including:
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="rounded-lg bg-muted p-4 text-sm">

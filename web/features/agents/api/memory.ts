@@ -4,6 +4,7 @@
  */
 
 import { fetchApi } from '@/shared/api/client';
+import { PAGINATION } from '@/lib/query-config';
 import type { Memory } from '../types';
 
 const API_BASE = '/api/agents';
@@ -60,7 +61,7 @@ function transformMemoryEntry(agentId: string) {
  * Supports optional query parameters:
  * - q: search query (keyword search via FTS5)
  * - tag: filter by tag
- * - limit: max results (default 100)
+ * - limit: max results (default PAGINATION.MEMORY_DEFAULT)
  * - mode: "keyword" | "semantic" | "hybrid"
  */
 export async function getAgentMemories(

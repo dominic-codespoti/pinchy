@@ -15,6 +15,8 @@ use axum::{extract::Json, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
+use crate::gateway::types::ErrorResponse;
+
 /// Chat request to the Pinchy agent.
 #[derive(Debug, Deserialize)]
 pub(crate) struct PinchyChatRequest {
@@ -58,9 +60,13 @@ pub(crate) async fn api_pinchy_chat(Json(body): Json<PinchyChatRequest>) -> impl
     if body.message.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "message is required"
-            })),
+            Json(ErrorResponse {
+                error: "message is required".to_string(),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -71,9 +77,13 @@ pub(crate) async fn api_pinchy_chat(Json(body): Json<PinchyChatRequest>) -> impl
             warn!(error = %e, "failed to create pinchy agent workspace");
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "error": format!("failed to initialize pinchy agent: {e}")
-                })),
+                Json(ErrorResponse {
+                    error: format!("failed to initialize pinchy agent: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -161,9 +171,13 @@ pub(crate) async fn api_pinchy_chat(Json(body): Json<PinchyChatRequest>) -> impl
         warn!(error = %e, "failed to send message to comm bus");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": format!("failed to send message: {e}")
-            })),
+            Json(ErrorResponse {
+                error: format!("failed to send message: {e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -180,9 +194,13 @@ pub(crate) async fn api_pinchy_chat(Json(body): Json<PinchyChatRequest>) -> impl
         }
         Err(_) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": "failed to receive response from pinchy agent"
-            })),
+            Json(ErrorResponse {
+                error: "failed to receive response from pinchy agent".to_string(),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }

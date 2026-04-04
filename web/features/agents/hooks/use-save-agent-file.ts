@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchApi } from '@/shared/api/client';
 import { toast } from 'sonner';
+import { agentsKeys } from '../query-keys';
 
 interface SaveAgentFileResponse {
   filename: string;
@@ -37,11 +38,11 @@ export function useSaveAgentFile(): UseSaveAgentFileResult {
     onSuccess: (_, variables) => {
       // Invalidate the specific file cache
       queryClient.invalidateQueries({
-        queryKey: ['agents', variables.agentId, 'files', variables.filename],
+        queryKey: agentsKeys.file(variables.agentId, variables.filename),
       });
       // Also invalidate the agent detail to refresh any derived data
       queryClient.invalidateQueries({
-        queryKey: ['agents', variables.agentId],
+        queryKey: agentsKeys.detail(variables.agentId),
       });
       toast.success(`File ${variables.filename} saved successfully`);
     },

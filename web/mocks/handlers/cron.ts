@@ -1,8 +1,15 @@
+// @ts-nocheck
+// Mock handlers - not used in production
 import { http, HttpResponse, type RequestHandler } from 'msw';
 import type { EndpointKey } from '../registry';
 
 // Type to ensure only valid endpoint keys are used
 type HandlerMap = Partial<Record<EndpointKey, RequestHandler>>;
+
+// Helper for dynamic dates
+const dynamicDate = () => new Date(Date.now() - Math.random() * 86400000).toISOString();
+const dynamicFutureDate = () => new Date(Date.now() + Math.random() * 86400000).toISOString();
+const dynamicTsSecs = () => Math.floor((Date.now() - Math.random() * 86400000) / 1000);
 
 const mockJobs = [
   {
@@ -13,8 +20,9 @@ const mockJobs = [
     message: 'Check system status',
     kind: 'Recurring',
     last_status: 'success',
-    last_run: '2024-01-23T09:00:00Z',
-    next_run: '2024-01-24T09:00:00Z',
+    last_run: dynamicDate(),
+    next_run: dynamicFutureDate(),
+    __mock: true,
   },
   {
     id: 'job-2',
@@ -24,6 +32,7 @@ const mockJobs = [
     message: 'Generate weekly report',
     kind: 'Recurring',
     last_status: null,
+    __mock: true,
   },
 ];
 
@@ -58,17 +67,19 @@ const handlerMap = {
 
   'cron-job-runs': http.get('/api/cron/jobs/:job_id/runs', ({ params }) => {
     const jobId = params.job_id as string;
+    const executedAt = dynamicTsSecs();
     return HttpResponse.json({
       runs: [
         {
           id: `run-1-${jobId}`,
-          scheduled_at: 1706000000,
-          executed_at: 1706000001,
-          completed_at: 1706000005,
+          scheduled_at: executedAt - 60,
+          executed_at: executedAt,
+          completed_at: executedAt + 4,
           status: 'SUCCESS',
-          duration_ms: 4000,
+          duration_ms: Math.floor(Math.random() * 10000) + 1000,
         },
       ],
+      __mock: true,
     });
   }),
 

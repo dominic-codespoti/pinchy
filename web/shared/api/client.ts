@@ -14,6 +14,66 @@ export function isNotFoundError(error: unknown): boolean {
 }
 
 /**
+ * Check if error is a server error (5xx)
+ */
+export function isServerError(error: unknown): boolean {
+  if (error && typeof error === 'object' && 'status' in error) {
+    const status = (error as ApiError).status;
+    return typeof status === 'number' && status >= 500 && status < 600;
+  }
+  return false;
+}
+
+/**
+ * Check if error is a client error (4xx)
+ */
+export function isClientError(error: unknown): boolean {
+  if (error && typeof error === 'object' && 'status' in error) {
+    const status = (error as ApiError).status;
+    return typeof status === 'number' && status >= 400 && status < 500;
+  }
+  return false;
+}
+
+/**
+ * Check if error is a conflict error (409)
+ */
+export function isConflictError(error: unknown): boolean {
+  if (error && typeof error === 'object' && 'status' in error) {
+    return (error as ApiError).status === 409;
+  }
+  return false;
+}
+
+/**
+ * Check if error is a bad request error (400)
+ */
+export function isBadRequestError(error: unknown): boolean {
+  if (error && typeof error === 'object' && 'status' in error) {
+    return (error as ApiError).status === 400;
+  }
+  return false;
+}
+
+/**
+ * Get error message from unknown error
+ */
+export function getErrorMessage(error: unknown): string {
+  if (error && typeof error === 'object') {
+    if ('message' in error && typeof (error as ApiError).message === 'string') {
+      return (error as ApiError).message;
+    }
+    if ('error' in error && typeof (error as { error: string }).error === 'string') {
+      return (error as { error: string }).error;
+    }
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return 'An unknown error occurred';
+}
+
+/**
  * Base HTTP client for all API requests
  * This is the ONLY HTTP client that all features should use
  */

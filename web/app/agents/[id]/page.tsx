@@ -3,7 +3,7 @@ import { Suspense } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface PageProps {
-  params: { id: string };
+  params?: Promise<{ id: string }>;
 }
 
 function AgentDetailLoading() {
@@ -21,10 +21,11 @@ export function generateStaticParams() {
   return [{ id: 'placeholder' }];
 }
 
-export default function AgentDetailPage({ params }: PageProps) {
+export default async function AgentDetailPage({ params }: PageProps) {
+  const { id } = await (params ?? Promise.resolve({ id: '' }));
   return (
     <Suspense fallback={<AgentDetailLoading />}>
-      <AgentDetail id={params.id} />
+      <AgentDetail id={id} />
     </Suspense>
   );
 }

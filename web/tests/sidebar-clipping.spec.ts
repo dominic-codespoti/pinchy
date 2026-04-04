@@ -1,11 +1,12 @@
 import { test, expect } from '@playwright/test';
+import { TIMEOUTS } from '@/lib/config/timeouts';
 
 test('verify sidebar clipping issue is fixed', async ({ page }) => {
   // Navigate to chat page
   await page.goto('http://localhost:3000/chat');
   
   // Wait for the sidebar to be visible
-  await page.waitForSelector('[class*="flex h-full flex-col"]', { timeout: 10000 });
+  await page.waitForSelector('[class*="flex h-full flex-col"]', { timeout: TIMEOUTS.TEST_TIMEOUT });
   
   // Give time for sessions to load
   await page.waitForTimeout(2000);

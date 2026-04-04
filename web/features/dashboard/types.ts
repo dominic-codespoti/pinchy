@@ -1,4 +1,7 @@
 import { LucideIcon } from 'lucide-react';
+import { RawAgent } from '@/lib/validation/schemas';
+
+export type { RawAgent } from '@/lib/validation/schemas';
 
 export interface StatItem {
   id: string;
@@ -7,6 +10,14 @@ export interface StatItem {
   description: string;
   icon: LucideIcon;
   tone?: 'default' | 'success' | 'warning' | 'danger';
+}
+
+// Health check response from backend
+export interface HealthResponse {
+  status: string;
+  version: string;
+  uptime_secs: number;
+  agents: number;
 }
 
 // Dashboard-specific Agent type (minimal fields needed)
@@ -26,15 +37,6 @@ export interface DashboardCronJob {
   schedule: string;
   message: string;
   lastStatus: boolean;
-}
-
-// Raw API response shapes from backend
-export interface RawAgent {
-  id: string;
-  model?: string;
-  has_heartbeat?: boolean;
-  last_heartbeat_at?: number | null;
-  heartbeat_secs?: number | null;
 }
 
 export interface RawCronJob {

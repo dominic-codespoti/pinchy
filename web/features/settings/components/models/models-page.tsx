@@ -322,7 +322,7 @@ function ApiKeyDialog({
               <Input
                 id="endpoint"
                 type="url"
-                placeholder="https://api.example.com/v1"
+                placeholder="https://api.openai.com/v1 or http://localhost:11434"
                 value={endpoint}
                 onChange={(e) => setEndpoint(e.target.value)}
               />
@@ -1295,10 +1295,13 @@ function ModelPickerSheet({
 // ============================================================================
 
 export function ModelsPage() {
-  // Settings state
-  const [settings, setSettings] = React.useState<ModelSettings>({ defaultModel: 'gpt-4o-mini' });
+  // Settings state - use first available model as default
+  const { data: availableModels = [], isLoading: modelsLoading } = useAvailableModels();
+  const firstAvailableModel = availableModels[0]?.id ?? '';
+  
+  const [settings, setSettings] = React.useState<ModelSettings>({ defaultModel: firstAvailableModel || '' });
   const [originalSettings, setOriginalSettings] = React.useState<ModelSettings>({
-    defaultModel: 'gpt-4o-mini',
+    defaultModel: firstAvailableModel || '',
   });
   const [hasChanges, setHasChanges] = React.useState(false);
   const [isLoaded, setIsLoaded] = React.useState(false);
@@ -1316,7 +1319,6 @@ export function ModelsPage() {
 
   // Data fetching
   const queryClient = useQueryClient();
-  const { data: availableModels = [], isLoading: modelsLoading } = useAvailableModels();
   const { data: providerStatuses = [], isLoading: providersLoading } = useProvidersStatus();
   const [modelsRegistry, setModelsRegistry] = React.useState<Map<string, ModelsDevProvider>>(
     new Map()
@@ -1369,19 +1371,32 @@ export function ModelsPage() {
 
   // Load saved settings
   React.useEffect(() => {
+    // Wait for models to load to determine a valid default
+    if (modelsLoading) return;
+    
+    const fallbackDefault = availableModels[0]?.id ?? '';
+    
     const saved = localStorage.getItem('modelSettings');
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        const newSettings = { defaultModel: parsed.defaultModel ?? 'gpt-4o-mini' };
+        const newSettings = { defaultModel: parsed.defaultModel || fallbackDefault };
         setSettings(newSettings);
         setOriginalSettings(newSettings);
       } catch {
         // ignore parse errors
+        const defaultSettings = { defaultModel: fallbackDefault };
+        setSettings(defaultSettings);
+        setOriginalSettings(defaultSettings);
       }
+    } else {
+      // No saved settings - use first available model
+      const defaultSettings = { defaultModel: fallbackDefault };
+      setSettings(defaultSettings);
+      setOriginalSettings(defaultSettings);
     }
     setIsLoaded(true);
-  }, []);
+  }, [modelsLoading, availableModels]);
 
   // Track changes
   React.useEffect(() => {
@@ -1533,7 +1548,8 @@ export function ModelsPage() {
 
   const handleReset = () => {
     if (confirm('Are you sure you want to reset model settings to defaults?')) {
-      const defaults = { defaultModel: 'gpt-4o-mini' };
+      const fallbackDefault = availableModels[0]?.id ?? '';
+      const defaults = { defaultModel: fallbackDefault };
       setSettings(defaults);
       setOriginalSettings(defaults);
       setHasChanges(false);

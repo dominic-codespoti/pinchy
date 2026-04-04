@@ -1,6 +1,8 @@
 import { fetchApi, ApiError } from '@/shared/api/client';
-import { DashboardAgent, DashboardCronJob, DashboardSession, RawAgent, RawCronJob } from './types';
+import { RawAgent } from '@/lib/validation/schemas';
+import { DashboardAgent, DashboardCronJob, DashboardSession, HealthResponse } from './types';
 
+export type { DashboardAgent, DashboardCronJob, DashboardSession, HealthResponse } from './types';
 export type { ApiError };
 
 // Backend cron job shape
@@ -74,4 +76,8 @@ function transformSession(raw: BackendSession): DashboardSession {
 export async function getDashboardSessions(): Promise<DashboardSession[]> {
   const response = await fetchApi<{ sessions: BackendSession[] }>('/api/sessions');
   return response.sessions.map(transformSession);
+}
+
+export async function getHealth(): Promise<HealthResponse> {
+  return fetchApi<HealthResponse>('/api/health');
 }

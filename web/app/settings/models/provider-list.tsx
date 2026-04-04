@@ -46,6 +46,7 @@ import {
   ChevronLeft,
 } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface ProviderListProps {
   providers: ProviderConfig[];
@@ -377,25 +378,6 @@ function ProviderListItem({
   );
 }
 
-// Empty State Component
-function EmptyState({ onAdd }: { onAdd: () => void }) {
-  return (
-    <Card className="flex flex-col items-center justify-center p-12 text-center">
-      <div className="rounded-full bg-muted p-4 mb-4">
-        <Plug className="h-12 w-12 text-muted-foreground" />
-      </div>
-      <CardTitle className="text-xl mb-2">No providers connected</CardTitle>
-      <CardDescription className="mb-6 max-w-sm">
-        Add a provider to get started with AI-powered features
-      </CardDescription>
-      <Button onClick={onAdd}>
-        <Plus className="h-4 w-4 mr-2" />
-        Connect Provider
-      </Button>
-    </Card>
-  );
-}
-
 // Main Provider List Component
 export function ProviderList({
   providers,
@@ -440,7 +422,18 @@ export function ProviderList({
   const hasConnected = connected.length > 0;
 
   if (!hasProviders) {
-    return <EmptyState onAdd={() => onConnect('', '')} />;
+    return (
+      <EmptyState
+        icon={<Plug className="h-12 w-12" />}
+        title="No providers connected"
+        description="Add a provider to get started with AI-powered features"
+        action={{
+          label: 'Connect Provider',
+          onClick: () => onConnect('', ''),
+          icon: <Plus className="h-4 w-4" />,
+        }}
+      />
+    );
   }
 
   return (

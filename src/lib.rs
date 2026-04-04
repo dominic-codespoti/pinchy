@@ -16,6 +16,7 @@ pub mod mcp;
 pub mod memory;
 pub mod models;
 pub mod models_dev;
+pub mod ports;
 pub mod scheduler;
 pub mod secrets;
 pub mod session;

@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/shared/lib/utils';
 import { DashboardAgent } from '../types';
+import { FALLBACKS } from '@/lib/constants/fallbacks';
 
 interface ChartsSectionProps extends React.HTMLAttributes<HTMLElement> {
   agents: DashboardAgent[] | undefined;
@@ -34,7 +35,7 @@ function useModelDistribution(agents: DashboardAgent[] | undefined) {
     const modelCounts = new Map<string, number>();
 
     agents.forEach((agent) => {
-      const model = agent.config.model || 'unknown';
+      const model = agent.config.model || FALLBACKS.MODEL;
       modelCounts.set(model, (modelCounts.get(model) || 0) + 1);
     });
 

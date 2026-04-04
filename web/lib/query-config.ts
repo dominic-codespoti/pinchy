@@ -42,3 +42,17 @@ export const REFETCH_INTERVAL = {
   /** 30s - Background polling (agents list) */
   LONG: 30000,
 } as const;
+
+/** Pagination limits for API requests and UI buffers */
+export const PAGINATION = {
+  /** Default page size for most API requests */
+  DEFAULT_LIMIT: 100,
+  /** Maximum allowed page size for API requests */
+  MAX_LIMIT: 1000,
+  /** Page size for real-time/WebSocket feeds (logs, events) */
+  REALTIME_LIMIT: 200,
+  /** Maximum number of logs to keep in memory buffer */
+  LOGS_MAX_BUFFER: 2000,
+  /** Default memory entries per request */
+  MEMORY_DEFAULT: 100,
+} as const;

@@ -4,6 +4,7 @@ import { Bell, CheckCircle, AlertTriangle, XCircle, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/shared/lib/utils';
+import { formatRelativeTime } from '@/shared/lib/date-utils';
 import type { Notification, NotificationType } from '@/features/notifications/types';
 
 interface NotificationItemProps {
@@ -25,17 +26,6 @@ const bgMap: Record<NotificationType, string> = {
   warning: 'bg-amber-50 dark:bg-amber-950/20 border-l-amber-500',
   error: 'bg-red-50 dark:bg-red-950/20 border-l-red-500',
 };
-
-function formatRelativeTime(timestamp: string): string {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
-
-  if (diffInSeconds < 60) return 'Just now';
-  if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-  if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
-  return `${Math.floor(diffInSeconds / 86400)}d ago`;
-}
 
 export function NotificationItem({ notification, onMarkAsRead, onRemove }: NotificationItemProps) {
   const router = useRouter();
@@ -76,7 +66,7 @@ export function NotificationItem({ notification, onMarkAsRead, onRemove }: Notif
             {notification.title}
           </p>
           <span className="text-xs text-muted-foreground whitespace-nowrap">
-            {formatRelativeTime(notification.timestamp)}
+            {formatRelativeTime(notification.timestamp, { capitalize: true })}
           </span>
         </div>
         <p className="text-sm text-muted-foreground mt-1 line-clamp-2">

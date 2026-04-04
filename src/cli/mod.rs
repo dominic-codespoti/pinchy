@@ -1319,8 +1319,10 @@ pub async fn apply_manifest(
 
 /// Check whether the Pinchy daemon is running by hitting the gateway /api/status endpoint.
 pub async fn check_status() -> anyhow::Result<()> {
+    use crate::ports::GATEWAY_BIND_DEFAULT;
+
     let raw_addr =
-        std::env::var("PINCHY_GATEWAY_ADDR").unwrap_or_else(|_| "0.0.0.0:3131".to_string());
+        std::env::var("PINCHY_GATEWAY_ADDR").unwrap_or_else(|_| GATEWAY_BIND_DEFAULT.to_string());
     let addr = raw_addr.replace("0.0.0.0", "127.0.0.1");
     let url = format!("http://{addr}/api/status");
 

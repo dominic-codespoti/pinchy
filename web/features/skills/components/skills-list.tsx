@@ -16,6 +16,7 @@ import { Skill } from "../types";
 import { SkillDetailDialog } from "./skill-detail-dialog";
 import { EditSkillDialog } from "./edit-skill-dialog";
 import { useDeleteSkill } from "../hooks";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Lightbulb, Eye, Shield, Wrench, Trash2, Pencil } from "lucide-react";
 
 function formatSkillName(id: string | null | undefined): string {
@@ -59,17 +60,12 @@ export function SkillsList({ skills, loading, onRefetch }: SkillsListProps) {
 
   if (!skills || skills.length === 0) {
     return (
-      <Card>
-        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-          <Lightbulb className="h-12 w-12 text-muted-foreground/30 mb-4" />
-          <p className="text-muted-foreground font-medium mb-1">
-            No skills registered
-          </p>
-          <p className="text-sm text-muted-foreground/70 max-w-xs">
-            Skills will appear here once they are registered with the system.
-          </p>
-        </CardContent>
-      </Card>
+      <EmptyState
+        icon={<Lightbulb className="h-12 w-12 opacity-30" />}
+        title="No skills registered"
+        description="Skills will appear here once they are registered with the system."
+        compact
+      />
     );
   }
 

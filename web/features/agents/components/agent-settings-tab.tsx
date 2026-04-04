@@ -12,6 +12,8 @@ import { Separator } from '@/components/ui/separator';
 import { Settings, Save, Heart, Wrench, Bot, Clock } from 'lucide-react';
 import { Agent } from '../types';
 import { useAvailableModels, useProvidersStatus } from '@/features/settings';
+import { LIMITS } from '@/lib/config/timeouts';
+import { FALLBACKS } from '@/lib/constants/fallbacks';
 
 interface AgentSettingsTabProps {
   agent: Agent;
@@ -34,7 +36,7 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
     historyMessages: agent.historyMessages || 5,
     maxToolIterations: agent.maxToolIterations || 5,
     reasoningEffort: agent.reasoningEffort || 'medium',
-    timezone: agent.timezone || 'UTC',
+    timezone: agent.timezone || FALLBACKS.TIMEZONE,
   });
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
@@ -173,8 +175,8 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
                 <Input
                   id="heartbeat-interval"
                   type="number"
-                  min={10}
-                  max={86400}
+                  min={LIMITS.MIN_HEARTBEAT_INTERVAL_SECONDS}
+                  max={LIMITS.MAX_HEARTBEAT_INTERVAL_SECONDS}
                   value={formData.heartbeatInterval}
                   onChange={(e) => handleChange('heartbeatInterval', parseInt(e.target.value))}
                 />

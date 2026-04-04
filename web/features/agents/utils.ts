@@ -3,7 +3,9 @@
  * Transforms raw API responses to frontend Agent types
  */
 
-import { Agent, RawAgent } from './types';
+import { Agent } from './types';
+import { RawAgent } from '@/lib/validation/schemas';
+import { FALLBACKS } from '@/lib/constants/fallbacks';
 
 /**
  * Transform a RawAgent from the list endpoint to a frontend Agent
@@ -16,13 +18,13 @@ export function transformAgent(raw: RawAgent): Agent {
     status: raw.has_heartbeat ? 'active' : 'inactive',
     config: {
       model: raw.model,
-      provider: raw.provider || 'copilot',
+      provider: raw.provider || FALLBACKS.PROVIDER,
       systemPrompt: '', // Will be populated from SOUL.md
       toolsEnabled: raw.has_tools ? ['read_file', 'write_file', 'exec_shell'] : [],
     },
     createdAt: raw.created_at || new Date().toISOString(),
     hasHeartbeat: raw.has_heartbeat,
-    lastHeartbeatAt: raw.last_heartbeat_at,
+    lastHeartbeatAt: raw.last_heartbeat_at ? new Date(raw.last_heartbeat_at * 1000).toISOString() : undefined,
     heartbeatInterval: raw.heartbeat_secs || undefined,
     cronJobsCount: raw.cron_jobs_count || 0,
     watchPaths: raw.watch_paths || [],
@@ -57,9 +59,8 @@ export function transformAgentDetail(raw: RawAgent, id: string): Agent {
     config: {
       ...base.config,
       systemPrompt: raw.soul || base.config.systemPrompt,
-      toolsEnabled: raw.tools
-        ? raw.tools.split(',').map((t) => t.trim())
-        : base.config.toolsEnabled,
+      // Don't split tools by comma - we'll parse the markdown properly in the component
+      toolsEnabled: raw.has_tools ? [] : base.config.toolsEnabled,
     },
   };
 }

@@ -6,12 +6,12 @@ import { Button } from '@/components/ui/button';
 import { Sheet, SheetContent, SheetTrigger } from '@/components/ui/sheet';
 import { cn } from '@/shared/lib/utils';
 import { Agent } from '@/features/agents/types';
-import { ChatSession } from '../types';
+import { Session } from '../types';
 import { SessionsSidebar } from './sessions-sidebar';
 import { AgentSelector } from './agent-selector';
 
 interface ChatHeaderProps {
-  currentSession?: ChatSession;
+  currentSession?: Session;
   selectedAgentId: string;
   agents?: Agent[];
   isWsConnected: boolean;
@@ -19,7 +19,7 @@ interface ChatHeaderProps {
   setMobileSidebarOpen: (open: boolean) => void;
   agentsLoading: boolean;
   sessionsLoading: boolean;
-  filteredSessions: ChatSession[];
+  filteredSessions: Session[];
   currentSessionId: string | null;
   onSessionClick: (sessionId: string) => void;
   onAgentSelect: (id: string) => void;

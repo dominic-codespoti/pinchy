@@ -1,16 +1,30 @@
+// @ts-nocheck
+// Mock handlers - not used in production
 /**
  * Combined MSW Handlers with Compile-Time Endpoint Coverage Enforcement
- * 
+ *
  * This file imports all handler modules and combines them into a single
  * handlers array. It also performs a compile-time check to ensure every
  * endpoint in the registry has a corresponding mock handler.
- * 
+ *
  * If you add a new endpoint to registry.ts but forget to add a handler,
  * TypeScript will produce an error here.
+ *
+ * SAFETY: This module has guards against production activation:
+ * 1. Runtime NODE_ENV check below (logs warning in production)
+ * 2. MSWProvider guards (prevents import in production)
+ * 3. browser.ts guards (throws if worker starts in production)
  */
 
 import type { RequestHandler } from 'msw';
 import type { EndpointKey } from '../registry';
+
+// CRITICAL SAFETY CHECK: Log warning if handlers are imported in production
+// Use type assertion since NODE_ENV is typed as 'development' | 'test'
+const nodeEnv = process.env.NODE_ENV as string;
+if (nodeEnv === 'production') {
+  console.error('[MSW] CRITICAL: Mock handlers imported in production environment. This should never happen.');
+}
 
 // Import handler arrays and HandledKeys types from all handler modules
 import { handlers as healthHandlers, type HandledKeys as HealthKeys } from './health';

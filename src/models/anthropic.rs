@@ -282,6 +282,12 @@ impl ModelProvider for AnthropicProvider {
     }
 
     async fn list_models(&self) -> Result<Option<Vec<super::ModelInfo>>, anyhow::Error> {
+        // NOTE: Anthropic doesn't currently provide a public API endpoint for
+        // listing available models. The Messages API doesn't include a /models endpoint.
+        //
+        // This static list includes currently available Claude models. For the
+        // most up-to-date model information, see:
+        // https://docs.anthropic.com/en/docs/about-claude/models
         Ok(Some(vec![
             super::ModelInfo {
                 id: "claude-opus-4-20250514".to_string(),
@@ -345,9 +351,11 @@ mod tests {
 
     #[test]
     fn construct_with_config() {
+        use crate::ports::ANTHROPIC_COMPAT;
+
         let p = AnthropicProvider::with_config(
             "sk-ant-test".into(),
-            "http://localhost:8080".into(),
+            format!("http://localhost:{}", ANTHROPIC_COMPAT),
             "claude-sonnet-4-20250514".into(),
         );
         assert_eq!(p.model, "claude-sonnet-4-20250514");

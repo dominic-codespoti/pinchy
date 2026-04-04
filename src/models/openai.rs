@@ -294,88 +294,180 @@ impl ModelProvider for OpenAIProvider {
     }
 
     async fn list_models(&self) -> Result<Option<Vec<super::ModelInfo>>, anyhow::Error> {
-        Ok(Some(vec![
-            super::ModelInfo {
-                id: "gpt-4.1".to_string(),
-                name: "GPT-4.1".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "gpt-4.1-mini".to_string(),
-                name: "GPT-4.1 Mini".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "gpt-4.1-nano".to_string(),
-                name: "GPT-4.1 Nano".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "gpt-4o".to_string(),
-                name: "GPT-4o".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: true,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "gpt-4o-mini".to_string(),
-                name: "GPT-4o Mini".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "o4-mini".to_string(),
-                name: "o4 Mini".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "o3".to_string(),
-                name: "o3".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "o3-mini".to_string(),
-                name: "o3 Mini".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "o1".to_string(),
-                name: "o1".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            super::ModelInfo {
-                id: "o1-mini".to_string(),
-                name: "o1 Mini".to_string(),
-                vendor: Some("OpenAI".to_string()),
-                supported_endpoints: vec!["/v1/chat/completions".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-        ]))
+        // Try to fetch from OpenAI API first
+        let base_url = self.endpoint.trim_end_matches("/chat/completions");
+        let url = format!("{}/models", base_url);
+
+        let resp = self
+            .client
+            .get(&url)
+            .bearer_auth(&self.api_key)
+            .send()
+            .await;
+
+        match resp {
+            Ok(response) if response.status().is_success() => {
+                let payload: serde_json::Value = response.json().await?;
+                let data = payload
+                    .get("data")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+
+                if !data.is_empty() {
+                    let models: Vec<super::ModelInfo> = data
+                        .iter()
+                        .filter_map(|m| {
+                            let id = m.get("id")?.as_str()?;
+                            // Only include GPT models (filter out TTS, Whisper, DALL-E, etc.)
+                            if !is_chat_model(id) {
+                                return None;
+                            }
+
+                            Some(super::ModelInfo {
+                                id: id.to_string(),
+                                name: format_openai_model_name(id),
+                                vendor: Some("OpenAI".to_string()),
+                                supported_endpoints: vec!["/v1/chat/completions".to_string()],
+                                is_default: id == "gpt-4o",
+                                ..Default::default()
+                            })
+                        })
+                        .collect();
+
+                    if !models.is_empty() {
+                        return Ok(Some(models));
+                    }
+                }
+            }
+            Ok(response) => {
+                tracing::debug!(status = %response.status(), "OpenAI models API returned non-success status");
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "Failed to fetch OpenAI models from API");
+            }
+        }
+
+        // Fallback to static list if API fails or returns empty
+        Ok(Some(get_fallback_openai_models()))
+    }
+}
+
+/// Return fallback list of known OpenAI chat models.
+///
+/// This is used when the OpenAI API model listing fails or returns no models.
+/// The list includes common OpenAI chat models (GPT-4, GPT-4o, o1, o3, etc.).
+///
+/// Note: This list may not include the very latest models. For the most
+/// up-to-date list, ensure API connectivity to OpenAI.
+fn get_fallback_openai_models() -> Vec<super::ModelInfo> {
+    vec![
+        super::ModelInfo {
+            id: "gpt-4.1".to_string(),
+            name: "GPT-4.1".to_string(),
+            vendor: Some("OpenAI".to_string()),
+            supported_endpoints: vec!["/v1/chat/completions".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+        super::ModelInfo {
+            id: "gpt-4.1-mini".to_string(),
+            name: "GPT-4.1 Mini".to_string(),
+            vendor: Some("OpenAI".to_string()),
+            supported_endpoints: vec!["/v1/chat/completions".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+        super::ModelInfo {
+            id: "gpt-4.1-nano".to_string(),
+            name: "GPT-4.1 Nano".to_string(),
+            vendor: Some("OpenAI".to_string()),
+            supported_endpoints: vec!["/v1/chat/completions".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+        super::ModelInfo {
+            id: "gpt-4o".to_string(),
+            name: "GPT-4o".to_string(),
+            vendor: Some("OpenAI".to_string()),
+            supported_endpoints: vec!["/v1/chat/completions".to_string()],
+            is_default: true,
+            ..Default::default()
+        },
+        super::ModelInfo {
+            id: "gpt-4o-mini".to_string(),
+            name: "GPT-4o Mini".to_string(),
+            vendor: Some("OpenAI".to_string()),
+            supported_endpoints: vec!["/v1/chat/completions".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+        super::ModelInfo {
+            id: "o4-mini".to_string(),
+            name: "o4 Mini".to_string(),
+            vendor: Some("OpenAI".to_string()),
+            supported_endpoints: vec!["/v1/chat/completions".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+        super::ModelInfo {
+            id: "o3".to_string(),
+            name: "o3".to_string(),
+            vendor: Some("OpenAI".to_string()),
+            supported_endpoints: vec!["/v1/chat/completions".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+        super::ModelInfo {
+            id: "o3-mini".to_string(),
+            name: "o3 Mini".to_string(),
+            vendor: Some("OpenAI".to_string()),
+            supported_endpoints: vec!["/v1/chat/completions".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+        super::ModelInfo {
+            id: "o1".to_string(),
+            name: "o1".to_string(),
+            vendor: Some("OpenAI".to_string()),
+            supported_endpoints: vec!["/v1/chat/completions".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+        super::ModelInfo {
+            id: "o1-mini".to_string(),
+            name: "o1 Mini".to_string(),
+            vendor: Some("OpenAI".to_string()),
+            supported_endpoints: vec!["/v1/chat/completions".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+    ]
+}
+
+/// Check if a model ID is a chat completion model (not TTS, Whisper, DALL-E, etc.)
+fn is_chat_model(model_id: &str) -> bool {
+    let chat_prefixes = ["gpt-", "o1", "o3", "o4", "chatgpt-"];
+
+    chat_prefixes
+        .iter()
+        .any(|prefix| model_id.starts_with(prefix))
+}
+
+/// Format a model ID into a human-readable name.
+fn format_openai_model_name(model_id: &str) -> String {
+    match model_id {
+        "gpt-4o" => "GPT-4o".to_string(),
+        "gpt-4o-mini" => "GPT-4o Mini".to_string(),
+        "gpt-4.1" => "GPT-4.1".to_string(),
+        "gpt-4.1-mini" => "GPT-4.1 Mini".to_string(),
+        "gpt-4.1-nano" => "GPT-4.1 Nano".to_string(),
+        "o1" => "o1".to_string(),
+        "o1-mini" => "o1 Mini".to_string(),
+        "o3" => "o3".to_string(),
+        "o3-mini" => "o3 Mini".to_string(),
+        "o4-mini" => "o4 Mini".to_string(),
+        _ => model_id.to_string(),
     }
 }
 

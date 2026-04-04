@@ -602,54 +602,125 @@ impl ModelProvider for GoogleProvider {
     }
 
     async fn list_models(&self) -> Result<Option<Vec<ModelInfo>>, anyhow::Error> {
-        let models = vec![
-            ModelInfo {
-                id: "gemini-2.0-flash-latest".to_string(),
-                name: "Gemini 2.0 Flash".to_string(),
-                vendor: Some("Google".to_string()),
-                supported_endpoints: vec!["chat".to_string(), "embeddings".to_string()],
-                is_default: true,
-                ..Default::default()
-            },
-            ModelInfo {
-                id: "gemini-2.0-flash-thinking-exp".to_string(),
-                name: "Gemini 2.0 Flash Thinking".to_string(),
-                vendor: Some("Google".to_string()),
-                supported_endpoints: vec!["chat".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            ModelInfo {
-                id: "gemini-1.5-pro-latest".to_string(),
-                name: "Gemini 1.5 Pro".to_string(),
-                vendor: Some("Google".to_string()),
-                supported_endpoints: vec!["chat".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            ModelInfo {
-                id: "gemini-1.5-flash-latest".to_string(),
-                name: "Gemini 1.5 Flash".to_string(),
-                vendor: Some("Google".to_string()),
-                supported_endpoints: vec!["chat".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-            ModelInfo {
-                id: "text-embedding-004".to_string(),
-                name: "Text Embedding 004".to_string(),
-                vendor: Some("Google".to_string()),
-                supported_endpoints: vec!["embeddings".to_string()],
-                is_default: false,
-                ..Default::default()
-            },
-        ];
+        // Try to fetch from Google API first
+        let url = format!(
+            "{}/models?key={}",
+            self.base_url.trim_end_matches('/'),
+            self.api_key
+        );
 
-        Ok(Some(models))
+        let resp = self.client.get(&url).send().await;
+
+        match resp {
+            Ok(response) if response.status().is_success() => {
+                let payload: serde_json::Value = response.json().await?;
+                let models_data = payload
+                    .get("models")
+                    .and_then(|v| v.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+
+                if !models_data.is_empty() {
+                    let models: Vec<ModelInfo> = models_data
+                        .iter()
+                        .filter_map(|m| {
+                            let id = m.get("name")?.as_str()?;
+                            // Extract model ID from "models/model-id" format
+                            let model_id = id.strip_prefix("models/").unwrap_or(id);
+                            let display_name = m.get("displayName").and_then(|v| v.as_str())?;
+                            let supported = get_model_endpoints(model_id);
+
+                            Some(ModelInfo {
+                                id: model_id.to_string(),
+                                name: display_name.to_string(),
+                                vendor: Some("Google".to_string()),
+                                supported_endpoints: supported,
+                                is_default: model_id == "gemini-2.0-flash-latest",
+                                ..Default::default()
+                            })
+                        })
+                        .collect();
+
+                    if !models.is_empty() {
+                        return Ok(Some(models));
+                    }
+                }
+            }
+            Ok(response) => {
+                tracing::debug!(status = %response.status(), "Google models API returned non-success status");
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "Failed to fetch Google models from API");
+            }
+        }
+
+        // Fallback to static list if API fails or returns empty
+        Ok(Some(get_fallback_google_models()))
     }
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+/// Return fallback list of known Google Gemini models.
+///
+/// This is used when the Google API model listing fails or returns no models.
+/// The list includes common Gemini models with their supported endpoints.
+///
+/// Note: This list may not include the very latest models. For the most
+/// up-to-date list, ensure API connectivity to Google Generative Language API.
+fn get_fallback_google_models() -> Vec<ModelInfo> {
+    vec![
+        ModelInfo {
+            id: "gemini-2.0-flash-latest".to_string(),
+            name: "Gemini 2.0 Flash".to_string(),
+            vendor: Some("Google".to_string()),
+            supported_endpoints: vec!["chat".to_string(), "embeddings".to_string()],
+            is_default: true,
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gemini-2.0-flash-thinking-exp".to_string(),
+            name: "Gemini 2.0 Flash Thinking".to_string(),
+            vendor: Some("Google".to_string()),
+            supported_endpoints: vec!["chat".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gemini-1.5-pro-latest".to_string(),
+            name: "Gemini 1.5 Pro".to_string(),
+            vendor: Some("Google".to_string()),
+            supported_endpoints: vec!["chat".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "gemini-1.5-flash-latest".to_string(),
+            name: "Gemini 1.5 Flash".to_string(),
+            vendor: Some("Google".to_string()),
+            supported_endpoints: vec!["chat".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+        ModelInfo {
+            id: "text-embedding-004".to_string(),
+            name: "Text Embedding 004".to_string(),
+            vendor: Some("Google".to_string()),
+            supported_endpoints: vec!["embeddings".to_string()],
+            is_default: false,
+            ..Default::default()
+        },
+    ]
+}
+
+/// Get supported endpoints for a Google model based on its ID.
+fn get_model_endpoints(model_id: &str) -> Vec<String> {
+    if model_id.contains("embedding") {
+        vec!["embeddings".to_string()]
+    } else {
+        vec!["chat".to_string()]
     }
 }
 

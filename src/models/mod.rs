@@ -834,15 +834,14 @@ pub async fn send_chat_messages(messages: &[ChatMessage]) -> anyhow::Result<Stri
         let provider = OpenAIProvider::new();
         provider.send_chat(messages).await
     } else {
-        warn!("No model credentials found — using local stub reply");
-        // Stub: echo the last user message back.
-        let last_user = messages
-            .iter()
-            .rev()
-            .find(|m| m.is_user())
-            .map(|m| m.content.clone())
-            .unwrap_or_default();
-        Ok(format!("[stub] echo: {last_user}"))
+        warn!("No model credentials found — returning error instead of stub");
+        // Return a clear error instead of echoing, which misleads users
+        anyhow::bail!(
+            "No AI model provider configured. Please set one of the following environment variables:\n\
+             - OPENAI_API_KEY: for OpenAI models\n\
+             - COPILOT_TOKEN or COPILOT_CLIENT_ID: for GitHub Copilot\n\
+             Or run `pinchy config validate` to check your configuration."
+        );
     }
 }
 

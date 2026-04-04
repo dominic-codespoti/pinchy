@@ -1,5 +1,5 @@
 /**
- * @deprecated Use `web/shared/api/auth.ts` instead.
+ * @deprecated Import from `web/shared/api/auth.ts` instead.
  * This file is kept for backward compatibility and re-exports from the canonical location.
  */
 
@@ -15,9 +15,9 @@ export {
   type ChatGptPollStatus,
 } from '@/shared/api/auth';
 
-// Re-export types from shared types
+// Re-export types from canonical location
 export type {
   ChatGptAuthSession,
   ChatGptAuthStatus,
   CopilotAuthSession,
-} from '@/shared/types/auth';
+} from './types';

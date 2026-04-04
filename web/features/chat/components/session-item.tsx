@@ -4,10 +4,10 @@ import { useMemo } from 'react';
 import { Clock, MessageSquare } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/shared/lib/utils';
-import { ChatSession } from '../types';
+import { Session } from '../types';
 
 interface SessionItemProps {
-  session: ChatSession;
+  session: Session;
   isSelected: boolean;
   onClick: () => void;
 }

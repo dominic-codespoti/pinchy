@@ -632,6 +632,13 @@ impl ModelProvider for BedrockProvider {
     }
 
     async fn list_models(&self) -> Result<Option<Vec<super::ModelInfo>>, anyhow::Error> {
+        // NOTE: AWS Bedrock doesn't provide a simple public API to list all available
+        // foundation models without AWS credentials. The ListFoundationModels API
+        // requires AWS SigV4 authentication and returns region-specific ARNs.
+        //
+        // This static list includes commonly available Bedrock models. For the
+        // most up-to-date list of available models, see:
+        // https://docs.aws.amazon.com/bedrock/latest/userguide/models-supported.html
         let models = vec![
             super::ModelInfo {
                 id: "anthropic.claude-3-5-sonnet-20241022-v2:0".to_string(),

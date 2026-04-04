@@ -10,7 +10,7 @@ import type {
   ChatGptAuthStatus,
   CopilotAuthSession,
   ApiKeyAuthResult,
-} from '../types/auth';
+} from '@/features/auth/types';
 import {
   ApiKeyAuthResponseSchema,
   CopilotPollResponseSchema,

@@ -4,6 +4,7 @@
 
 import { fetchApi, isNotFoundError } from '@/shared/api/client';
 import { LogEntry, LogLevel } from '@/shared/types/common';
+import { PAGINATION } from '@/lib/query-config';
 
 // Backend response types
 interface PersistedLogEntry {
@@ -81,7 +82,7 @@ function transformRecentLogEntry(raw: RecentLogEntry, index: number): LogEntry {
 export async function getAgentLogs(agentId: string, limit?: number): Promise<LogEntry[]> {
   try {
     const response = await fetchApi<{ logs: unknown[] }>(
-      `/api/agents/${encodeURIComponent(agentId)}/logs?limit=${limit || 100}`
+      `/api/agents/${encodeURIComponent(agentId)}/logs?limit=${limit || PAGINATION.DEFAULT_LIMIT}`
     );
     return (response.logs || []).map((log: unknown, index: number) => ({
       id: `agent-${agentId}-${index}`,

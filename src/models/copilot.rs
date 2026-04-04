@@ -1,8 +1,8 @@
 //! GitHub Copilot provider via direct HTTP proxy.
 //!
 //! Routes chat through the Copilot API proxy using direct HTTP requests.
-//! When no token is configured the provider returns a clearly-labelled
-//! stub response so the rest of the system keeps working.
+//! When no token is configured the provider returns a clear authentication
+//! error so users know to configure GitHub Copilot access.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -79,10 +79,10 @@ impl Default for CopilotProvider {
 impl CopilotProvider {
     /// Create a new provider.
     ///
-    /// Reads `COPILOT_TOKEN` from the environment.  When the variable
+    /// Reads `COPILOT_TOKEN` from the environment. When the variable
     /// is absent the provider attempts to load a stored GitHub token
-    /// from keyring/file.  If neither is available it operates in stub
-    /// mode.
+    /// from keyring/file. If neither is available, chat methods will
+    /// return an authentication error.
     pub fn new() -> Self {
         Self::with_model_and_headers("gpt-4o", None)
     }
@@ -161,7 +161,7 @@ impl CopilotProvider {
         } else if token.is_some() {
             debug!("CopilotProvider: GitHub token available for token exchange");
         } else {
-            warn!("CopilotProvider: no COPILOT_TOKEN or stored token — stub mode");
+            warn!("CopilotProvider: no COPILOT_TOKEN or stored token — chat methods will return an authentication error");
         }
 
         let s = Self {
@@ -319,7 +319,8 @@ impl CopilotProvider {
             "messages": super::serialize_messages(messages),
         });
 
-        let headers = copilot_headers(bearer, self.header_overrides.as_ref());
+        let headers = copilot_headers(bearer, self.header_overrides.as_ref())
+            .context("failed to build copilot headers")?;
         let paths = proxy_paths();
         let base = proxy_ep.trim_end_matches('/');
         let mut last_err: Option<String> = None;
@@ -383,13 +384,11 @@ impl CopilotProvider {
                 .iter()
                 .filter_map(|f| {
                     // Detect whether already wrapped or bare.
-                    let func_obj = if f.get("type").and_then(|t| t.as_str()) == Some("function")
-                        && f.get("function").is_some()
+                    let func_obj = if let (Some("function"), Some(func)) =
+                        (f.get("type").and_then(|t| t.as_str()), f.get("function"))
                     {
                         // Already in tools format — extract the inner function object.
-                        // Safe: we just verified f.get("function").is_some() above
-                        #[allow(clippy::unwrap_used)]
-                        f.get("function").unwrap().clone()
+                        func.clone()
                     } else {
                         // Bare format: {"name": .., "description": .., "parameters": ..}
                         f.clone()
@@ -427,7 +426,8 @@ impl CopilotProvider {
             }
         }
 
-        let headers = copilot_headers(bearer, self.header_overrides.as_ref());
+        let headers = copilot_headers(bearer, self.header_overrides.as_ref())
+            .context("failed to build copilot headers")?;
         let paths = proxy_paths();
         let base = proxy_ep.trim_end_matches('/');
         let mut last_err: Option<String> = None;
@@ -539,11 +539,14 @@ impl CopilotProvider {
             }
         }
 
-        let mut headers = copilot_headers(bearer, self.header_overrides.as_ref());
+        let mut headers = copilot_headers(bearer, self.header_overrides.as_ref())
+            .context("failed to build copilot headers")?;
         // Anthropic-specific headers for the Copilot proxy.
         headers.insert(
             "anthropic-beta",
-            "interleaved-thinking-2025-05-14".parse().unwrap(),
+            "interleaved-thinking-2025-05-14"
+                .parse()
+                .context("invalid anthropic-beta header value")?,
         );
 
         let tool_count = body
@@ -675,12 +678,11 @@ impl CopilotProvider {
             let tools: Vec<Value> = functions
                 .iter()
                 .filter_map(|f| {
-                    let func_obj = if f.get("type").and_then(|t| t.as_str()) == Some("function")
-                        && f.get("function").is_some()
+                    let func_obj = if let (Some("function"), Some(func)) =
+                        (f.get("type").and_then(|t| t.as_str()), f.get("function"))
                     {
-                        // Safe: we just verified f.get("function").is_some() above
-                        #[allow(clippy::unwrap_used)]
-                        f.get("function").unwrap().clone()
+                        // Already in tools format — extract the inner function object.
+                        func.clone()
                     } else {
                         f.clone()
                     };
@@ -715,7 +717,8 @@ impl CopilotProvider {
             }
         }
 
-        let headers = copilot_headers(bearer, self.header_overrides.as_ref());
+        let headers = copilot_headers(bearer, self.header_overrides.as_ref())
+            .context("failed to build copilot headers")?;
 
         debug!(
             model = %self.model_id,
@@ -787,9 +790,7 @@ impl CopilotProvider {
                     // Prefer function calls over text.
                     if !func_calls.is_empty() {
                         if func_calls.len() == 1 {
-                            // Safe: we just verified func_calls.len() == 1
-                            #[allow(clippy::unwrap_used)]
-                            let fc = func_calls.into_iter().next().unwrap();
+                            let fc = func_calls.swap_remove(0);
                             debug!(name = %fc.name, "CopilotProvider/responses: got function_call");
                             return Ok((
                                 super::ProviderResponse::FunctionCall {
@@ -860,7 +861,8 @@ impl CopilotProvider {
 
         debug!("CopilotProvider: fetching model list from {url}");
 
-        let headers = copilot_headers(&bearer, self.header_overrides.as_ref());
+        let headers = copilot_headers(&bearer, self.header_overrides.as_ref())
+            .context("failed to build copilot headers")?;
         let mut req = http.get(&url);
         for (k, v) in &headers {
             if let Ok(v_str) = v.to_str() {
@@ -1094,7 +1096,8 @@ impl ModelProvider for CopilotProvider {
                             body["instructions"] = serde_json::json!(instructions_parts.join("\n\n"));
                         }
 
-                        let headers = copilot_headers(&bearer, self.header_overrides.as_ref());
+                        let headers = copilot_headers(&bearer, self.header_overrides.as_ref())
+                            .context("failed to build copilot headers")?;
                         let resp = http.post(&url).headers(headers).json(&body).send().await?;
                         if !resp.status().is_success() {
                             let status = resp.status();
@@ -1117,7 +1120,8 @@ impl ModelProvider for CopilotProvider {
                             "messages": super::serialize_messages(messages),
                             "stream": true,
                         });
-                        let headers = copilot_headers(&bearer, self.header_overrides.as_ref());
+                        let headers = copilot_headers(&bearer, self.header_overrides.as_ref())
+                            .context("failed to build copilot headers")?;
                         let base = ep.trim_end_matches('/');
                         let url = format!("{base}/chat/completions");
                         let resp = http.post(&url).headers(headers).json(&body).send().await?;
@@ -1207,21 +1211,56 @@ fn is_retryable_request_error(e: &reqwest::Error) -> bool {
 fn copilot_headers(
     bearer: &str,
     overrides: Option<&std::collections::HashMap<String, String>>,
-) -> reqwest::header::HeaderMap {
+) -> anyhow::Result<reqwest::header::HeaderMap> {
     let mut h = reqwest::header::HeaderMap::new();
-    h.insert("Authorization", format!("Bearer {bearer}").parse().unwrap());
-    h.insert("Content-Type", "application/json".parse().unwrap());
+    h.insert(
+        "Authorization",
+        format!("Bearer {bearer}")
+            .parse()
+            .context("invalid Authorization header value")?,
+    );
+    h.insert(
+        "Content-Type",
+        "application/json"
+            .parse()
+            .context("invalid Content-Type header value")?,
+    );
 
     // Minimal headers — Editor-Version is required by the Copilot proxy
     // for IDE auth. Copilot-Integration-Id is intentionally omitted
     // (unknown values cause 400 "unknown Copilot-Integration-Id" errors,
     // and OpenCode doesn't send it at all).
     let version = env!("CARGO_PKG_VERSION");
-    h.insert("User-Agent", format!("Pinchy/{version}").parse().unwrap());
-    h.insert("Editor-Version", "vscode/1.99.0".parse().unwrap());
-    h.insert("Editor-Plugin-Version", "copilot/1.300.0".parse().unwrap());
-    h.insert("Copilot-Integration-Id", "vscode-chat".parse().unwrap());
-    h.insert("Openai-Intent", "conversation-edits".parse().unwrap());
+    h.insert(
+        "User-Agent",
+        format!("Pinchy/{version}")
+            .parse()
+            .context("invalid User-Agent header value")?,
+    );
+    h.insert(
+        "Editor-Version",
+        "vscode/1.99.0"
+            .parse()
+            .context("invalid Editor-Version header value")?,
+    );
+    h.insert(
+        "Editor-Plugin-Version",
+        "copilot/1.300.0"
+            .parse()
+            .context("invalid Editor-Plugin-Version header value")?,
+    );
+    h.insert(
+        "Copilot-Integration-Id",
+        "vscode-chat"
+            .parse()
+            .context("invalid Copilot-Integration-Id header value")?,
+    );
+    h.insert(
+        "Openai-Intent",
+        "conversation-edits"
+            .parse()
+            .context("invalid Openai-Intent header value")?,
+    );
 
     if let Some(overrides) = overrides {
         debug!(overrides = ?overrides, "copilot_headers: applying header overrides");
@@ -1239,7 +1278,7 @@ fn copilot_headers(
         debug!("copilot_headers: no header overrides configured");
     }
 
-    h
+    Ok(h)
 }
 
 /// Parse the `Retry-After` header from an HTTP response.
@@ -1836,7 +1875,7 @@ async fn parse_anthropic_sse(resp: reqwest::Response) -> anyhow::Result<Anthropi
 /// Convert a parsed [`AnthropicResult`] into Pinchy's
 /// `(ProviderResponse, Option<TokenUsage>)` pair.
 fn anthropic_result_to_response(
-    r: AnthropicResult,
+    mut r: AnthropicResult,
 ) -> (super::ProviderResponse, Option<super::TokenUsage>) {
     let usage = Some(super::TokenUsage {
         prompt_tokens: r.input_tokens,
@@ -1850,7 +1889,7 @@ fn anthropic_result_to_response(
     if r.tool_uses.is_empty() {
         (super::ProviderResponse::Final(r.text), usage)
     } else if r.tool_uses.len() == 1 {
-        let tu = r.tool_uses.into_iter().next().unwrap();
+        let tu = r.tool_uses.swap_remove(0);
         (
             super::ProviderResponse::FunctionCall {
                 id: tu.id,

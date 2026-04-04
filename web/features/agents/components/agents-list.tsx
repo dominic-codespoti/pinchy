@@ -9,6 +9,7 @@ import { Plus, Bot, Search } from 'lucide-react';
 import { useAgents } from '../hooks/use-agents';
 import { Agent } from '../types';
 import { AgentCard } from './agent-card';
+import { EmptyState } from '@/components/ui/empty-state';
 
 interface AgentsListProps {
   onCreateAgent?: () => void;
@@ -115,23 +116,24 @@ export function AgentsList({
       </div>
 
       {filteredAgents.length === 0 ? (
-        <Card className="flex flex-col items-center justify-center py-12">
-          <Bot className="mb-4 h-12 w-12 text-muted-foreground" />
-          <CardTitle className="mb-2">
-            {searchQuery ? 'No matching agents' : 'No agents yet'}
-          </CardTitle>
-          <CardDescription className="mb-4 text-center max-w-sm">
-            {searchQuery
+        <EmptyState
+          icon={<Bot className="h-12 w-12" />}
+          title={searchQuery ? 'No matching agents' : 'No agents yet'}
+          description={
+            searchQuery
               ? 'Try adjusting your search query'
-              : 'Create your first agent to get started with AI automation'}
-          </CardDescription>
-          {!searchQuery && (
-            <Button onClick={onCreateAgent}>
-              <Plus className="mr-2 h-4 w-4" />
-              Create Agent
-            </Button>
-          )}
-        </Card>
+              : 'Create your first agent to get started with AI automation'
+          }
+          action={
+            !searchQuery
+              ? {
+                  label: 'Create Agent',
+                  onClick: onCreateAgent || (() => {}),
+                  icon: <Plus className="h-4 w-4" />,
+                }
+              : undefined
+          }
+        />
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {filteredAgents.map((agent) => (

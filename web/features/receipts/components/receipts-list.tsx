@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useAgentReceipts } from '../hooks';
 import { ReceiptCard } from './receipt-card';
 import { TurnReceipt } from '../types';
+import { FALLBACKS } from '@/lib/constants/fallbacks';
 
 interface ReceiptsListProps {
   agentId: string;
@@ -21,7 +22,7 @@ function groupReceiptsBySession(receipts: TurnReceipt[]): Map<string, TurnReceip
   const groups = new Map<string, TurnReceipt[]>();
   
   for (const receipt of receipts) {
-    const sessionId = receipt.session || 'default';
+    const sessionId = receipt.session || FALLBACKS.SESSION;
     if (!groups.has(sessionId)) {
       groups.set(sessionId, []);
     }
@@ -40,7 +41,7 @@ function groupReceiptsBySession(receipts: TurnReceipt[]): Map<string, TurnReceip
 }
 
 function formatSessionId(sessionId: string): string {
-  // Format: default-1706000000000 -> Session (Jan 23, 2024)
+  // Format: {agent-id}-{timestamp} -> Session (formatted date)
   if (sessionId.startsWith('default-') || sessionId.includes('-')) {
     const timestamp = sessionId.split('-').pop();
     if (timestamp && !isNaN(Number(timestamp))) {

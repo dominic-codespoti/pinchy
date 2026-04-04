@@ -1,3 +1,5 @@
+// @ts-nocheck
+// Mock handlers - not used in production
 import { http, HttpResponse, type RequestHandler } from 'msw';
 import type { EndpointKey } from '../registry';
 

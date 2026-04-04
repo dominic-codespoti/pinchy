@@ -1,4 +1,4 @@
-import { ChatSession } from '../types';
+import { Session } from '../types';
 
 export interface ParsedSessionId {
   /** The full session ID (e.g., "agent-123-timestamp") */
@@ -68,9 +68,9 @@ export function buildSessionMessagesPath(sessionId: string): string | null {
  * Returns undefined if not found.
  */
 export function findSessionById(
-  sessions: ChatSession[] | undefined,
+  sessions: Session[] | undefined,
   sessionId: string | null
-): ChatSession | undefined {
+): Session | undefined {
   if (!sessionId || !sessions) return undefined;
   return sessions.find(s => s.id === sessionId);
 }
@@ -79,9 +79,9 @@ export function findSessionById(
  * Filter sessions by agent ID.
  */
 export function filterSessionsByAgent(
-  sessions: ChatSession[] | undefined,
+  sessions: Session[] | undefined,
   agentId: string
-): ChatSession[] {
+): Session[] {
   if (!sessions) return [];
   return sessions.filter(s => s.agentId === agentId);
 }

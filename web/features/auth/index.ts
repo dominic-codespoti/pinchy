@@ -11,6 +11,8 @@ export type {
   AuthSession,
   ChatGptAuthSession,
   ChatGptAuthStatus,
+  CopilotAuthSession,
+  ApiKeyAuthResult,
   AuthContextType,
   AuthError,
   AuthMethod,

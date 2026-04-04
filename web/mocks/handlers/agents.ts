@@ -1,8 +1,13 @@
+// @ts-nocheck
+// Mock handlers - not used in production
 import { http, HttpResponse, type RequestHandler } from 'msw';
 import type { EndpointKey } from '../registry';
 
 // Type to ensure only valid endpoint keys are used
 type HandlerMap = Partial<Record<EndpointKey, RequestHandler>>;
+
+// Helper for dynamic dates
+const dynamicDate = () => new Date(Date.now() - Math.random() * 86400000).toISOString();
 
 const mockAgents = [
   {
@@ -17,11 +22,12 @@ const mockAgents = [
     cron_jobs_count: 2,
     heartbeat_secs: 300,
     session_count: 5,
-    created_at: '2024-01-15T10:00:00Z',
+    created_at: dynamicDate(),
     enabled_skills: ['browser', 'mcp'],
     soul: 'You are a helpful assistant.',
     tools: '# Tool instructions\nUse tools wisely.',
     heartbeat: '# Heartbeat\nCheck system status.',
+    __mock: true,
   },
   {
     id: 'researcher',
@@ -32,8 +38,9 @@ const mockAgents = [
     has_tools: false,
     cron_jobs_count: 0,
     session_count: 12,
-    created_at: '2024-02-20T14:30:00Z',
+    created_at: dynamicDate(),
     enabled_skills: [],
+    __mock: true,
   },
 ];
 

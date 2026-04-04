@@ -28,6 +28,8 @@ use axum::{extract::Json, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::gateway::types::ErrorResponse;
+
 // ---------------------------------------------------------------------------
 // Request/Response Types
 // ---------------------------------------------------------------------------
@@ -453,9 +455,13 @@ pub(crate) async fn api_assistant_chat(
     if body.message.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "message is required"
-            })),
+            Json(ErrorResponse {
+                error: "message is required".to_string(),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -466,7 +472,13 @@ pub(crate) async fn api_assistant_chat(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": e })),
+                Json(ErrorResponse {
+                    error: e,
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -478,7 +490,13 @@ pub(crate) async fn api_assistant_chat(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("context build: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("context build: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -798,7 +816,13 @@ pub(crate) async fn api_assistant_apply(
     if let Err(e) = validate_scope(&body.scope) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": e })),
+            Json(ErrorResponse {
+                error: e,
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }

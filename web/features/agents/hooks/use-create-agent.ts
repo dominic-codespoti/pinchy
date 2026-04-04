@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { fetchApi } from '@/shared/api/client';
 import { toast } from 'sonner';
 import { CreateAgentInput } from '../types';
+import { agentsKeys } from '../query-keys';
 
 interface CreateAgentResponse {
   id: string;
@@ -42,7 +43,7 @@ export function useCreateAgent(): UseCreateAgentResult {
     mutationFn: createAgent,
     onSuccess: (data) => {
       // Invalidate agents list to include new agent
-      queryClient.invalidateQueries({ queryKey: ['agents'] });
+      queryClient.invalidateQueries({ queryKey: agentsKeys.lists() });
       toast.success(`Agent ${data.id} created successfully`);
       // Navigate to new agent detail page
       router.push(`/agents/${data.id}`);

@@ -10,6 +10,7 @@
 import { useMemo } from 'react';
 import { Agent } from '../types';
 import { AgentStats } from '../store/types';
+import { FALLBACKS } from '@/lib/constants/fallbacks';
 
 export interface UseAgentStatsOptions {
   agents: Agent[];
@@ -71,11 +72,11 @@ export function useAgentStats({
 
     for (const agent of agents) {
       // Provider count
-      const provider = agent.config.provider || 'unknown';
+      const provider = agent.config.provider || FALLBACKS.STATUS;
       providers[provider] = (providers[provider] || 0) + 1;
 
       // Model count
-      const model = agent.config.model || 'default';
+      const model = agent.config.model || FALLBACKS.MODEL;
       models[model] = (models[model] || 0) + 1;
     }
 

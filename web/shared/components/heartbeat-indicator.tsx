@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { formatRelativeTime } from '@/shared/lib/date-utils';
 import { cn } from '@/shared/lib/utils';
 import {
   Tooltip,
@@ -48,18 +49,7 @@ const sizeClasses = {
 
 export function formatTimeSince(dateString?: string): string {
   if (!dateString) return 'Never';
-
-  const diffMs = Date.now() - new Date(dateString).getTime();
-  const diffSecs = Math.floor(diffMs / 1000);
-  const diffMins = Math.floor(diffSecs / 60);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffSecs < 60) return 'Just now';
-  if (diffMins < 60) return `${diffMins} min ago`;
-  if (diffHours < 24) return `${diffHours} hour${diffHours > 1 ? 's' : ''} ago`;
-  if (diffDays < 7) return `${diffDays} day${diffDays > 1 ? 's' : ''} ago`;
-  return new Date(dateString).toLocaleDateString();
+  return formatRelativeTime(dateString, { capitalize: true });
 }
 
 export function getHeartbeatStatus(

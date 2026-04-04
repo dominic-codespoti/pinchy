@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Trash2, ArrowDown, Wifi, WifiOff, AlertCircle } from 'lucide-react';
+import { PAGINATION } from '@/lib/query-config';
+import { getLogsWebSocketUrl } from '@/lib/config/ports';
 
 // Log entry interface matching backend format from src/logs.rs
 interface LogEntry {
@@ -29,7 +31,7 @@ const LOG_LEVELS: { value: LogLevel; label: string; color: string }[] = [
   { value: 'TRACE', label: 'Trace', color: 'bg-purple-500 text-white' },
 ];
 
-const MAX_LOGS = 2000;
+const MAX_LOGS = PAGINATION.LOGS_MAX_BUFFER;
 
 export function LogsPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
@@ -65,8 +67,8 @@ export function LogsPage() {
     if (typeof window === 'undefined') return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:3131/ws/logs`;
+    // Use centralized port configuration
+    const wsUrl = getLogsWebSocketUrl();
 
     if (process.env.NODE_ENV === 'development') {
       console.debug('[Logs] Connecting to:', wsUrl);

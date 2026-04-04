@@ -8,6 +8,7 @@
 mod auth;
 mod handlers;
 pub(crate) mod types;
+mod utils;
 mod ws;
 
 use async_trait::async_trait;
@@ -68,9 +69,12 @@ pub fn publish_event_json(value: &serde_json::Value) {
 /// HTTP proxy handler: forwards non-API requests to Next.js dev server.
 /// Used when PINCHY_DEV_MODE=1 to enable hot reload during development.
 async fn dev_mode_http_proxy(path: String, query: Option<String>) -> Response {
-    // Proxy to Next.js dev server on localhost:3000
+    use crate::ports::FRONTEND_DEV;
+
+    // Proxy to Next.js dev server on localhost:FRONTEND_DEV (default: 3000)
     let target_url = format!(
-        "http://localhost:3000{}{}",
+        "http://localhost:{}{}{}",
+        FRONTEND_DEV,
         path,
         query
             .as_ref()
@@ -126,10 +130,10 @@ async fn dev_mode_http_proxy(path: String, query: Option<String>) -> Response {
                 .header(header::CONTENT_TYPE, "text/html; charset=utf-8")
                 .body(Body::from(format!(
                     "<h1>Dev Mode Error</h1>
-                    <p>Failed to connect to Next.js dev server at http://localhost:3000</p>
+                    <p>Failed to connect to Next.js dev server at http://localhost:{}</p>
                     <p>Make sure Next.js is running: <code>cd web && npm run dev</code></p>
                     <p>Error: {}</p>",
-                    e
+                    FRONTEND_DEV, e
                 )))
                 .unwrap_or_else(|_| {
                     (StatusCode::SERVICE_UNAVAILABLE, "Dev server unavailable").into_response()
@@ -140,12 +144,14 @@ async fn dev_mode_http_proxy(path: String, query: Option<String>) -> Response {
 
 /// Proxy WebSocket connection to Next.js dev server.
 async fn dev_mode_ws_proxy(ws: WebSocketUpgrade, uri: Uri) -> Response {
+    use crate::ports::FRONTEND_DEV;
     use futures_util::{SinkExt, StreamExt};
 
     let path = uri.path().to_string();
     let query = uri.query().map(String::from);
     let target = format!(
-        "ws://localhost:3000{}{}",
+        "ws://localhost:{}{}{}",
+        FRONTEND_DEV,
         path,
         query
             .as_ref()
@@ -306,12 +312,13 @@ pub(crate) struct AppState {
 /// Defaults to `http://localhost:*` and `http://127.0.0.1:*` variants.
 /// Additional origins can be appended via `PINCHY_CORS_ORIGINS` (comma-separated).
 fn allowed_origins() -> tower_http::cors::AllowOrigin {
+    use crate::ports::CORS_ALLOWED_PORTS;
     use axum::http::HeaderValue;
 
     let mut origins: Vec<HeaderValue> = Vec::new();
 
     // Always allow common local dev origins.
-    for port in [3131, 3000, 5173, 8080] {
+    for port in CORS_ALLOWED_PORTS {
         if let Ok(v) = format!("http://localhost:{port}").parse() {
             origins.push(v);
         }
@@ -407,10 +414,6 @@ pub async fn start_gateway_with_config(
         .route(
             "/agents/:agent_id/test",
             post(handlers::agents::api_agent_test),
-        )
-        .route(
-            "/agents/:agent_id/cron",
-            get(handlers::cron::api_agent_cron_jobs),
         )
         // Webhook configuration
         .route(
@@ -638,7 +641,10 @@ pub async fn start_gateway_with_config(
     // Determine dev mode state
     let dev_mode = std::env::var("PINCHY_DEV_MODE").as_deref() == Ok("1");
     if dev_mode {
-        info!("dev mode: proxying UI to http://localhost:3000");
+        info!(
+            "dev mode: proxying UI to http://localhost:{}",
+            crate::ports::FRONTEND_DEV
+        );
     }
 
     if dev_mode {
@@ -688,13 +694,15 @@ pub async fn start_gateway_with_config(
 /// Listens on `PINCHY_GATEWAY_ADDR` (default `0.0.0.0:3131`).
 /// Returns `None` if the gateway is explicitly disabled.
 pub async fn spawn_gateway_if_enabled() -> Option<Gateway> {
+    use crate::ports::GATEWAY_LOCAL_DEFAULT;
+
     if std::env::var("PINCHY_GATEWAY").as_deref() == Ok("0") {
         info!("gateway disabled (PINCHY_GATEWAY=0)");
         return None;
     }
 
     let addr: SocketAddr = match std::env::var("PINCHY_GATEWAY_ADDR")
-        .unwrap_or_else(|_| "127.0.0.1:3131".to_string())
+        .unwrap_or_else(|_| GATEWAY_LOCAL_DEFAULT.to_string())
         .parse()
     {
         Ok(a) => a,

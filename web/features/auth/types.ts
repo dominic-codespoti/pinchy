@@ -57,6 +57,22 @@ export interface ChatGptAuthStatus {
   account_id?: string;
 }
 
+// Copilot device flow
+export interface CopilotAuthSession {
+  login_id: string;
+  status: 'pending' | 'complete' | 'error' | 'warning';
+  verification_uri: string;
+  user_code: string;
+  interval?: number;
+  error?: string;
+}
+
+// API key auth result
+export interface ApiKeyAuthResult {
+  success: boolean;
+  message?: string;
+}
+
 // Auth context type for React context
 export interface AuthContextType {
   user: User | null;

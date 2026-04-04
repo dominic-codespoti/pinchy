@@ -6,28 +6,13 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { MessageSquare, Trash2 } from 'lucide-react';
 import { Session } from '../types';
+import { formatRelativeTime } from '@/shared/lib/date-utils';
 
 interface SessionMobileCardProps {
   session: Session;
   agentName?: string;
   onDelete: (session: Session) => void;
   isDeleting?: boolean;
-}
-
-function formatRelativeDate(date: string): string {
-  const d = new Date(date);
-  const now = new Date();
-  const diffMs = now.getTime() - d.getTime();
-  const diffSecs = Math.floor(diffMs / 1000);
-  const diffMins = Math.floor(diffSecs / 60);
-  const diffHours = Math.floor(diffMins / 60);
-  const diffDays = Math.floor(diffHours / 24);
-
-  if (diffSecs < 60) return 'Just now';
-  if (diffMins < 60) return `${diffMins}m ago`;
-  if (diffHours < 24) return `${diffHours}h ago`;
-  if (diffDays < 7) return `${diffDays}d ago`;
-  return d.toLocaleDateString();
 }
 
 export function SessionMobileCard({
@@ -66,7 +51,7 @@ export function SessionMobileCard({
         label="Last Active"
         value={
           <span className="text-sm text-muted-foreground">
-            {formatRelativeDate(session.updatedAt)}
+            {formatRelativeTime(session.updatedAt, { capitalize: true })}
           </span>
         }
       />

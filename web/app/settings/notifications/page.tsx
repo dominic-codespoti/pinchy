@@ -1,28 +1,24 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { toast } from 'sonner';
 import { NotificationsPage } from '@/features/settings';
 import { useNotifications } from '@/features/notifications/hooks/use-notifications';
-
-const defaultSettings = {
-  enabled: true,
-  browserNotifications: false,
-  autoDismiss: true,
-  autoDismissDuration: 5000,
-  notifyOnSuccess: true,
-  notifyOnError: true,
-  notifyOnWarning: true,
-  notifyOnInfo: false,
-  notifyOnAgentStatusChange: true,
-  notifyOnNewLog: false,
-};
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Skeleton } from '@/components/ui/skeleton';
 
 export default function NotificationsSettingsPage() {
-  const { settings, updateSettings, clearNotifications, addNotification } = useNotifications();
+  const { settings, updateSettings, clearNotifications, addNotification, isLoaded, defaultSettings } = useNotifications();
   const [localDuration, setLocalDuration] = useState(settings.autoDismissDuration);
   const [hasChanges, setHasChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Update localDuration when settings load or change
+  useEffect(() => {
+    if (isLoaded) {
+      setLocalDuration(settings.autoDismissDuration);
+    }
+  }, [isLoaded, settings.autoDismissDuration]);
 
   const handleEnabledChange = useCallback((checked: boolean) => {
     updateSettings({ enabled: checked });
@@ -80,7 +76,8 @@ export default function NotificationsSettingsPage() {
 
   const handleSave = useCallback(() => {
     setIsSaving(true);
-    // Settings are already updated via updateSettings, just show toast
+    // Settings are already persisted via localStorage in the hook
+    // Just show toast to confirm
     toast.success('Settings saved');
     setHasChanges(false);
     setIsSaving(false);
@@ -90,7 +87,8 @@ export default function NotificationsSettingsPage() {
     updateSettings(defaultSettings);
     setLocalDuration(defaultSettings.autoDismissDuration);
     setHasChanges(false);
-  }, [updateSettings]);
+    toast.info('Settings reset to defaults');
+  }, [updateSettings, defaultSettings]);
 
   const handleClearAll = useCallback(() => {
     clearNotifications();
@@ -104,6 +102,33 @@ export default function NotificationsSettingsPage() {
       autoDismiss: true,
     });
   }, [addNotification]);
+
+  // Show loading state while settings load from localStorage
+  if (!isLoaded) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Loading Settings...</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-4 w-1/2" />
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-5 w-32" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <NotificationsPage

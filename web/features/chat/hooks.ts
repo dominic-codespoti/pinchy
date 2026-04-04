@@ -6,20 +6,12 @@ import { toast } from 'sonner';
 import { STALE_TIME } from '@/lib/query-config';
 import { MutationOptions } from '@/shared/types/mutation';
 import { Message } from '@/shared/types/common';
-import { useAgentSessions as useAgentSessionsFromSessions } from '@/features/sessions/hooks';
-import { getSessionMessages, createSession, deleteSession } from './api';
-import { ChatSession } from './types';
+import { useDeleteSession, useAgentSessions } from '@/features/sessions/hooks';
+import { getSessionMessages, createSession } from './api';
+import { Session } from './types';
 
-// Re-export useAgentSessions from sessions feature with ChatSession type
-export function useAgentSessions(agentId: string) {
-  const result = useAgentSessionsFromSessions(agentId);
-  
-  return {
-    ...result,
-    // Cast data to ChatSession[] for compatibility
-    data: result.data as ChatSession[] | undefined,
-  };
-}
+// Re-export from sessions feature
+export { useDeleteSession, useAgentSessions };
 
 export function useSessionMessages(sessionId: string, agentId: string) {
   const { data, isLoading, error } = useQuery<Message[], Error>({
@@ -38,10 +30,10 @@ export function useSessionMessages(sessionId: string, agentId: string) {
   return { data, isLoading, error };
 }
 
-export function useCreateSession(options?: MutationOptions<ChatSession, Error>) {
+export function useCreateSession(options?: MutationOptions<Session, Error>) {
   const queryClient = useQueryClient();
 
-  return useMutation<ChatSession, Error, string>({
+  return useMutation<Session, Error, string>({
     mutationFn: createSession,
     onSuccess: (data) => {
       toast.success('Session created successfully');
@@ -50,30 +42,6 @@ export function useCreateSession(options?: MutationOptions<ChatSession, Error>) 
     },
     onError: (error) => {
       toast.error(`Failed to create session: ${error.message}`);
-      options?.onError?.(error);
-    },
-  });
-}
-
-interface DeleteSessionVariables {
-  sessionId: string;
-  agentId: string;
-}
-
-// Re-export useDeleteSession from sessions feature
-export function useDeleteSession(options?: MutationOptions<void, Error>) {
-  const queryClient = useQueryClient();
-
-  return useMutation<void, Error, DeleteSessionVariables>({
-    mutationFn: (vars) => deleteSession(vars.sessionId, vars.agentId),
-    onSuccess: (_, variables) => {
-      toast.success('Session deleted successfully');
-      queryClient.invalidateQueries({ queryKey: ['agents', variables.agentId, 'sessions'] });
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
-      options?.onSuccess?.();
-    },
-    onError: (error) => {
-      toast.error(`Failed to delete session: ${error.message}`);
       options?.onError?.(error);
     },
   });

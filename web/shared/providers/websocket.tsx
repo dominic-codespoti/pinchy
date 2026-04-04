@@ -2,12 +2,15 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { TIMEOUTS, RETRY } from '@/lib/config/timeouts';
+import { getGatewayWebSocketUrl } from '@/lib/config/ports';
 
 export type WebSocketStatus = 'connecting' | 'connected' | 'disconnected' | 'error' | 'max_retries_exceeded';
 
 interface WebSocketContextType {
   status: WebSocketStatus;
   send: (message: unknown) => boolean;
+  lastMessage: unknown | null;
   lastMessages: unknown[];
   reconnectAttempts: number;
   connect: () => void;
@@ -25,10 +28,10 @@ export function useWebSocket() {
 }
 
 // Configuration constants
-const MAX_RECONNECT_ATTEMPTS = 5;
-const RECONNECT_DELAY_BASE = 5000; // Start at 5s, increases with backoff
-const MIN_INVALIDATION_INTERVAL = 1000; // Max 1 invalidation per second
-const MESSAGE_BATCH_INTERVAL = 100; // Batch messages for 100ms
+const MAX_RECONNECT_ATTEMPTS = RETRY.MAX_RECONNECT_ATTEMPTS;
+const RECONNECT_DELAY_BASE = TIMEOUTS.WEBSOCKET_RECONNECT_BASE; // Increases with backoff
+const MIN_INVALIDATION_INTERVAL = TIMEOUTS.MIN_INVALIDATION_INTERVAL; // Max 1 invalidation per second
+const MESSAGE_BATCH_INTERVAL = TIMEOUTS.MESSAGE_BATCH_INTERVAL; // Batch messages for 100ms
 
 interface WebSocketProviderProps {
   children: React.ReactNode;
@@ -37,6 +40,7 @@ interface WebSocketProviderProps {
 
 export function WebSocketProvider({ children, autoConnect = true }: WebSocketProviderProps) {
   const [status, setStatus] = useState<WebSocketStatus>('disconnected');
+  const [lastMessage, setLastMessage] = useState<unknown | null>(null);
   const [lastMessages, setLastMessages] = useState<unknown[]>([]);
   const [reconnectAttempts, setReconnectAttempts] = useState(0);
 
@@ -89,6 +93,9 @@ export function WebSocketProvider({ children, autoConnect = true }: WebSocketPro
     // Update state with ALL messages (not just the last one)
     // This ensures all event types are received by the hook
     setLastMessages(messages);
+    
+    // Also set the lastMessage (most recent)
+    setLastMessage(messages[messages.length - 1]);
 
     // Process all messages for invalidation logic
     const processedTypes = new Set<string>();
@@ -130,15 +137,8 @@ export function WebSocketProvider({ children, autoConnect = true }: WebSocketPro
 
     setStatus('connecting');
 
-    // In development, connect directly to Rust backend
-    // In production, use same-origin (backend serves the static files)
-    const isDev = process.env.NODE_ENV === 'development';
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const wsUrl = isDev && isLocalhost
-      ? 'ws://127.0.0.1:3131/ws'
-      : isDev
-        ? `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.hostname}:3131/ws`
-        : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+    // Use centralized port configuration
+    const wsUrl = getGatewayWebSocketUrl();
 
     if (process.env.NODE_ENV === 'development') {
       console.debug('[WebSocket] Connecting to:', wsUrl, 'attempt:', reconnectAttemptsRef.current + 1);
@@ -289,6 +289,7 @@ export function WebSocketProvider({ children, autoConnect = true }: WebSocketPro
     <WebSocketContext.Provider value={{
       status,
       send,
+      lastMessage,
       lastMessages,
       reconnectAttempts,
       connect: manualReconnect,

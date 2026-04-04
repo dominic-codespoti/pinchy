@@ -1512,11 +1512,19 @@ pub fn sap_ai_core_auth_capabilities() -> ProviderAuthCapabilities {
 
 /// Build auth capabilities for local providers (Ollama, LM Studio, vLLM).
 pub fn local_provider_auth_capabilities(provider_id: &str) -> ProviderAuthCapabilities {
+    use crate::ports::{ANTHROPIC_COMPAT, LMSTUDIO_DEFAULT, OLLAMA_DEFAULT, VLLM_DEFAULT};
+
     let (display_name, default_url) = match provider_id {
-        "ollama" => ("Ollama", "http://localhost:11434"),
-        "lmstudio" => ("LM Studio", "http://localhost:1234"),
-        "vllm" => ("vLLM", "http://localhost:8000"),
-        _ => (provider_id, "http://localhost:8080"),
+        "ollama" => ("Ollama", format!("http://localhost:{}", OLLAMA_DEFAULT)),
+        "lmstudio" => (
+            "LM Studio",
+            format!("http://localhost:{}", LMSTUDIO_DEFAULT),
+        ),
+        "vllm" => ("vLLM", format!("http://localhost:{}", VLLM_DEFAULT)),
+        _ => (
+            provider_id,
+            format!("http://localhost:{}", ANTHROPIC_COMPAT),
+        ),
     };
 
     ProviderAuthCapabilities {

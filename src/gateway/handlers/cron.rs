@@ -62,11 +62,6 @@ pub(crate) async fn api_cron_jobs_by_agent(Path(agent_id): Path<String>) -> impl
         .into_response()
 }
 
-/// `GET /api/agents/:id/cron` — list cron jobs for a specific agent (alias).
-pub(crate) async fn api_agent_cron_jobs(Path(agent_id): Path<String>) -> impl IntoResponse {
-    api_cron_jobs_by_agent(Path(agent_id)).await
-}
-
 /// `GET /api/cron/jobs/:job_id/runs` — list runs for a specific job.
 pub(crate) async fn api_cron_job_runs(Path(job_id): Path<String>) -> impl IntoResponse {
     // job_id format: name@agent_id

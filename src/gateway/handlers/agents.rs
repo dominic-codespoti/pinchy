@@ -1,7 +1,7 @@
 use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
 
-use super::super::auth::validate_path_segment;
 use super::super::types::*;
+use super::super::utils::{conflict_response, not_found_response, validate_or_return};
 
 use serde::Deserialize;
 
@@ -19,74 +19,64 @@ where
 
 /// `GET /api/agents` — list all agent directories.
 pub(crate) async fn api_agents_list() -> impl IntoResponse {
-    let agents_dir = crate::utils::agents_dir();
     let mut agents = Vec::new();
 
     // Load config to merge agent-level settings.
     let config_path = crate::pinchy_home().join("config.yaml");
     let cfg = crate::config::Config::load(&config_path).await.ok();
 
-    if let Ok(mut rd) = tokio::fs::read_dir(agents_dir).await {
-        while let Ok(Some(entry)) = rd.next_entry().await {
-            let is_dir = entry
-                .file_type()
-                .await
-                .map(|ft| ft.is_dir())
-                .unwrap_or(false);
-            if !is_dir {
-                continue;
+    // Use shared helper to iterate agent directories
+    let agent_entries = crate::gateway::utils::iter_agents_dir().await;
+    for entry in agent_entries {
+        let base = entry.path;
+        let has_soul = base.join("SOUL.md").exists();
+        let has_tools = base.join("TOOLS.md").exists();
+        let has_heartbeat = base.join("HEARTBEAT.md").exists();
+
+        let mut item = AgentListItem {
+            id: entry.agent_id.clone(),
+            has_soul,
+            has_tools,
+            has_heartbeat,
+            last_heartbeat_at: None,
+            model: None,
+            heartbeat_secs: None,
+            max_tool_iterations: None,
+            enabled_skills: None,
+            cron_jobs_count: None,
+            history_messages: None,
+            max_turns: None,
+            compact_keep_recent_turns: None,
+            timezone: None,
+            reasoning_effort: None,
+        };
+
+        // Merge config fields if available.
+        if let Some(ref cfg) = cfg {
+            if let Some(ac) = cfg.agents.iter().find(|a| a.id == item.id) {
+                item.model = ac.model.clone();
+                item.heartbeat_secs = ac.heartbeat_secs;
+                item.max_tool_iterations = ac.max_tool_iterations;
+                item.enabled_skills = ac.enabled_skills.clone();
+                item.cron_jobs_count = crate::store::global_db()
+                    .and_then(|db| db.list_cron_jobs(&item.id).ok())
+                    .map(|j| j.len());
+                item.history_messages = ac.history_messages;
+                item.max_turns = ac.max_turns;
+                item.compact_keep_recent_turns = ac.compact_keep_recent_turns;
+                item.timezone = Some(cfg.resolve_timezone(&item.id).to_string());
+                item.reasoning_effort = ac.reasoning_effort.clone();
             }
-            let id = entry.file_name().to_string_lossy().to_string();
-            let base = entry.path();
-            let has_soul = base.join("SOUL.md").exists();
-            let has_tools = base.join("TOOLS.md").exists();
-            let has_heartbeat = base.join("HEARTBEAT.md").exists();
-
-            let mut item = AgentListItem {
-                id,
-                has_soul,
-                has_tools,
-                has_heartbeat,
-                last_heartbeat_at: None,
-                model: None,
-                heartbeat_secs: None,
-                max_tool_iterations: None,
-                enabled_skills: None,
-                cron_jobs_count: None,
-                history_messages: None,
-                max_turns: None,
-                compact_keep_recent_turns: None,
-                timezone: None,
-                reasoning_effort: None,
-            };
-
-            // Merge config fields if available.
-            if let Some(ref cfg) = cfg {
-                if let Some(ac) = cfg.agents.iter().find(|a| a.id == item.id) {
-                    item.model = ac.model.clone();
-                    item.heartbeat_secs = ac.heartbeat_secs;
-                    item.max_tool_iterations = ac.max_tool_iterations;
-                    item.enabled_skills = ac.enabled_skills.clone();
-                    item.cron_jobs_count = crate::store::global_db()
-                        .and_then(|db| db.list_cron_jobs(&item.id).ok())
-                        .map(|j| j.len());
-                    item.history_messages = ac.history_messages;
-                    item.max_turns = ac.max_turns;
-                    item.compact_keep_recent_turns = ac.compact_keep_recent_turns;
-                    item.timezone = Some(cfg.resolve_timezone(&item.id).to_string());
-                    item.reasoning_effort = ac.reasoning_effort.clone();
-                }
-            }
-
-            // Load real heartbeat timestamp from scheduler status
-            if item.has_heartbeat {
-                if let Some(status) = crate::scheduler::load_heartbeat_status(&item.id).await {
-                    item.last_heartbeat_at = status.last_tick;
-                }
-            }
-
-            agents.push(item);
         }
+
+        // Load real heartbeat timestamp from scheduler status
+        if item.has_heartbeat {
+            if let Some(status) = crate::scheduler::load_heartbeat_status(&item.id).await {
+                item.last_heartbeat_at = status.last_tick;
+            }
+        }
+
+        agents.push(item);
     }
 
     agents.sort_by(|a, b| a.id.cmp(&b.id));
@@ -103,41 +93,17 @@ pub(crate) async fn api_agent_clone(
     Path(agent_id): Path<String>,
     Json(body): Json<CloneAgentRequest>,
 ) -> impl IntoResponse {
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
-    if let Err(e) = validate_path_segment(&body.new_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
+    validate_or_return!(&body.new_id);
 
     let src_base = crate::utils::agent_root(&agent_id);
     let dst_base = crate::utils::agent_root(&body.new_id);
 
     if !src_base.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "source agent not found".to_string(),
-                id: Some(agent_id),
-                agent_id: None,
-                filename: None,
-                allowed: None,
-            }),
-        )
-            .into_response();
+        return not_found_response(agent_id);
     }
     if dst_base.exists() {
-        return (
-            StatusCode::CONFLICT,
-            Json(ErrorResponse {
-                error: "target agent already exists".to_string(),
-                id: Some(body.new_id),
-                agent_id: None,
-                filename: None,
-                allowed: None,
-            }),
-        )
-            .into_response();
+        return conflict_response("target agent already exists", body.new_id);
     }
 
     let mut files_cloned = 0i64;
@@ -242,22 +208,11 @@ pub(crate) async fn api_agent_clone(
 
 /// `GET /api/agents/:id` — return agent metadata and file contents.
 pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResponse {
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
+
     let base = crate::utils::agent_root(&agent_id);
     if !base.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "agent not found".to_string(),
-                id: Some(agent_id),
-                agent_id: None,
-                filename: None,
-                allowed: None,
-            }),
-        )
-            .into_response();
+        return not_found_response(agent_id);
     }
 
     let soul = tokio::fs::read_to_string(base.join("SOUL.md")).await.ok();
@@ -496,22 +451,11 @@ pub(crate) async fn api_agent_update(
     Path(agent_id): Path<String>,
     Json(body): Json<UpdateAgentRequest>,
 ) -> impl IntoResponse {
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
+
     let base = crate::utils::agent_root(&agent_id);
     if !base.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "agent not found".to_string(),
-                id: Some(agent_id.clone()),
-                agent_id: None,
-                filename: None,
-                allowed: None,
-            }),
-        )
-            .into_response();
+        return not_found_response(agent_id);
     }
 
     // Validate enabled_skills against the unified tool registry.
@@ -686,22 +630,11 @@ pub(crate) async fn api_agent_update(
 
 /// `DELETE /api/agents/:id` — delete an agent workspace.
 pub(crate) async fn api_agent_delete(Path(agent_id): Path<String>) -> impl IntoResponse {
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
+
     let base = crate::utils::agent_root(&agent_id);
     if !base.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "agent not found".to_string(),
-                id: Some(agent_id.clone()),
-                agent_id: None,
-                filename: None,
-                allowed: None,
-            }),
-        )
-            .into_response();
+        return not_found_response(agent_id.clone());
     }
 
     match tokio::fs::remove_dir_all(&base).await {
@@ -749,9 +682,7 @@ const ALLOWED_AGENT_FILES: &[&str] = &["SOUL.md", "TOOLS.md", "HEARTBEAT.md"];
 pub(crate) async fn api_agent_file_get(
     Path((agent_id, filename)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
     if !ALLOWED_AGENT_FILES.contains(&filename.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
@@ -812,9 +743,8 @@ pub(crate) async fn api_agent_file_put(
     Path((agent_id, filename)): Path<(String, String)>,
     Json(body): Json<SaveAgentFileRequest>,
 ) -> impl IntoResponse {
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
+
     if !ALLOWED_AGENT_FILES.contains(&filename.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
@@ -831,17 +761,7 @@ pub(crate) async fn api_agent_file_put(
 
     let base = crate::utils::agent_root(&agent_id);
     if !base.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "agent not found".to_string(),
-                id: Some(agent_id),
-                agent_id: None,
-                filename: None,
-                allowed: None,
-            }),
-        )
-            .into_response();
+        return not_found_response(agent_id);
     }
 
     let path = base.join(&filename);
@@ -878,24 +798,12 @@ pub(crate) async fn api_agent_test(
     use crate::models::ChatMessage;
 
     // Validate agent_id
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
 
     // Check if agent exists
     let agent_root = crate::utils::agent_root(&agent_id);
     if !agent_root.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "agent not found".to_string(),
-                id: Some(agent_id),
-                agent_id: None,
-                filename: None,
-                allowed: None,
-            }),
-        )
-            .into_response();
+        return not_found_response(agent_id);
     }
 
     // Load agent configuration (for potential future use)
@@ -961,19 +869,7 @@ pub(crate) async fn api_agent_test(
 
 /// Collect agent IDs from the `agents/` directory (directories only).
 pub(crate) async fn collect_agent_ids() -> std::io::Result<Vec<String>> {
-    let agents_dir = crate::utils::agents_dir();
-    let mut ids = Vec::new();
-    let mut rd = tokio::fs::read_dir(agents_dir).await?;
-    while let Ok(Some(entry)) = rd.next_entry().await {
-        let is_dir = entry
-            .file_type()
-            .await
-            .map(|ft| ft.is_dir())
-            .unwrap_or(false);
-        if is_dir {
-            ids.push(entry.file_name().to_string_lossy().into_owned());
-        }
-    }
+    let mut ids: Vec<String> = crate::gateway::utils::list_agent_ids().await;
     ids.sort();
     Ok(ids)
 }

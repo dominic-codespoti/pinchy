@@ -1,10 +1,9 @@
 import { fetchApi, isNotFoundError } from '@/shared/api/client';
-import { ReceiptGetResponseSchema } from '@/lib/validation/schemas';
+import { ReceiptGetResponseSchema, Session, RawSession } from '@/lib/validation/schemas';
 import { Message, ToolCall, ToolResult, TurnReceipt } from '@/shared/types/common';
-import { ChatSession, RawChatSession } from './types';
 
 interface SessionsListResponse {
-  sessions: RawChatSession[];
+  sessions: RawSession[];
 }
 
 interface MessagesResponse {
@@ -32,7 +31,7 @@ interface RawToolCall {
   };
 }
 
-function transformSession(raw: RawChatSession): ChatSession {
+function transformSession(raw: RawSession): Session {
   return {
     id: raw.session_id,
     agentId: raw.agent_id,
@@ -338,7 +337,7 @@ export function attachReceiptsToMessages(messages: Message[], receipts: TurnRece
   return nextMessages;
 }
 
-export async function getAgentSessions(agentId: string): Promise<ChatSession[]> {
+export async function getAgentSessions(agentId: string): Promise<Session[]> {
   try {
     const response = await fetchApi<SessionsListResponse>(`/api/agents/${agentId}/sessions`);
     const rawSessions = response.sessions ?? [];
@@ -383,7 +382,7 @@ export async function getSessionReceipts(sessionId: string, agentId: string): Pr
   }
 }
 
-export async function createSession(agentId: string): Promise<ChatSession> {
+export async function createSession(agentId: string): Promise<Session> {
   // Sessions are now created lazily by the backend when the first message is sent.
   // This function is kept for API compatibility but the actual session creation
   // happens via WebSocket when handleSendMessage is called without a session_id.

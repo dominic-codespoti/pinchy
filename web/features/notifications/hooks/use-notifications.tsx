@@ -12,7 +12,7 @@ const NOTIFICATIONS_STORAGE_KEY = 'pinchy-notifications';
 const NOTIFICATION_SETTINGS_KEY = 'pinchy-notification-settings';
 const MAX_NOTIFICATIONS = 50;
 
-const defaultSettings: NotificationSettings = {
+export const defaultSettings: NotificationSettings = {
   enabled: true,
   browserNotifications: false,
   autoDismiss: true,
@@ -29,6 +29,8 @@ interface NotificationContextType {
   notifications: Notification[];
   unreadCount: number;
   settings: NotificationSettings;
+  isLoaded: boolean;
+  defaultSettings: NotificationSettings;
   addNotification: (notification: Omit<Notification, 'id' | 'timestamp' | 'read'>) => void;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
@@ -208,6 +210,8 @@ export function NotificationProvider({ children }: NotificationProviderProps) {
         notifications,
         unreadCount,
         settings,
+        isLoaded,
+        defaultSettings,
         addNotification,
         markAsRead,
         markAllAsRead,

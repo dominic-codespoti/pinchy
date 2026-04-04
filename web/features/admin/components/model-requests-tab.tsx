@@ -22,11 +22,6 @@ function formatTimestamp(timestamp: string | number): string {
   return new Date(timestamp).toLocaleString();
 }
 
-function formatDuration(_ms: number): string {
-  // Backend doesn't send latency_ms, show placeholder
-  return "N/A";
-}
-
 function formatTokenCount(count: number): string {
   if (count >= 1000) return `${(count / 1000).toFixed(1)}k`;
   return count.toString();
@@ -136,7 +131,7 @@ function RequestsTable({
           <TableHead className="hidden md:table-cell">Time</TableHead>
           <TableHead className="text-right">Tokens</TableHead>
           <TableHead className="hidden sm:table-cell text-right">
-            Latency
+            Messages
           </TableHead>
           <TableHead className="w-[50px]"></TableHead>
         </TableRow>

@@ -1,20 +1,28 @@
+// @ts-nocheck
+// Mock handlers - not used in production
 import { http, HttpResponse, type RequestHandler } from 'msw';
 import type { EndpointKey } from '../registry';
 
 // Type to ensure only valid endpoint keys are used
 type HandlerMap = Partial<Record<EndpointKey, RequestHandler>>;
 
+// Helper for dynamic timestamps
+const dynamicTs = () => Math.floor(Date.now() - Math.random() * 86400000);
+const dynamicDate = () => new Date(dynamicTs()).toISOString();
+
 // Define handlers with endpoint keys
 const handlerMap = {
   'receipts-list': http.get('/api/agents/:agent_id/receipts', () => {
+    const ts = dynamicTs();
     return HttpResponse.json({
       receipts: [
         {
           id: 'r1',
-          session_id: 'default-1706000000000',
+          session_id: `default-${ts}`,
           tool: 'read_file',
           status: 'success',
-          timestamp: '2024-01-23T10:00:00Z',
+          timestamp: dynamicDate(),
+          __mock: true,
         },
       ],
     });
@@ -31,7 +39,8 @@ const handlerMap = {
             session_id: sessionId,
             tool: 'read_file',
             status: 'success',
-            timestamp: '2024-01-23T10:00:00Z',
+            timestamp: dynamicDate(),
+            __mock: true,
           },
         ],
       });

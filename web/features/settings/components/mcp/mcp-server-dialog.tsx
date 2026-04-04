@@ -160,7 +160,7 @@ export function McpServerDialog({
                 id="url"
                 value={formData.url}
                 onChange={(e) => updateField('url', e.target.value)}
-                placeholder="e.g., http://localhost:3000/sse or http://localhost:3000/mcp"
+                placeholder="https://your-mcp-server.com/sse or https://your-mcp-server.com/mcp"
               />
               <p className="text-xs text-muted-foreground">
                 The URL endpoint for the MCP server

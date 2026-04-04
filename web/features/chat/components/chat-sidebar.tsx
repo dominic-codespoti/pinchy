@@ -4,7 +4,7 @@ import { Plus, Wifi, WifiOff, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Agent } from '@/features/agents/types';
-import { ChatSession } from '../types';
+import { Session } from '../types';
 import { SessionItem } from './session-item';
 import { AgentSelector } from './agent-selector';
 
@@ -13,7 +13,7 @@ interface ChatSidebarProps {
   selectedAgentId: string;
   onAgentSelect: (id: string) => void;
   agentsLoading: boolean;
-  sessions?: ChatSession[];
+  sessions?: Session[];
   sessionsLoading: boolean;
   currentSessionId: string | null;
   onSessionClick: (sessionId: string) => void;

@@ -1,6 +1,10 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { PAGINATION } from '@/lib/query-config';
+import { fetchApi } from '@/shared/api/client';
+import { RecentLogsResponseSchema } from '@/lib/validation/schemas';
+import { getLogsWebSocketUrl } from '@/lib/config/ports';
 
 /** Log entry interface matching backend format from src/logs.rs */
 export interface LogEntry {
@@ -12,15 +16,7 @@ export interface LogEntry {
   ts: string;
 }
 
-/** Response from the recent logs API */
-interface RecentLogsResponse {
-  logs: LogEntry[];
-  has_more: boolean;
-  buffer_capacity: number;
-  retention: string;
-}
-
-const MAX_LOGS = 2000;
+const MAX_LOGS = PAGINATION.LOGS_MAX_BUFFER;
 const RECONNECT_DELAY_MS = 3000;
 
 interface UseLogsWebSocketReturn {
@@ -56,15 +52,14 @@ export function useLogsWebSocket(): UseLogsWebSocketReturn {
     fetchedBacklogRef.current = true;
 
     try {
-      const res = await fetch('/api/logs/recent?limit=200');
-      if (!res.ok) {
-        console.warn('Failed to fetch recent logs:', res.status);
-        return;
-      }
-      const data: RecentLogsResponse = await res.json();
+      const data = await fetchApi(
+        `/api/logs/recent?limit=${PAGINATION.REALTIME_LIMIT}`,
+        {},
+        RecentLogsResponseSchema
+      );
       
       // Pre-populate logs with recent backlog
-      setLogs(data.logs);
+      setLogs(data.logs as LogEntry[]);
       setBacklogInfo({
         fetched: true,
         count: data.logs.length,
@@ -81,8 +76,8 @@ export function useLogsWebSocket(): UseLogsWebSocketReturn {
     if (typeof window === 'undefined') return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.hostname}:3131/ws/logs`;
+    // Use centralized port configuration
+    const wsUrl = getLogsWebSocketUrl();
 
     try {
       const ws = new WebSocket(wsUrl);

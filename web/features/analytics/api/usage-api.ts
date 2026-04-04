@@ -2,6 +2,7 @@ import { format, subDays } from 'date-fns';
 import { fetchApi } from '@/shared/api/client';
 import { UsageApiResponseSchema, type UsageApiResponse } from '@/lib/validation/schemas';
 import { TimeRange, UsageBucket } from '../types';
+import { FALLBACKS } from '@/lib/constants/fallbacks';
 
 export async function getUsage(
   timeRange: TimeRange,
@@ -109,7 +110,7 @@ export function transformUsageData(usage: UsageBucket[]) {
   }
 
   const modelUsageData = Array.from(byModel.entries()).map(([name, turns], index) => ({
-    name: name || 'Unknown',
+    name: name || FALLBACKS.NAME,
     value: totalTurns > 0 ? Math.round((turns / totalTurns) * 100) : 0,
     color: `hsl(var(--chart-${(index % 5) + 1}))`,
   }));

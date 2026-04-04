@@ -1,5 +1,6 @@
 'use client';
 
+import { useState } from 'react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -7,7 +8,17 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Bot, Heart, Clock, Zap, Settings, FileText, Brain, MessageSquare, Receipt, Webhook } from 'lucide-react';
 import { useAgent } from '../hooks/use-agent';
 import { Agent } from '../types';
+import { sendTestMessage as sendTestMessageApi } from '../api';
 import { AgentOverviewTab } from './agent-overview-tab';
+
+/**
+ * Wrapper to adapt the API function to the component's expected interface
+ * The component expects Promise<string>, the API returns Promise<SendTestMessageResponse>
+ */
+async function sendTestMessage(agentId: string, message: string): Promise<string> {
+  const response = await sendTestMessageApi(agentId, message);
+  return response.response || response.content || 'No response';
+}
 import { AgentFilesTab } from './agent-files-tab';
 import { AgentMemoryTab } from './agent-memory-tab';
 import { AgentSessionsTab } from './agent-sessions-tab';
@@ -18,22 +29,6 @@ import { ReceiptsTab } from '@/features/receipts/components/receipts-tab';
 
 interface AgentDetailProps {
   id: string;
-}
-
-async function sendTestMessage(agentId: string, message: string): Promise<string> {
-  const response = await fetch(`/api/agents/${agentId}/test`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message }),
-  });
-
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Unknown error' }));
-    throw new Error(error.error || `HTTP ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.response || data.reply || 'No response';
 }
 
 function getStatusVariant(status: string): 'default' | 'secondary' | 'destructive' | 'outline' {
@@ -93,6 +88,7 @@ function HeroSection({ agent }: { agent: Agent }) {
 
 export function AgentDetail({ id }: AgentDetailProps) {
   const { agent, isLoading, error } = useAgent(id);
+  const [activeTab, setActiveTab] = useState('overview');
 
   if (isLoading) {
     return (
@@ -124,7 +120,7 @@ export function AgentDetail({ id }: AgentDetailProps) {
     <div className="container mx-auto p-6">
       <HeroSection agent={agent} />
 
-      <Tabs defaultValue="overview" className="w-full">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
         <TabsList className="mb-4 flex flex-wrap h-auto gap-1">
           <TabsTrigger value="overview" className="gap-2">
             <Zap className="h-4 w-4" />
@@ -161,7 +157,7 @@ export function AgentDetail({ id }: AgentDetailProps) {
         </TabsList>
 
         <TabsContent value="overview" className="mt-0">
-          <AgentOverviewTab agent={agent} />
+          <AgentOverviewTab agent={agent} onSwitchTab={setActiveTab} />
         </TabsContent>
 
         <TabsContent value="files" className="mt-0">

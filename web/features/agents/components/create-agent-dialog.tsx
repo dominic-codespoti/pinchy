@@ -24,12 +24,19 @@ import { Plus, Loader2 } from 'lucide-react';
 import { useAvailableModels, useProvidersStatus } from '@/features/settings';
 
 interface CreateAgentDialogProps {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   onCreate?: (data: { id: string; model: string; provider: string }) => Promise<void>;
   trigger?: React.ReactNode;
 }
 
-export function CreateAgentDialog({ onCreate, trigger }: CreateAgentDialogProps) {
-  const [open, setOpen] = useState(false);
+export function CreateAgentDialog({ open: controlledOpen, onOpenChange, onCreate, trigger }: CreateAgentDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (value: boolean) => {
+    setInternalOpen(value);
+    onOpenChange?.(value);
+  };
   const [isCreating, setIsCreating] = useState(false);
   const [formData, setFormData] = useState({
     id: '',

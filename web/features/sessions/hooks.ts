@@ -8,6 +8,7 @@ import { MutationOptions } from '@/shared/types/mutation';
 import { Agent } from '@/features/agents/types';
 import { getAgentSessions, getAllSessions, deleteSession } from './api';
 import { Session } from './types';
+import { sessionsKeys } from './query-keys';
 
 export interface UseAgentSessionsResult {
   data: Session[] | undefined;
@@ -17,7 +18,7 @@ export interface UseAgentSessionsResult {
 
 export function useAgentSessions(agentId: string): UseAgentSessionsResult {
   const { data, isLoading, error } = useQuery<Session[], Error>({
-    queryKey: ['agents', agentId, 'sessions'],
+    queryKey: sessionsKeys.byAgent(agentId),
     queryFn: () => getAgentSessions(agentId),
     staleTime: STALE_TIME.SHORT,
     enabled: !!agentId,
@@ -38,7 +39,7 @@ export function useAgentSessions(agentId: string): UseAgentSessionsResult {
 
 export function useAllSessions(agents: Agent[]) {
   const { data, isLoading, error } = useQuery<Session[], Error>({
-    queryKey: ['sessions', 'all', agents.map(a => a.id)],
+    queryKey: sessionsKeys.allAcrossAgents(agents.map(a => a.id)),
     queryFn: () => getAllSessions(agents),
     staleTime: STALE_TIME.SHORT,
     enabled: agents.length > 0,
@@ -65,8 +66,8 @@ export function useDeleteSession(options?: MutationOptions<void, Error>) {
     mutationFn: (vars) => deleteSession(vars.sessionId, vars.agentId),
     onSuccess: (_, variables) => {
       toast.success('Session deleted successfully');
-      queryClient.invalidateQueries({ queryKey: ['agents', variables.agentId, 'sessions'] });
-      queryClient.invalidateQueries({ queryKey: ['sessions'] });
+      queryClient.invalidateQueries({ queryKey: sessionsKeys.byAgent(variables.agentId) });
+      queryClient.invalidateQueries({ queryKey: sessionsKeys.lists() });
       options?.onSuccess?.();
     },
     onError: (error) => {

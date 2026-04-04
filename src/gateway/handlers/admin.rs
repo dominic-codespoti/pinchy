@@ -8,6 +8,7 @@ use axum::{
 use serde::Serialize;
 
 use crate::gateway::handlers::health::STARTUP_TIME;
+use crate::gateway::types::ErrorResponse;
 
 /// Response shape for admin stats endpoint.
 /// Matches the frontend SystemStats type.
@@ -100,9 +101,13 @@ pub async fn api_admin_db_status() -> impl IntoResponse {
             Err(e) => {
                 return (
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({
-                        "error": format!("Failed to get DB status: {e}")
-                    })),
+                    Json(ErrorResponse {
+                        error: format!("Failed to get DB status: {e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -110,9 +115,13 @@ pub async fn api_admin_db_status() -> impl IntoResponse {
         None => {
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "Database not available"
-                })),
+                Json(ErrorResponse {
+                    error: "Database not available".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -152,9 +161,13 @@ pub async fn api_admin_db_tables() -> impl IntoResponse {
             Err(e) => {
                 return (
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({
-                        "error": format!("Failed to get table stats: {e}")
-                    })),
+                    Json(ErrorResponse {
+                        error: format!("Failed to get table stats: {e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -162,9 +175,13 @@ pub async fn api_admin_db_tables() -> impl IntoResponse {
         None => {
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "Database not available"
-                })),
+                Json(ErrorResponse {
+                    error: "Database not available".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -196,9 +213,13 @@ pub async fn api_admin_db_optimize() -> impl IntoResponse {
             Err(e) => {
                 return (
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({
-                        "error": format!("Optimization failed: {e}")
-                    })),
+                    Json(ErrorResponse {
+                        error: format!("Optimization failed: {e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -206,9 +227,13 @@ pub async fn api_admin_db_optimize() -> impl IntoResponse {
         None => {
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "Database not available"
-                })),
+                Json(ErrorResponse {
+                    error: "Database not available".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -244,9 +269,13 @@ pub async fn api_admin_db_wal_checkpoint() -> impl IntoResponse {
             Err(e) => {
                 return (
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({
-                        "error": format!("WAL checkpoint failed: {e}")
-                    })),
+                    Json(ErrorResponse {
+                        error: format!("WAL checkpoint failed: {e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -254,9 +283,13 @@ pub async fn api_admin_db_wal_checkpoint() -> impl IntoResponse {
         None => {
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "Database not available"
-                })),
+                Json(ErrorResponse {
+                    error: "Database not available".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -319,9 +352,13 @@ pub async fn api_admin_backups_list() -> impl IntoResponse {
             Err(e) => {
                 return (
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({
-                        "error": format!("Failed to read backup directory: {e}")
-                    })),
+                    Json(ErrorResponse {
+                        error: format!("Failed to read backup directory: {e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -385,18 +422,26 @@ pub async fn api_admin_backup_create() -> impl IntoResponse {
             } else {
                 (
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({
-                        "error": "Backup created but could not locate file"
-                    })),
+                    Json(ErrorResponse {
+                        error: "Backup created but could not locate file".to_string(),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response()
             }
         }
         Err(e) => (
             axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({
-                "error": format!("Backup creation failed: {e}")
-            })),
+            Json(ErrorResponse {
+                error: format!("Backup creation failed: {e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }
@@ -492,9 +537,13 @@ pub async fn api_admin_db_diagnostics() -> impl IntoResponse {
             Err(e) => {
                 return (
                     axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({
-                        "error": format!("Failed to get DB diagnostics: {e}")
-                    })),
+                    Json(ErrorResponse {
+                        error: format!("Failed to get DB diagnostics: {e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -502,9 +551,13 @@ pub async fn api_admin_db_diagnostics() -> impl IntoResponse {
         None => {
             return (
                 axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "Database not available"
-                })),
+                Json(ErrorResponse {
+                    error: "Database not available".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -559,9 +612,13 @@ pub async fn api_admin_backup_download(AxumPath(filename): AxumPath<String>) -> 
     if !is_valid_backup_filename(&filename) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "Invalid backup filename"
-            })),
+            Json(ErrorResponse {
+                error: "Invalid backup filename".to_string(),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -575,9 +632,13 @@ pub async fn api_admin_backup_download(AxumPath(filename): AxumPath<String>) -> 
         Err(_) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(serde_json::json!({
-                    "error": "Backup file not found"
-                })),
+                Json(ErrorResponse {
+                    error: "Backup file not found".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -588,9 +649,13 @@ pub async fn api_admin_backup_download(AxumPath(filename): AxumPath<String>) -> 
         Err(_) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(serde_json::json!({
-                    "error": "Backups directory not found"
-                })),
+                Json(ErrorResponse {
+                    error: "Backups directory not found".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -600,9 +665,13 @@ pub async fn api_admin_backup_download(AxumPath(filename): AxumPath<String>) -> 
     if !canonical_backup.starts_with(&canonical_backups_dir) {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({
-                "error": "Access denied"
-            })),
+            Json(ErrorResponse {
+                error: "Access denied".to_string(),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -611,9 +680,13 @@ pub async fn api_admin_backup_download(AxumPath(filename): AxumPath<String>) -> 
     if !canonical_backup.is_file() {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": "Backup file not found"
-            })),
+            Json(ErrorResponse {
+                error: "Backup file not found".to_string(),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -624,9 +697,13 @@ pub async fn api_admin_backup_download(AxumPath(filename): AxumPath<String>) -> 
         Err(_) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "error": "Failed to read backup file metadata"
-                })),
+                Json(ErrorResponse {
+                    error: "Failed to read backup file metadata".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -638,9 +715,13 @@ pub async fn api_admin_backup_download(AxumPath(filename): AxumPath<String>) -> 
         Err(_) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "error": "Failed to open backup file"
-                })),
+                Json(ErrorResponse {
+                    error: "Failed to open backup file".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -680,9 +761,13 @@ pub async fn api_admin_backup_verify(AxumPath(filename): AxumPath<String>) -> im
     if !is_valid_backup_filename(&filename) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({
-                "error": "Invalid backup filename"
-            })),
+            Json(ErrorResponse {
+                error: "Invalid backup filename".to_string(),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -696,9 +781,13 @@ pub async fn api_admin_backup_verify(AxumPath(filename): AxumPath<String>) -> im
         Err(_) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(serde_json::json!({
-                    "error": "Backup file not found"
-                })),
+                Json(ErrorResponse {
+                    error: "Backup file not found".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -709,9 +798,13 @@ pub async fn api_admin_backup_verify(AxumPath(filename): AxumPath<String>) -> im
         Err(_) => {
             return (
                 StatusCode::NOT_FOUND,
-                Json(serde_json::json!({
-                    "error": "Backups directory not found"
-                })),
+                Json(ErrorResponse {
+                    error: "Backups directory not found".to_string(),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -721,9 +814,13 @@ pub async fn api_admin_backup_verify(AxumPath(filename): AxumPath<String>) -> im
     if !canonical_backup.starts_with(&canonical_backups_dir) {
         return (
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({
-                "error": "Access denied"
-            })),
+            Json(ErrorResponse {
+                error: "Access denied".to_string(),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -732,9 +829,13 @@ pub async fn api_admin_backup_verify(AxumPath(filename): AxumPath<String>) -> im
     if !canonical_backup.is_file() {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": "Backup file not found"
-            })),
+            Json(ErrorResponse {
+                error: "Backup file not found".to_string(),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }

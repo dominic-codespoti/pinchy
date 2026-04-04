@@ -2,6 +2,7 @@
 
 import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from '@tanstack/react-query';
 import { useState, ReactNode } from 'react';
+import { STALE_TIME } from '@/lib/query-config';
 
 interface QueryProviderProps {
   children: ReactNode;
@@ -30,7 +31,7 @@ export function QueryProvider({ children }: QueryProviderProps) {
     }),
     defaultOptions: {
       queries: {
-        staleTime: 5000,
+        staleTime: STALE_TIME.SHORT,
         refetchOnWindowFocus: false,
         retry: (failureCount, error) => {
           const err = error as Error;

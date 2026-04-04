@@ -1,9 +1,11 @@
 import { Session, RawSession } from '@/features/sessions/types';
 import { Memory, RawMemory } from '@/features/memories/types';
+import { RawAgent } from '@/lib/validation/schemas';
 
 export type { Session, RawSession } from '@/features/sessions/types';
 export type { Memory, RawMemory } from '@/features/memories/types';
 export type { ApiError } from '@/shared/types/api';
+export type { RawAgent } from '@/lib/validation/schemas';
 
 // ============================================================================
 // Receipt Types (moved from deleted api/receipts-api)
@@ -124,33 +126,6 @@ export interface Agent {
   reasoningEffort?: string | null;
   enabledSkills?: string[] | null;
   timezone?: string;
-}
-
-// Raw API response from backend (list endpoint)
-export interface RawAgent {
-  id: string;
-  model?: string;
-  provider?: string;
-  timezone?: string;
-  has_heartbeat?: boolean;
-  has_soul?: boolean;
-  has_tools?: boolean;
-  last_heartbeat_at?: string;
-  cron_jobs_count?: number;
-  heartbeat_secs?: number | null;
-  max_turns?: number | null;
-  history_messages?: number | null;
-  compact_keep_recent_turns?: number | null;
-  max_tool_iterations?: number | null;
-  reasoning_effort?: string | null;
-  enabled_skills?: string[] | null;
-  watch_paths?: string[];
-  created_at?: string;
-  // Additional fields from detail endpoint (api_agent_get)
-  soul?: string;
-  tools?: string;
-  heartbeat?: string;
-  session_count?: number;
 }
 
 export interface CreateAgentInput {

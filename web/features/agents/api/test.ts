@@ -3,8 +3,7 @@
  * Uses assistant API for test message sending
  */
 
-import { fetchApi } from '@/shared/api/client';
-import { getErrorMessage } from './client';
+import { fetchApi, getErrorMessage } from '@/shared/api/client';
 import type { SendTestMessageResponse } from '../types';
 
 const ASSISTANT_API_BASE = '/api/assistant';

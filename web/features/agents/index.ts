@@ -130,21 +130,9 @@ export {
   testAgentWithAssistant,
   testAgentWithPinchy,
   sendTestMessage,
-  // Client utilities
-  fetchApi,
-  isNotFoundError,
-  isNetworkError,
-  isServerError,
-  isClientError,
-  isConflictError,
-  isBadRequestError,
-  getErrorMessage,
-  fetchWithRetry,
+  // Types
   type AllowedAgentFile,
   type AgentFileData,
-  type ApiResponse,
-  type ApiErrorResponse,
-  type RetryOptions,
   type TestAgentOptions,
   type TestAgentResult,
 } from './api';
@@ -163,9 +151,9 @@ export {
 // ============================================================================
 
 export {
-  agentKeys,
-  agentMutationKeys,
-} from './lib/query-keys';
+  agentsKeys,
+  agentsMutationKeys,
+} from './query-keys';
 
 // ============================================================================
 // Types

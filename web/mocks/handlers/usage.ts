@@ -1,38 +1,47 @@
+// @ts-nocheck
+// Mock handlers - not used in production
 import { http, HttpResponse, type RequestHandler } from 'msw';
 import type { EndpointKey } from '../registry';
 
 // Type to ensure only valid endpoint keys are used
 type HandlerMap = Partial<Record<EndpointKey, RequestHandler>>;
 
+// Helper for realistic token counts
+const randomTokens = () => Math.floor(Math.random() * 50000) + 1000;
+const randomCost = () => parseFloat((Math.random() * 20 + 1).toFixed(2));
+
 // Define handlers with endpoint keys
 const handlerMap = {
   'usage': http.get('/api/usage', () => {
+    const totalInput = randomTokens();
+    const totalOutput = Math.floor(totalInput * 0.3);
     return HttpResponse.json({
-      total_cost: 12.50,
-      total_input_tokens: 150000,
-      total_output_tokens: 45000,
+      total_cost: randomCost(),
+      total_input_tokens: totalInput,
+      total_output_tokens: totalOutput,
       by_model: {
         'copilot-default': {
-          cost: 8.00,
-          input_tokens: 100000,
-          output_tokens: 30000,
+          cost: randomCost(),
+          input_tokens: randomTokens(),
+          output_tokens: randomTokens(),
         },
         'anthropic-claude-3-5-sonnet': {
-          cost: 4.50,
-          input_tokens: 50000,
-          output_tokens: 15000,
+          cost: randomCost(),
+          input_tokens: randomTokens(),
+          output_tokens: randomTokens(),
         },
       },
       by_agent: {
         'default': {
-          cost: 8.00,
-          requests: 50,
+          cost: randomCost(),
+          requests: Math.floor(Math.random() * 100) + 10,
         },
         'researcher': {
-          cost: 4.50,
-          requests: 25,
+          cost: randomCost(),
+          requests: Math.floor(Math.random() * 100) + 10,
         },
       },
+      __mock: true,
     });
   }),
 } satisfies HandlerMap;

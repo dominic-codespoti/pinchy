@@ -4,10 +4,13 @@ import { STALE_TIME } from '@/lib/query-config';
 import { MutationOptions } from '@/shared/types/mutation';
 import { getAgentMemories, searchMemories, addMemory, deleteMemory } from './api';
 import { Memory } from './types';
+import { agentsKeys } from '@/features/agents/query-keys';
 
 export function useAgentMemories(agentId: string, search?: string) {
   return useQuery<Memory[], Error>({
-    queryKey: ['agents', agentId, 'memories', search],
+    queryKey: search 
+      ? [...agentsKeys.memories(agentId), 'search', search]
+      : agentsKeys.memories(agentId),
     queryFn: () => getAgentMemories(agentId, search),
     staleTime: STALE_TIME.SHORT,
     enabled: !!agentId,
@@ -16,7 +19,7 @@ export function useAgentMemories(agentId: string, search?: string) {
 
 export function useSearchMemories(agentId: string, query: string) {
   return useQuery<Memory[], Error>({
-    queryKey: ['agents', agentId, 'memories', 'search', query],
+    queryKey: agentsKeys.memorySearch(agentId, query),
     queryFn: () => searchMemories(agentId, query),
     staleTime: STALE_TIME.SHORT,
     enabled: !!agentId && query.length > 0,
@@ -30,7 +33,7 @@ export function useAddMemory(agentId: string, options?: MutationOptions<Memory, 
     mutationFn: ({ content, category }) => addMemory(agentId, content, category),
     onSuccess: (data) => {
       toast.success('Memory added successfully');
-      queryClient.invalidateQueries({ queryKey: ['agents', agentId, 'memories'] });
+      queryClient.invalidateQueries({ queryKey: agentsKeys.memories(agentId) });
       options?.onSuccess?.(data);
     },
     onError: (error) => {
@@ -47,7 +50,7 @@ export function useDeleteMemory(agentId: string, options?: MutationOptions<void,
     mutationFn: (memoryId) => deleteMemory(memoryId),
     onSuccess: () => {
       toast.success('Memory deleted successfully');
-      queryClient.invalidateQueries({ queryKey: ['agents', agentId, 'memories'] });
+      queryClient.invalidateQueries({ queryKey: agentsKeys.memories(agentId) });
       options?.onSuccess?.();
     },
     onError: (error) => {

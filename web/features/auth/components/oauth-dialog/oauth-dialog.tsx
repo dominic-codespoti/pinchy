@@ -17,6 +17,7 @@ import { AuthFlow } from './auth-flow';
 import { AuthStatus } from './auth-status';
 import { useStartChatGptAuth, useStartCopilotAuth, useAuthenticateWithApiKey } from '../../hooks';
 import { pollCopilotAuth, pollChatGptAuthStatus } from '@/shared/api/auth';
+import { TIMEOUTS } from '@/lib/config/timeouts';
 
 interface OAuthDialogProps {
   provider: string;
@@ -26,8 +27,7 @@ interface OAuthDialogProps {
   onComplete: () => void;
 }
 
-// Max polling duration: 5 minutes
-const MAX_POLLING_DURATION_MS = 5 * 60 * 1000;
+const MAX_POLLING_DURATION_MS = TIMEOUTS.OAUTH_POLLING_MAX;
 
 export function OAuthDialog({ provider, providerName, isOpen, onClose, onComplete }: OAuthDialogProps) {
   const [dialogState, setDialogState] = useState<DialogState>({ type: 'select_method' });

@@ -423,8 +423,8 @@ impl ModelProvider for CohereProvider {
             .await?;
 
         if !resp.status().is_success() {
-            // Return known models if API listing fails
-            return Ok(Some(get_known_cohere_models()));
+            // Return fallback models if API listing fails
+            return Ok(Some(get_fallback_cohere_models()));
         }
 
         let payload: serde_json::Value = resp.json().await?;
@@ -454,7 +454,7 @@ impl ModelProvider for CohereProvider {
             .collect();
 
         if model_infos.is_empty() {
-            Ok(Some(get_known_cohere_models()))
+            Ok(Some(get_fallback_cohere_models()))
         } else {
             Ok(Some(model_infos))
         }
@@ -518,8 +518,15 @@ fn get_model_metadata(model_id: &str) -> (Option<f64>, Option<f64>, Option<Strin
     }
 }
 
-/// Return hardcoded list of known Cohere models.
-fn get_known_cohere_models() -> Vec<super::ModelInfo> {
+/// Return fallback list of known Cohere models.
+///
+/// This is used as a fallback when the Cohere API model listing fails
+/// or returns no models. The list includes common Cohere models with
+/// their metadata (pricing, context window, etc.).
+///
+/// Note: This list may not include the very latest models. For the most
+/// up-to-date list, ensure API connectivity to Cohere.
+fn get_fallback_cohere_models() -> Vec<super::ModelInfo> {
     let model_ids = [
         "command-r-plus",
         "command-r",
@@ -734,8 +741,8 @@ mod tests {
     }
 
     #[test]
-    fn known_models_list() {
-        let models = get_known_cohere_models();
+    fn fallback_models_list() {
+        let models = get_fallback_cohere_models();
         assert!(!models.is_empty());
 
         let cmd_r_plus = models.iter().find(|m| m.id == "command-r-plus");

@@ -3,11 +3,11 @@
 import { Plus, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { ChatSession } from '../types';
+import { Session } from '../types';
 import { SessionItem } from './session-item';
 
 interface SessionsSidebarProps {
-  sessions?: ChatSession[];
+  sessions?: Session[];
   selectedId: string | null;
   onNewChat: () => void;
   onSessionClick: (sessionId: string) => void;
@@ -41,7 +41,7 @@ export function SessionsSidebar({
 }
 
 interface SessionListProps {
-  sessions?: ChatSession[];
+  sessions?: Session[];
   selectedId: string | null;
   onSessionClick: (sessionId: string) => void;
 }

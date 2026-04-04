@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { fetchApi } from '@/shared/api/client';
 import { toast } from 'sonner';
 import { Agent } from '../types';
+import { agentsKeys } from '../query-keys';
 
 interface DeleteAgentResponse {
   id: string;
@@ -38,15 +39,15 @@ export function useDeleteAgent(): UseDeleteAgentResult {
     // Optimistic update - remove from list immediately
     onMutate: async (agentId) => {
       // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ['agents'] });
+      await queryClient.cancelQueries({ queryKey: agentsKeys.lists() });
 
       // Snapshot previous value
-      const previousAgents = queryClient.getQueryData<Agent[]>(['agents']);
+      const previousAgents = queryClient.getQueryData<Agent[]>(agentsKeys.lists());
 
       // Optimistically remove from list
       if (previousAgents) {
         queryClient.setQueryData<Agent[]>(
-          ['agents'],
+          agentsKeys.lists(),
           previousAgents.filter((a) => a.id !== agentId)
         );
       }
@@ -55,7 +56,7 @@ export function useDeleteAgent(): UseDeleteAgentResult {
     },
     onSuccess: (_, agentId) => {
       // Remove the deleted agent from cache
-      queryClient.removeQueries({ queryKey: ['agents', agentId] });
+      queryClient.removeQueries({ queryKey: agentsKeys.detail(agentId) });
       toast.success('Agent deleted successfully');
       // Navigate to list
       router.push('/agents');
@@ -63,7 +64,7 @@ export function useDeleteAgent(): UseDeleteAgentResult {
     onError: (error, agentId, context) => {
       // Rollback on error
       if (context?.previousAgents) {
-        queryClient.setQueryData(['agents'], context.previousAgents);
+        queryClient.setQueryData(agentsKeys.lists(), context.previousAgents);
       }
       toast.error(`Failed to delete agent: ${error.message}`);
     },

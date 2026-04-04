@@ -28,12 +28,19 @@ import { useAvailableModels, useProvidersStatus } from '@/features/settings';
 
 interface EditAgentSheetProps {
   agent: Agent;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   onSave?: (agentId: string, data: Partial<Agent>) => Promise<void>;
   trigger?: React.ReactNode;
 }
 
-export function EditAgentSheet({ agent, onSave, trigger }: EditAgentSheetProps) {
-  const [open, setOpen] = useState(false);
+export function EditAgentSheet({ agent, open: controlledOpen, onOpenChange, onSave, trigger }: EditAgentSheetProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = (value: boolean) => {
+    setInternalOpen(value);
+    onOpenChange?.(value);
+  };
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [formData, setFormData] = useState({

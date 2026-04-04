@@ -28,7 +28,7 @@ export const RawAgentSchema = z.object({
   provider: z.string().optional(),
   timezone: z.string().optional(),
   has_heartbeat: z.boolean().optional(),
-  last_heartbeat_at: z.string().optional(),
+  last_heartbeat_at: z.number().optional(), // u64 from backend (unix timestamp)
   has_soul: z.boolean().optional(),
   has_tools: z.boolean().optional(),
   cron_jobs_count: z.number().optional(),
@@ -59,6 +59,16 @@ export const SessionSchema = z.object({
   modified: z.number(),
   title: z.string().optional(),
   message_count: z.number().optional(),
+});
+
+// Transformed session schema (camelCase for UI)
+export const TransformedSessionSchema = z.object({
+  id: z.string(),
+  agentId: z.string(),
+  title: z.string().optional(),
+  messageCount: z.number(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
 });
 
 export const RawSessionSchema = SessionSchema;
@@ -304,6 +314,26 @@ export const WebhookTestResponseSchema = z.object({
 });
 
 // ============================================================================
+// Log Schemas
+// ============================================================================
+
+export const LogEntrySchema = z.object({
+  type: z.string(),
+  level: z.string(),
+  target: z.string(),
+  message: z.string(),
+  fields: z.record(z.string(), z.unknown()).optional(),
+  ts: z.string(),
+});
+
+export const RecentLogsResponseSchema = z.object({
+  logs: z.array(LogEntrySchema),
+  has_more: z.boolean(),
+  buffer_capacity: z.number(),
+  retention: z.string(),
+});
+
+// ============================================================================
 // Usage/Analytics Schemas
 // ============================================================================
 
@@ -326,7 +356,7 @@ export const UsageApiResponseSchema = z.object({
 
 export type Agent = z.infer<typeof AgentSchema>;
 export type RawAgent = z.infer<typeof RawAgentSchema>;
-export type Session = z.infer<typeof SessionSchema>;
+export type Session = z.infer<typeof TransformedSessionSchema>;
 export type RawSession = z.infer<typeof RawSessionSchema>;
 export type ToolCall = z.infer<typeof ToolCallSchema>;
 export type ToolResult = z.infer<typeof ToolResultSchema>;

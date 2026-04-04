@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Send, MessageSquare, Bot, User, Sparkles } from 'lucide-react';
 import { Agent } from '../types';
+import { FALLBACKS } from '@/lib/constants/fallbacks';
 
 interface Message {
   id: string;
@@ -151,7 +152,7 @@ export function AgentTestTab({ agent, isLoading, onSendMessage }: AgentTestTabPr
           </div>
           <Badge variant="outline" className="gap-1">
             <Sparkles className="h-3 w-3" />
-            {agent.config.model || 'Default'}
+            {agent.config.model || FALLBACKS.MODEL}
           </Badge>
         </div>
       </CardHeader>

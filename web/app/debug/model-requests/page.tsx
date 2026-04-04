@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { fetchApi } from "@/shared/api/client";
+import { STALE_TIME, REFETCH_INTERVAL } from "@/lib/query-config";
 import {
   type ModelRequest,
   type ModelRequestDetail,
@@ -122,7 +123,7 @@ function RequestDetail({
     queryKey: ["debug", "model-requests", requestId],
     queryFn: () => getModelRequestDetail(requestId),
     enabled: !!requestId,
-    staleTime: 30000,
+    staleTime: STALE_TIME.NORMAL,
   });
 
   if (isLoading) {
@@ -222,8 +223,8 @@ export default function DebugModelRequestsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["debug", "model-requests"],
     queryFn: getModelRequests,
-    staleTime: 5000,
-    refetchInterval: 10000,
+    staleTime: STALE_TIME.SHORT,
+    refetchInterval: REFETCH_INTERVAL.NORMAL,
   });
 
   return (

@@ -5,6 +5,7 @@ import { fetchApi } from '@/shared/api/client';
 import { toast } from 'sonner';
 import { Agent, UpdateAgentInput } from '../types';
 import { transformAgentDetail } from '../utils';
+import { agentsKeys } from '../query-keys';
 
 interface UpdateAgentResponse {
   id: string;
@@ -56,10 +57,10 @@ export function useUpdateAgent(): UseUpdateAgentResult {
     // Optimistic update
     onMutate: async ({ agentId, input }) => {
       // Cancel any outgoing refetches
-      await queryClient.cancelQueries({ queryKey: ['agents', agentId] });
+      await queryClient.cancelQueries({ queryKey: agentsKeys.detail(agentId) });
 
       // Snapshot previous value
-      const previousAgent = queryClient.getQueryData<Agent>(['agents', agentId]);
+      const previousAgent = queryClient.getQueryData<Agent>(agentsKeys.detail(agentId));
 
       // Optimistically update to new value
       if (previousAgent) {
@@ -81,20 +82,20 @@ export function useUpdateAgent(): UseUpdateAgentResult {
           reasoningEffort: input.reasoning_effort ?? previousAgent.reasoningEffort,
           enabledSkills: input.enabled_skills ?? previousAgent.enabledSkills,
         };
-        queryClient.setQueryData(['agents', agentId], optimisticAgent);
+        queryClient.setQueryData(agentsKeys.detail(agentId), optimisticAgent);
       }
 
       return { previousAgent };
     },
     onSuccess: (_, { agentId }) => {
       // Invalidate the agent detail to get fresh data
-      queryClient.invalidateQueries({ queryKey: ['agents', agentId] });
+      queryClient.invalidateQueries({ queryKey: agentsKeys.detail(agentId) });
       toast.success('Agent updated successfully');
     },
     onError: (error, { agentId }, context) => {
       // Rollback on error
       if (context?.previousAgent) {
-        queryClient.setQueryData(['agents', agentId], context.previousAgent);
+        queryClient.setQueryData(agentsKeys.detail(agentId), context.previousAgent);
       }
       toast.error(`Failed to update agent: ${error.message}`);
     },

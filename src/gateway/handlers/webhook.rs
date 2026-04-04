@@ -211,8 +211,7 @@ pub(crate) async fn api_webhook_config_update(
     };
 
     let agent_idx = cfg.agents.iter().position(|a| a.id == agent_id);
-
-    if agent_idx.is_none() {
+    let Some(idx) = agent_idx else {
         return (
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
@@ -224,9 +223,7 @@ pub(crate) async fn api_webhook_config_update(
             }),
         )
             .into_response();
-    }
-
-    let idx = agent_idx.unwrap();
+    };
 
     // Update the webhook secret based on enabled flag
     if body.enabled {

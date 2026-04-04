@@ -10,10 +10,11 @@ import { toast } from 'sonner';
 import { STALE_TIME, REFETCH_INTERVAL } from '@/lib/query-config';
 import { getAgentLogs, getSystemLogs, getRecentSystemLogs } from './api';
 import { LogEntry } from '@/shared/types/common';
+import { logsKeys } from './query-keys';
 
 export function useAgentLogs(agentId: string, limit?: number) {
   const { data, isLoading, error } = useQuery<LogEntry[], Error>({
-    queryKey: ['agents', agentId, 'logs', limit],
+    queryKey: logsKeys.agentWithLimit(agentId, limit),
     queryFn: () => getAgentLogs(agentId, limit),
     staleTime: STALE_TIME.SHORT,
     enabled: !!agentId,
@@ -31,7 +32,7 @@ export function useAgentLogs(agentId: string, limit?: number) {
 
 export function useSystemLogs(limit?: number) {
   const { data, isLoading, error } = useQuery<LogEntry[], Error>({
-    queryKey: ['logs', 'system', limit],
+    queryKey: logsKeys.systemWithLimit(limit),
     queryFn: () => getSystemLogs(limit),
     staleTime: STALE_TIME.SHORT,
     refetchInterval: STALE_TIME.SHORT,
@@ -52,7 +53,7 @@ export function useSystemLogs(limit?: number) {
  */
 export function useRecentSystemLogs(limit?: number) {
   const { data, isLoading, error } = useQuery<LogEntry[], Error>({
-    queryKey: ['logs', 'recent', limit],
+    queryKey: logsKeys.recentWithLimit(limit),
     queryFn: () => getRecentSystemLogs(limit),
     staleTime: STALE_TIME.REALTIME,
     refetchInterval: REFETCH_INTERVAL.REALTIME,

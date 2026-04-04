@@ -16,7 +16,7 @@ import {
 import { CronJob } from '../types';
 import { JobsTable } from './jobs-table';
 import { JobDialog, JobFormData } from './job-dialog';
-import { EmptyState } from './empty-state';
+import { CronEmptyState } from './empty-state';
 import { ExportCronJobsButton } from './export-button';
 
 export function CronPage() {
@@ -93,7 +93,7 @@ export function CronPage() {
       </div>
 
       {isEmpty ? (
-        <EmptyState onCreate={handleNewJob} />
+        <CronEmptyState onCreate={handleNewJob} />
       ) : (
         <JobsTable
           jobs={jobs || []}

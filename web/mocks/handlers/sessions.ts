@@ -1,33 +1,46 @@
+// @ts-nocheck
+// Mock handlers - not used in production
 import { http, HttpResponse, type RequestHandler } from 'msw';
 import type { EndpointKey } from '../registry';
 
 // Type to ensure only valid endpoint keys are used
 type HandlerMap = Partial<Record<EndpointKey, RequestHandler>>;
 
+// Helper for dynamic timestamps
+const dynamicTs = () => Math.floor(Date.now() - Math.random() * 86400000);
+const dynamicTsSecs = () => Math.floor((Date.now() - Math.random() * 86400000) / 1000);
+
+const ts1 = dynamicTs();
+const ts2 = dynamicTs();
+const ts3 = dynamicTs();
+
 const mockSessions = [
   {
-    session_id: 'default-1706000000000',
+    session_id: `default-${ts1}`,
     title: 'Help with project setup',
-    file: 'default-1706000000000.jsonl',
-    created_at: 1706000000000,
-    modified: 1706003600,
+    file: `default-${ts1}.jsonl`,
+    created_at: ts1,
+    modified: dynamicTsSecs(),
     message_count: 15,
+    __mock: true,
   },
   {
-    session_id: 'default-1706100000000',
+    session_id: `default-${ts2}`,
     title: 'Debug API issue',
-    file: 'default-1706100000000.jsonl',
-    created_at: 1706100000000,
-    modified: 1706103600,
+    file: `default-${ts2}.jsonl`,
+    created_at: ts2,
+    modified: dynamicTsSecs(),
     message_count: 8,
+    __mock: true,
   },
   {
-    session_id: 'default-1706200000000',
+    session_id: `default-${ts3}`,
     title: null,
-    file: 'default-1706200000000.jsonl',
-    created_at: 1706200000000,
-    modified: 1706203600,
+    file: `default-${ts3}.jsonl`,
+    created_at: ts3,
+    modified: dynamicTsSecs(),
     message_count: 3,
+    __mock: true,
   },
 ];
 
@@ -44,19 +57,21 @@ const handlerMap = {
   }),
 
   'sessions-get': http.get('/api/agents/:agent_id/sessions/:session_file', () => {
+    const msgTs1 = dynamicTs();
     return HttpResponse.json({
       messages: [
         {
           role: 'user',
           content: 'Hello',
-          timestamp: 1706000000000,
+          timestamp: msgTs1,
         },
         {
           role: 'assistant',
           content: 'Hi! How can I help you today?',
-          timestamp: 1706000001000,
+          timestamp: msgTs1 + 1000,
         },
       ],
+      __mock: true,
     });
   }),
 

@@ -1,18 +1,3 @@
-export interface Session {
-  id: string;
-  agentId: string;
-  title?: string;
-  messageCount: number;
-  createdAt: string;
-  updatedAt: string;
-}
+import { Session, RawSession } from '@/lib/validation/schemas';
 
-export interface RawSession {
-  session_id: string;
-  agent_id: string;
-  title?: string | null;
-  file: string;
-  created_at: number;
-  modified: number;
-  message_count?: number;
-}
+export type { Session, RawSession };

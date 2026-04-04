@@ -7,10 +7,11 @@ import { useQueryClient } from '@tanstack/react-query';
 import { TurnReceiptSchema } from '@/lib/validation/schemas';
 import { attachReceiptsToMessages, dedupeReceipts, getSessionMessages, getSessionReceipts } from '@/features/chat/api';
 import { useWebSocket } from '@/shared/providers/websocket';
+import { TIMEOUTS } from '@/lib/config/timeouts';
 import { Agent } from '@/features/agents/types';
 import { Message, TurnReceipt } from '@/shared/types/common';
 import { useAgentSessions } from '../hooks';
-import { ChatSession, Mention } from '../types';
+import { Session, Mention } from '../types';
 
 export interface UseChatReturn {
   selectedAgentId: string;
@@ -21,10 +22,10 @@ export interface UseChatReturn {
   streamingContent: string;
   streamingStartTime: Date;
   isWsConnected: boolean;
-  sessions: ChatSession[] | undefined;
+  sessions: Session[] | undefined;
   sessionsLoading: boolean;
-  filteredSessions: ChatSession[];
-  currentSession: ChatSession | undefined;
+  filteredSessions: Session[];
+  currentSession: Session | undefined;
   sessionIdFromUrl: string | null;
   agentIdFromUrl: string | null;
   availableMentions: Mention[];
@@ -476,7 +477,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
     const timeout = setTimeout(() => {
       setIsCreatingSession(false);
       toast.error('Session creation timed out. Please try again.');
-    }, 30000); // 30 second timeout for session creation
+    }, TIMEOUTS.SESSION_CREATION);
 
     return () => clearTimeout(timeout);
   }, [isCreatingSession]);
