@@ -6,6 +6,7 @@ import type { ReceiptsListResponse, ReceiptsBySessionResponse } from '@/features
 export type { Session, RawSession } from '@/features/sessions/types';
 export type { Memory, RawMemory } from '@/features/memories/types';
 export type { ApiError } from '@/shared/types/api';
+// Re-export binding types for convenience
 export type { AgentListItem, AgentDetail } from '@/src/lib/bindings';
 // Re-export receipt types from canonical source
 export type { ReceiptsListResponse, ReceiptsBySessionResponse } from '@/features/receipts/types';

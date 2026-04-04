@@ -9,7 +9,7 @@ export type {
   ProviderConfig,
   ProviderStatus,
   ProviderTestResult,
-  ProviderStatusItem,
+  UIProviderStatusItem,
   SetProviderAuthResult,
   ProviderId,
   ProviderMetadata,
@@ -22,6 +22,8 @@ export type {
   McpServers,
   McpTransport,
 } from './types';
+// Re-export with old name for backward compatibility
+export type { UIProviderStatusItem as ProviderStatusItem } from './types';
 export type { ModelsApiResponse } from './api/models';
 
 // API

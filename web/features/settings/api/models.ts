@@ -124,9 +124,11 @@ export {
 
 export type {
   ProviderTestResult,
-  ProviderStatusItem,
+  UIProviderStatusItem,
   SetProviderAuthResult,
   ProviderStatus,
   ModelsDevProvider,
   ModelsDevModel,
 } from '../types';
+// Re-export with old name for backward compatibility
+export type { UIProviderStatusItem as ProviderStatusItem } from '../types';

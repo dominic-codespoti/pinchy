@@ -3,13 +3,13 @@
 import * as React from 'react';
 import { Unplug, Plus, Plug } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
-import { ProviderConfig, ProviderStatusItem, ProviderTestResult } from '../../types';
+import { ProviderConfig, UIProviderStatusItem, ProviderTestResult } from '../../types';
 import { getProviderModels, PROVIDERS } from './provider-constants';
 import { ProviderListItem } from './provider-list-item';
 
 interface ProviderListProps {
   providers: ProviderConfig[];
-  backendStatus: Map<string, ProviderStatusItem>;
+  backendStatus: Map<string, UIProviderStatusItem>;
   onConnect: (providerId: string, providerName: string) => void;
   onTest: (providerId: string) => Promise<ProviderTestResult>;
   onToggle: (providerId: string, enabled: boolean) => void;

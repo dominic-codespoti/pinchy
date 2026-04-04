@@ -126,8 +126,8 @@ export interface ProviderTestResult {
 }
 
 // UI-specific provider status for the settings UI
-// Note: This is different from ApiProviderStatus which is the raw API response type
-export interface ProviderStatusItem {
+// Note: This is different from ApiProviderStatus which is the raw API response type from bindings
+export interface UIProviderStatusItem {
   id: string;
   name: string;
   configured: boolean;

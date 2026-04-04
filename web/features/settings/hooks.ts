@@ -20,7 +20,7 @@ import {
   getConfigSchema,
 } from './api';
 import { fetchApi } from '@/shared/api/client';
-import { ModelInfo, ProviderConfig, ProviderTestResult, ConfigModelInfo, ProviderStatusItem } from './types';
+import { ModelInfo, ProviderConfig, ProviderTestResult, ConfigModelInfo, UIProviderStatusItem } from './types';
 
 // ============================================================================
 // Model Hooks
@@ -46,7 +46,7 @@ export function useAvailableModels() {
 }
 
 export function useProvidersStatus() {
-  const { data, isLoading, error } = useQuery<ProviderStatusItem[], Error>({
+  const { data, isLoading, error } = useQuery<UIProviderStatusItem[], Error>({
     queryKey: PROVIDERS_STATUS_QUERY_KEY,
     queryFn: getAllProvidersStatus,
     staleTime: STALE_TIME.NORMAL,

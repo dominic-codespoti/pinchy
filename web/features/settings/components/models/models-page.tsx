@@ -95,7 +95,7 @@ import {
 import { fetchModelsRegistry, setProviderAuth, testProviderConnection } from '../../api';
 import {
   ModelInfo,
-  ProviderStatusItem,
+  UIProviderStatusItem,
   ModelsDevProvider,
   ModelsDevModel,
   ProviderTestResult,
@@ -138,7 +138,7 @@ function modelInfoToDevModel(model: ModelInfo): ModelsDevModel {
 // Types
 // ============================================================================
 
-interface EnhancedProviderStatus extends ProviderStatusItem {
+interface EnhancedProviderStatus extends UIProviderStatusItem {
   modelCount?: number;
   modelsDevData?: ModelsDevProvider;
 }
@@ -1413,7 +1413,7 @@ export function ModelsPage() {
 
   // Enhance provider statuses with models.dev data
   const enhancedProviders = React.useMemo((): EnhancedProviderStatus[] => {
-    const statusMap = new Map<string, ProviderStatusItem>();
+    const statusMap = new Map<string, UIProviderStatusItem>();
     for (const status of providerStatuses) {
       statusMap.set(status.id, status);
     }
@@ -1498,10 +1498,10 @@ export function ModelsPage() {
 
   const handleDisconnect = async (providerId: string) => {
     // Store previous state for potential rollback
-    const previousStatuses = queryClient.getQueryData<ProviderStatusItem[]>(PROVIDERS_STATUS_QUERY_KEY);
+    const previousStatuses = queryClient.getQueryData<UIProviderStatusItem[]>(PROVIDERS_STATUS_QUERY_KEY);
 
     // Optimistically update cache to show provider as disconnected immediately
-    queryClient.setQueryData<ProviderStatusItem[]>(PROVIDERS_STATUS_QUERY_KEY, (old) => {
+    queryClient.setQueryData<UIProviderStatusItem[]>(PROVIDERS_STATUS_QUERY_KEY, (old) => {
       if (!old) return old;
       return old.map((p) =>
         p.id === providerId ? { ...p, configured: false, method: undefined } : p

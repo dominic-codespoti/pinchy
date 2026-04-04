@@ -41,7 +41,7 @@ export function transformAgent(raw: AgentListItem): Agent {
  * Transform a AgentDetail from the detail endpoint to a full frontend Agent
  * The detail endpoint provides additional fields like soul, tools, heartbeat
  */
-export function transformAgentDetail(raw: AgentDetail, id: string): Agent {
+export function transformAgentDetail(raw: AgentDetail, id?: string): Agent {
   const base = transformAgent({
     ...raw,
     has_soul: raw.soul !== null,
@@ -53,8 +53,8 @@ export function transformAgentDetail(raw: AgentDetail, id: string): Agent {
 
   return {
     ...base,
-    id,
-    name: raw.id || id,
+    id: raw.id || id || raw.id,
+    name: raw.id || id || raw.id,
     description: raw.soul
       ? raw.soul.substring(0, 100) + (raw.soul.length > 100 ? '...' : '')
       : base.description,

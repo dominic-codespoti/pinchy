@@ -7,7 +7,7 @@ import {
   ModelInfo,
   ProviderTestResult,
   SetProviderAuthResult,
-  ProviderStatusItem,
+  UIProviderStatusItem,
   ModelsDevProvider,
 } from './types';
 import { fetchApi, fetchApiEmpty, ApiError } from '@/shared/api/client';
@@ -94,7 +94,7 @@ export async function fetchModels(): Promise<ModelInfo[]> {
   }
 }
 
-export async function getAllProvidersStatus(): Promise<ProviderStatusItem[]> {
+export async function getAllProvidersStatus(): Promise<UIProviderStatusItem[]> {
   try {
     const response = await fetchApi<{
       providers: Array<{

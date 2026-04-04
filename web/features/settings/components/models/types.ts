@@ -7,12 +7,12 @@
  */
 
 import type {
-  ProviderStatusItem,
+  UIProviderStatusItem,
   ProviderTestResult,
   ProviderCatalogItem,
 } from '@/features/settings/types';
 
-export interface EnhancedProviderStatus extends ProviderStatusItem {
+export interface EnhancedProviderStatus extends UIProviderStatusItem {
   modelCount?: number;
   catalogData?: ProviderCatalogItem;
 }

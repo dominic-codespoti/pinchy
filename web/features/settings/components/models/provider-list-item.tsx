@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { ChevronRight, Zap, Plug, Key, Lock, TestTube, ChevronLeft, Check, X, Loader2 } from 'lucide-react';
 import { cn } from '@/shared/lib/utils';
-import { ProviderConfig, ProviderStatusItem, ProviderTestResult } from '../../types';
+import { ProviderConfig, UIProviderStatusItem, ProviderTestResult } from '../../types';
 import { providerIcons, getProviderBadgeColor, getProviderModels, PROVIDERS } from './provider-constants';
 
 function getAuthMethodIcon(method?: string) {
@@ -39,7 +39,7 @@ function StatusIndicator({
   status,
   isConnected,
 }: {
-  status?: ProviderStatusItem;
+  status?: UIProviderStatusItem;
   isConnected: boolean;
 }) {
   return (
@@ -88,7 +88,7 @@ function StatusIndicator({
 interface ProviderListItemProps {
   provider: ProviderConfig;
   meta?: (typeof PROVIDERS)[number];
-  backend?: ProviderStatusItem;
+  backend?: UIProviderStatusItem;
   isConnected: boolean;
   onConnect: (providerId: string, providerName: string) => void;
   onTest: (providerId: string) => Promise<ProviderTestResult>;
