@@ -7,8 +7,6 @@ import { fetchApi } from '@/shared/api/client';
 import {
   ReceiptsListResponse,
   ReceiptGetResponse,
-  ReceiptsListResponseSchema,
-  ReceiptGetResponseSchema,
 } from './types';
 
 const API_BASE = '/api/agents';
@@ -25,8 +23,7 @@ const API_BASE = '/api/agents';
 export async function getAgentReceipts(agentId: string): Promise<ReceiptsListResponse> {
   return await fetchApi<ReceiptsListResponse>(
     `${API_BASE}/${encodeURIComponent(agentId)}/receipts`,
-    undefined,
-    ReceiptsListResponseSchema
+    undefined
   );
 }
 
@@ -46,8 +43,7 @@ export async function getSessionReceipts(
 
   return await fetchApi<ReceiptGetResponse>(
     `${API_BASE}/${encodeURIComponent(agentId)}/receipts/${encodeURIComponent(cleanSessionId)}`,
-    undefined,
-    ReceiptGetResponseSchema
+    undefined
   );
 }
 

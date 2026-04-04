@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 
 /**
  * Chat History Overflow Analysis - Multi-viewport
@@ -24,7 +24,7 @@ test.describe('Chat overflow analysis', () => {
   });
 });
 
-async function checkOverflow(page: any, width: number, height: number, name: string) {
+async function checkOverflow(page: Page, width: number, height: number, name: string) {
   await page.setViewportSize({ width, height });
   
   await page.goto('/chat');

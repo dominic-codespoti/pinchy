@@ -1,11 +1,11 @@
 import { Session, RawSession } from '@/features/sessions/types';
 import { Memory, RawMemory } from '@/features/memories/types';
-import { RawAgent } from '@/lib/validation/schemas';
+import type { AgentListItem, AgentDetail } from '@/src/lib/bindings';
 
 export type { Session, RawSession } from '@/features/sessions/types';
 export type { Memory, RawMemory } from '@/features/memories/types';
 export type { ApiError } from '@/shared/types/api';
-export type { RawAgent } from '@/lib/validation/schemas';
+export type { AgentListItem, AgentDetail } from '@/src/lib/bindings';
 
 // ============================================================================
 // Receipt Types (moved from deleted api/receipts-api)

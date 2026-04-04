@@ -12,8 +12,8 @@ function transformSession(raw: RawSession): Session {
     agentId: raw.agent_id,
     title: raw.title ?? undefined,
     messageCount: raw.message_count ?? 0,
-    createdAt: new Date(raw.created_at).toISOString(),
-    updatedAt: new Date(raw.modified * 1000).toISOString(),
+    createdAt: new Date(Number(raw.created_at)).toISOString(),
+    updatedAt: new Date(Number(raw.modified) * 1000).toISOString(),
   };
 }
 

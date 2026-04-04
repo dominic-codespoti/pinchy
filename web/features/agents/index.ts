@@ -162,7 +162,8 @@ export {
 export type {
   Agent,
   AgentGroup,
-  RawAgent,
+  AgentListItem,
+  AgentDetail as AgentDetailType,
   CreateAgentInput,
   UpdateAgentInput,
   AgentFile,

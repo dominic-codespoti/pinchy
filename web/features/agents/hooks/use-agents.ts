@@ -2,14 +2,13 @@
 
 import { fetchApi } from '@/shared/api/client';
 import { STALE_TIME, GC_TIME, REFETCH_INTERVAL } from '@/lib/query-config';
-import { Agent } from '../types';
-import { RawAgent } from '@/lib/validation/schemas';
+import { Agent, AgentListItem } from '../types';
 import { transformAgent } from '../utils';
 import { useQueryWithToast } from '@/shared/hooks/use-query-with-toast';
 import { agentsKeys } from '../query-keys';
 
 interface AgentsListResponse {
-  agents: RawAgent[];
+  agents: AgentListItem[];
 }
 
 async function fetchAgents(): Promise<Agent[]> {

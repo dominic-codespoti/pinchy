@@ -2,6 +2,9 @@ use std::path::Path;
 use std::process::Command;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Regenerate TypeScript bindings when gateway types change
+    println!("cargo:rerun-if-changed=src/gateway/types.rs");
+
     // In dev mode, skip web build - Next.js dev server handles it
     if std::env::var("PINCHY_DEV_MODE").as_deref() == Ok("1") {
         println!("cargo:warning=Dev mode: skipping web build (using Next.js dev server)");

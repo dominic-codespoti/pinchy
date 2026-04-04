@@ -4,17 +4,12 @@
  */
 
 import { fetchApi, fetchApiEmpty } from '@/shared/api/client';
-import { z } from 'zod';
 import type {
   ChatGptAuthSession,
   ChatGptAuthStatus,
   CopilotAuthSession,
   ApiKeyAuthResult,
 } from '@/features/auth/types';
-import {
-  ApiKeyAuthResponseSchema,
-  CopilotPollResponseSchema,
-} from '@/lib/validation/schemas';
 
 const API_BASE_URL = '';
 
@@ -28,12 +23,6 @@ export async function getChatGptAuthStatus(): Promise<ChatGptAuthStatus> {
   return fetchApi<ChatGptAuthStatus>(`${API_BASE_URL}/api/auth/providers`);
 }
 
-// ChatGPT OAuth status polling
-const ChatGptPollStatusSchema = z.object({
-  status: z.enum(['pending', 'success', 'error']),
-  message: z.string().optional(),
-});
-
 export interface ChatGptPollStatus {
   status: 'pending' | 'success' | 'error';
   message?: string;
@@ -42,8 +31,7 @@ export interface ChatGptPollStatus {
 export async function pollChatGptAuthStatus(): Promise<ChatGptPollStatus> {
   return fetchApi<ChatGptPollStatus>(
     `${API_BASE_URL}/api/auth/chatgpt/status`,
-    undefined,
-    ChatGptPollStatusSchema
+    undefined
   );
 }
 
@@ -63,8 +51,7 @@ export async function authenticateWithApiKey(
     {
       method: 'POST',
       body: JSON.stringify({ api_key: apiKey }),
-    },
-    ApiKeyAuthResponseSchema
+    }
   );
 }
 
@@ -86,7 +73,6 @@ export async function pollCopilotAuth(): Promise<CopilotPollResponse> {
     `${API_BASE_URL}/api/auth/copilot/poll`,
     {
       method: 'POST',
-    },
-    CopilotPollResponseSchema
+    }
   );
 }

@@ -11,11 +11,6 @@ import {
   ModelsDevProvider,
 } from './types';
 import { fetchApi, fetchApiEmpty, ApiError } from '@/shared/api/client';
-import { z } from 'zod';
-import {
-  ModelsListResponseSchema,
-  ProviderStatusResponseSchema,
-} from '@/lib/validation/schemas';
 
 const API_BASE_URL = '';
 
@@ -23,27 +18,23 @@ const API_BASE_URL = '';
 // Models Registry API (models.dev integration)
 // ============================================================================
 
-// Schema for models registry response
-const ModelsRegistryResponseSchema = z.object({
-  providers: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    env: z.array(z.string()).default([]),
-    api: z.string().nullable().optional(),
-    doc: z.string().nullable().optional(),
-    models: z.array(z.object({
-      id: z.string(),
-      name: z.string(),
-      description: z.string().nullable().optional(),
-    })).default([]),
-  })),
-});
-
 export async function fetchModelsRegistry(): Promise<ModelsDevProvider[]> {
-  const response = await fetchApi(
+  const response = await fetchApi<{
+    providers: {
+      id: string;
+      name: string;
+      env: string[];
+      api?: string | null;
+      doc?: string | null;
+      models: {
+        id: string;
+        name: string;
+        description?: string | null;
+      }[];
+    }[];
+  }>(
     `${API_BASE_URL}/api/models/registry`,
-    undefined,
-    ModelsRegistryResponseSchema
+    undefined
   );
   return response.providers || [];
 }
@@ -54,27 +45,48 @@ export async function fetchModelsRegistry(): Promise<ModelsDevProvider[]> {
 
 export async function fetchModels(): Promise<ModelInfo[]> {
   try {
-    const response = await fetchApi(
+    const response = await fetchApi<{
+      models?: Array<{
+        id: string;
+        name?: string;
+        provider: string;
+        description?: string | null;
+        input_price?: number | null;
+        output_price?: number | null;
+        context_window?: number | null;
+        max_output?: number | null;
+        tool_call?: boolean;
+        reasoning?: boolean;
+        attachment?: boolean;
+        family?: string | null;
+        cache_read_price?: number | null;
+        cache_write_price?: number | null;
+        modalities?: string[] | null;
+      }> | null;
+    }>(
       `${API_BASE_URL}/api/models`,
-      undefined,
-      ModelsListResponseSchema
+      undefined
     );
     return (response.models || []).map(m => ({
       id: m.id,
       name: m.name || m.id,
       provider: m.provider,
-      description: m.description || m.provider,
-      input_price: m.input_price,
-      output_price: m.output_price,
-      context_window: m.context_window,
-      max_output: m.max_output,
-      tool_call: m.tool_call,
-      reasoning: m.reasoning,
-      attachment: m.attachment,
-      family: m.family,
-      cache_read_price: m.cache_read_price,
-      cache_write_price: m.cache_write_price,
-      modalities: m.modalities,
+      description: m.description ?? null,
+      input_price: m.input_price ?? null,
+      output_price: m.output_price ?? null,
+      context_window: m.context_window !== undefined && m.context_window !== null
+        ? BigInt(m.context_window)
+        : null,
+      max_output: m.max_output !== undefined && m.max_output !== null
+        ? BigInt(m.max_output)
+        : null,
+      tool_call: m.tool_call ?? false,
+      reasoning: m.reasoning ?? false,
+      attachment: m.attachment ?? false,
+      family: m.family ?? null,
+      cache_read_price: m.cache_read_price ?? null,
+      cache_write_price: m.cache_write_price ?? null,
+      modalities: m.modalities ?? null,
     }));
   } catch (error) {
     console.error('[settings] Failed to fetch models:', error);
@@ -84,10 +96,17 @@ export async function fetchModels(): Promise<ModelInfo[]> {
 
 export async function getAllProvidersStatus(): Promise<ProviderStatusItem[]> {
   try {
-    const response = await fetchApi(
+    const response = await fetchApi<{
+      providers: Array<{
+        provider: string;
+        name: string;
+        configured: boolean;
+        source?: string;
+        has_api_key: boolean;
+      }>;
+    }>(
       `${API_BASE_URL}/api/providers/status`,
-      undefined,
-      ProviderStatusResponseSchema
+      undefined
     );
     return response.providers.map((p) => ({
       id: p.provider,

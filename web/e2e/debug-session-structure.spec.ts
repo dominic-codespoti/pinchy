@@ -9,7 +9,23 @@ test('Debug session item structure', async ({ page }) => {
   await page.waitForLoadState('networkidle');
   await page.waitForTimeout(1500);
 
-  const structure: any = await page.evaluate(() => {
+  type StructureResult = 
+    | { error: string }
+    | Array<{
+        index: number;
+        buttonClasses: string;
+        buttonWidth: number;
+        innerHTML: string;
+        textStructure: {
+          titleClasses?: string;
+          parentTag?: string;
+          parentClasses?: string;
+          grandparentTag?: string;
+          grandparentClasses?: string;
+        };
+      }>;
+
+  const structure: StructureResult = await page.evaluate(() => {
     const sidebar = document.querySelector('.flex.h-full.flex-col');
     if (!sidebar) return { error: 'Sidebar not found' };
 
@@ -40,6 +56,10 @@ test('Debug session item structure', async ({ page }) => {
       };
     });
   });
+
+  if ('error' in structure) {
+    throw new Error(structure.error);
+  }
 
   console.log('=== SESSION ITEM DOM STRUCTURE ===\n');
   for (const item of structure) {

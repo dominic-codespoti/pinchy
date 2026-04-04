@@ -5,8 +5,8 @@
 
 import { fetchApi } from '@/shared/api/client';
 import { PAGINATION } from '@/lib/query-config';
-import { MemoryListResponseSchema, MemoryDeleteResponseSchema, MemoryItem } from '@/lib/validation/schemas';
 import type { Memory } from '../types';
+import type { MemoryListResponse, RawMemory } from '@/features/memories/types';
 
 const API_BASE = '/api/agents';
 
@@ -18,7 +18,7 @@ const API_BASE = '/api/agents';
  * Transform raw memory entry to Memory type
  */
 function transformMemoryEntry(agentId: string) {
-  return (raw: MemoryItem): Memory => {
+  return (raw: RawMemory): Memory => {
     return {
       id: raw.key,
       agentId,
@@ -77,7 +77,7 @@ export async function getAgentMemories(
     queryString ? `?${queryString}` : ''
   }`;
 
-  const response = await fetchApi(url, undefined, MemoryListResponseSchema);
+  const response = await fetchApi<MemoryListResponse>(url);
   return response.entries.map(transformMemoryEntry(agentId));
 }
 
@@ -110,12 +110,11 @@ export async function deleteAgentMemory(
   agentId: string,
   key: string
 ): Promise<boolean> {
-  const response = await fetchApi(
+  const response = await fetchApi<{ deleted: boolean }>(
     `${API_BASE}/${encodeURIComponent(agentId)}/memory/${encodeURIComponent(key)}`,
     {
       method: 'DELETE',
-    },
-    MemoryDeleteResponseSchema
+    }
   );
   return response.deleted;
 }

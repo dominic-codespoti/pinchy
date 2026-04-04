@@ -1,7 +1,7 @@
 import { LucideIcon } from 'lucide-react';
-import { RawAgent } from '@/lib/validation/schemas';
+import type { AgentListItem } from '@/src/lib/bindings';
 
-export type { RawAgent } from '@/lib/validation/schemas';
+export type { AgentListItem } from '@/src/lib/bindings';
 
 export interface StatItem {
   id: string;

@@ -3,15 +3,12 @@
  */
 
 import { fetchApi } from '@/shared/api/client';
-import {
-  WebhookConfigResponseSchema,
-  WebhookDeliveriesResponseSchema,
-  WebhookTestResponseSchema,
-} from '@/lib/validation/schemas';
-import {
+import type {
   WebhookConfigResponse,
   WebhookDeliveriesResponse,
   WebhookTestResponse,
+} from '@/src/lib/bindings';
+import {
   UpdateWebhookConfigInput,
   TestWebhookInput,
 } from '../types';
@@ -20,9 +17,7 @@ import {
  * Get webhook configuration for an agent
  */
 export async function getWebhookConfig(agentId: string): Promise<WebhookConfigResponse> {
-  const response = await fetchApi<unknown>(`/api/agents/${agentId}/webhook/config`);
-  const parsed = WebhookConfigResponseSchema.parse(response);
-  return parsed as WebhookConfigResponse;
+  return fetchApi<WebhookConfigResponse>(`/api/agents/${agentId}/webhook/config`);
 }
 
 /**
@@ -32,7 +27,7 @@ export async function updateWebhookConfig(
   agentId: string,
   input: UpdateWebhookConfigInput
 ): Promise<{ agent_id: string; updated: boolean }> {
-  const response = await fetchApi<{ agent_id: string; updated: boolean }>(
+  return fetchApi<{ agent_id: string; updated: boolean }>(
     `/api/agents/${agentId}/webhook/config`,
     {
       method: 'PUT',
@@ -43,16 +38,13 @@ export async function updateWebhookConfig(
       }),
     }
   );
-  return response;
 }
 
 /**
  * Get webhook delivery history for an agent
  */
 export async function getWebhookDeliveries(agentId: string): Promise<WebhookDeliveriesResponse> {
-  const response = await fetchApi<unknown>(`/api/agents/${agentId}/webhook/deliveries`);
-  const parsed = WebhookDeliveriesResponseSchema.parse(response);
-  return parsed as WebhookDeliveriesResponse;
+  return fetchApi<WebhookDeliveriesResponse>(`/api/agents/${agentId}/webhook/deliveries`);
 }
 
 /**
@@ -62,13 +54,11 @@ export async function sendTestWebhook(
   agentId: string,
   input?: TestWebhookInput
 ): Promise<WebhookTestResponse> {
-  const response = await fetchApi<unknown>(`/api/agents/${agentId}/webhook/test`, {
+  return fetchApi<WebhookTestResponse>(`/api/agents/${agentId}/webhook/test`, {
     method: 'POST',
     body: JSON.stringify({
       event_type: input?.event_type ?? 'test',
       payload: input?.payload,
     }),
   });
-  const parsed = WebhookTestResponseSchema.parse(response);
-  return parsed as WebhookTestResponse;
 }

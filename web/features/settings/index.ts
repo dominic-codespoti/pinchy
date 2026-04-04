@@ -4,7 +4,7 @@
  */
 
 // Types
-export type { ModelInfo } from '@/lib/validation/schemas';
+export type { ModelInfo } from '@/src/lib/bindings';
 export type {
   ProviderConfig,
   ModelsApiResponse,

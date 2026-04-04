@@ -3,7 +3,6 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { PAGINATION } from '@/lib/query-config';
 import { fetchApi } from '@/shared/api/client';
-import { RecentLogsResponseSchema } from '@/lib/validation/schemas';
 import { getLogsWebSocketUrl } from '@/lib/config/ports';
 
 /** Log entry interface matching backend format from src/logs.rs */
@@ -52,14 +51,18 @@ export function useLogsWebSocket(): UseLogsWebSocketReturn {
     fetchedBacklogRef.current = true;
 
     try {
-      const data = await fetchApi(
+      const data = await fetchApi<{ 
+        logs: LogEntry[]; 
+        has_more: boolean; 
+        buffer_capacity: number; 
+        retention: string;
+      }>(
         `/api/logs/recent?limit=${PAGINATION.REALTIME_LIMIT}`,
-        {},
-        RecentLogsResponseSchema
+        {}
       );
       
       // Pre-populate logs with recent backlog
-      setLogs(data.logs as LogEntry[]);
+      setLogs(data.logs);
       setBacklogInfo({
         fetched: true,
         count: data.logs.length,

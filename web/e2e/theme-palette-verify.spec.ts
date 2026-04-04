@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 
 /**
  * Theme Palette Feature Verification
@@ -14,7 +14,7 @@ import { test, expect } from '@playwright/test';
  */
 
 // Helper to setup page
-async function setupPage(page: any) {
+async function setupPage(page: Page) {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/dashboard');
   await page.waitForLoadState('networkidle');

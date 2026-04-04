@@ -2,6 +2,15 @@
  * Webhook feature types
  */
 
+import type {
+  WebhookConfigResponse,
+  WebhookDeliveriesResponse,
+  WebhookTestResponse,
+  WebhookDeliveryItem,
+} from '@/src/lib/bindings';
+
+export type { WebhookConfigResponse, WebhookDeliveriesResponse, WebhookTestResponse, WebhookDeliveryItem as WebhookDelivery };
+
 // ============================================================================
 // Core Webhook Types
 // ============================================================================
@@ -11,36 +20,6 @@ export interface WebhookConfig {
   secret: string | null;
   event_types: string[];
   url: string;
-}
-
-export interface WebhookConfigResponse {
-  agent_id: string;
-  enabled: boolean;
-  secret: string | null;
-  event_types: string[];
-  url: string;
-}
-
-export interface WebhookDelivery {
-  id: string;
-  timestamp: number;
-  event_type: string;
-  status: 'success' | 'failed' | 'pending' | string;
-  status_code?: number | null;
-  error?: string | null;
-  duration_ms?: number | null;
-  payload_preview?: string | null;
-}
-
-export interface WebhookDeliveriesResponse {
-  agent_id: string;
-  deliveries: WebhookDelivery[];
-}
-
-export interface WebhookTestResponse {
-  success: boolean;
-  message: string;
-  delivery_id?: string | null;
 }
 
 // ============================================================================

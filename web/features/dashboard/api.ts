@@ -1,5 +1,5 @@
 import { fetchApi, ApiError } from '@/shared/api/client';
-import { RawAgent } from '@/lib/validation/schemas';
+import type { AgentListItem } from '@/src/lib/bindings';
 import { DashboardAgent, DashboardCronJob, DashboardSession, HealthResponse } from './types';
 
 export type { DashboardAgent, DashboardCronJob, DashboardSession, HealthResponse } from './types';
@@ -16,11 +16,11 @@ interface BackendCronJob {
 }
 
 // Transform functions to convert raw API data to dashboard-friendly format
-function transformAgent(raw: RawAgent): DashboardAgent {
+function transformAgent(raw: AgentListItem): DashboardAgent {
   const hasHeartbeat = Boolean(raw.has_heartbeat);
   // Use real heartbeat timestamp from backend (unix seconds -> ISO string)
   const lastHeartbeatAt = hasHeartbeat && raw.last_heartbeat_at
-    ? new Date(raw.last_heartbeat_at * 1000).toISOString()
+    ? new Date(Number(raw.last_heartbeat_at) * 1000).toISOString()
     : undefined;
 
   return {
@@ -29,7 +29,7 @@ function transformAgent(raw: RawAgent): DashboardAgent {
     status: hasHeartbeat ? 'active' : 'inactive',
     hasHeartbeat,
     lastHeartbeatAt,
-    config: { model: raw.model },
+    config: { model: raw.model ?? undefined },
   };
 }
 
@@ -44,7 +44,7 @@ function transformCronJob(raw: BackendCronJob): DashboardCronJob {
 }
 
 export async function getDashboardAgents(): Promise<DashboardAgent[]> {
-  const response = await fetchApi<{ agents: RawAgent[] }>('/api/agents');
+  const response = await fetchApi<{ agents: AgentListItem[] }>('/api/agents');
   return response.agents.map(transformAgent);
 }
 

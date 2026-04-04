@@ -1,14 +1,14 @@
 import { format, subDays } from 'date-fns';
 import { fetchApi } from '@/shared/api/client';
-import { UsageApiResponseSchema, type UsageApiResponse } from '@/lib/validation/schemas';
-import { TimeRange, UsageBucket } from '../types';
+import type { UsageResponse, UsageRow } from '@/src/lib/bindings';
+import { TimeRange } from '../types';
 import { FALLBACKS } from '@/lib/constants/fallbacks';
 
 export async function getUsage(
   timeRange: TimeRange,
   agent?: string,
   model?: string
-): Promise<UsageApiResponse> {
+): Promise<UsageResponse> {
   const params = new URLSearchParams();
 
   // Convert timeRange to from/to dates
@@ -23,10 +23,9 @@ export async function getUsage(
   if (agent) params.set('agent', agent);
   if (model) params.set('model', model);
 
-  return fetchApi<UsageApiResponse>(
+  return fetchApi<UsageResponse>(
     `/api/usage?${params.toString()}`,
-    {},
-    UsageApiResponseSchema
+    {}
   );
 }
 
@@ -34,9 +33,9 @@ export async function getUsage(
  * Transform backend usage rows into time-series data grouped by day.
  * Since the backend aggregates by (day, agent, model), we roll up to day level.
  */
-export function transformUsageData(usage: UsageBucket[]) {
+export function transformUsageData(usage: UsageRow[]) {
   // Group by day
-  const byDay = new Map<string, UsageBucket[]>();
+  const byDay = new Map<string, UsageRow[]>();
 
   for (const bucket of usage) {
     const existing = byDay.get(bucket.day) || [];
@@ -50,8 +49,8 @@ export function transformUsageData(usage: UsageBucket[]) {
   // Build time-series data
   const tokenData = sortedDays.map((day) => {
     const dayBuckets = byDay.get(day) || [];
-    const inputTokens = dayBuckets.reduce((sum, b) => sum + b.prompt_tokens, 0);
-    const outputTokens = dayBuckets.reduce((sum, b) => sum + b.completion_tokens, 0);
+    const inputTokens = dayBuckets.reduce((sum, b) => sum + Number(b.prompt_tokens), 0);
+    const outputTokens = dayBuckets.reduce((sum, b) => sum + Number(b.completion_tokens), 0);
     const cost = dayBuckets.reduce((sum, b) => sum + b.estimated_cost_usd, 0);
 
     return {
@@ -64,7 +63,7 @@ export function transformUsageData(usage: UsageBucket[]) {
 
   const requestData = sortedDays.map((day) => {
     const dayBuckets = byDay.get(day) || [];
-    const requests = dayBuckets.reduce((sum, b) => sum + b.turns, 0);
+    const requests = dayBuckets.reduce((sum, b) => sum + Number(b.turns), 0);
 
     return {
       time: day,
@@ -78,7 +77,7 @@ export function transformUsageData(usage: UsageBucket[]) {
   const responseTimeData: Array<{ time: string; avg: number; p95: number; p99: number }> = [];
 
   // Agent performance - aggregate by agent across all days
-  const byAgent = new Map<string, UsageBucket[]>();
+  const byAgent = new Map<string, UsageRow[]>();
   for (const bucket of usage) {
     const existing = byAgent.get(bucket.agent) || [];
     existing.push(bucket);
@@ -86,8 +85,8 @@ export function transformUsageData(usage: UsageBucket[]) {
   }
 
   const agentPerformance = Array.from(byAgent.entries()).map(([agentId, agentBuckets]) => {
-    const requests = agentBuckets.reduce((sum, b) => sum + b.turns, 0);
-    const tokens = agentBuckets.reduce((sum, b) => sum + b.total_tokens, 0);
+    const requests = agentBuckets.reduce((sum, b) => sum + Number(b.turns), 0);
+    const tokens = agentBuckets.reduce((sum, b) => sum + Number(b.total_tokens), 0);
     const cost = agentBuckets.reduce((sum, b) => sum + b.estimated_cost_usd, 0);
 
     return {
@@ -105,8 +104,8 @@ export function transformUsageData(usage: UsageBucket[]) {
   let totalTurns = 0;
   for (const bucket of usage) {
     const current = byModel.get(bucket.model) || 0;
-    byModel.set(bucket.model, current + bucket.turns);
-    totalTurns += bucket.turns;
+    byModel.set(bucket.model, current + Number(bucket.turns));
+    totalTurns += Number(bucket.turns);
   }
 
   const modelUsageData = Array.from(byModel.entries()).map(([name, turns], index) => ({
@@ -116,8 +115,8 @@ export function transformUsageData(usage: UsageBucket[]) {
   }));
 
   // Summary metrics
-  const totalRequests = usage.reduce((sum, b) => sum + b.turns, 0);
-  const totalTokens = usage.reduce((sum, b) => sum + b.total_tokens, 0);
+  const totalRequests = usage.reduce((sum, b) => sum + Number(b.turns), 0);
+  const totalTokens = usage.reduce((sum, b) => sum + Number(b.total_tokens), 0);
   const totalCost = usage.reduce((sum, b) => sum + b.estimated_cost_usd, 0);
 
   return {

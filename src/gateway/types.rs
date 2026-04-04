@@ -1,13 +1,16 @@
 use serde::{Deserialize, Serialize};
+use ts_rs::TS;
 
 /// Response wrapper for list of agents
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct AgentsListResponse {
     pub agents: Vec<AgentListItem>,
 }
 
 /// Individual agent item in the list response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct AgentListItem {
     pub id: String,
     pub has_soul: bool,
@@ -38,7 +41,8 @@ pub(crate) struct AgentListItem {
 }
 
 /// Full agent detail response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct AgentDetail {
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -73,7 +77,8 @@ pub(crate) struct AgentDetail {
 }
 
 /// Response for agent clone operation
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct AgentCloneResponse {
     pub id: String,
     pub created: bool,
@@ -83,42 +88,48 @@ pub(crate) struct AgentCloneResponse {
 }
 
 /// Response for agent create operation
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct AgentCreateResponse {
     pub id: String,
     pub created: bool,
 }
 
 /// Response for agent update operation
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct AgentUpdateResponse {
     pub id: String,
     pub updated: Vec<String>,
 }
 
 /// Response for agent delete operation
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct AgentDeleteResponse {
     pub id: String,
     pub deleted: bool,
 }
 
 /// Response for agent file get operation
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct AgentFileGetResponse {
     pub filename: String,
     pub content: String,
 }
 
 /// Response for agent file put operation
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct AgentFilePutResponse {
     pub filename: String,
     pub saved: bool,
 }
 
 /// Error response structure
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct ErrorResponse {
     pub error: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -132,13 +143,15 @@ pub(crate) struct ErrorResponse {
 }
 
 /// Cron job list response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct CronJobsListResponse {
     pub jobs: Vec<CronJobItem>,
 }
 
 /// Individual cron job item
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct CronJobItem {
     pub id: String,
     pub agent_id: String,
@@ -160,13 +173,15 @@ pub(crate) struct CronJobItem {
 }
 
 /// Cron runs list response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct CronRunsListResponse {
     pub runs: Vec<CronRunItem>,
 }
 
 /// Individual cron run item
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct CronRunItem {
     pub id: String,
     pub job_id: String,
@@ -185,7 +200,8 @@ pub(crate) struct CronRunItem {
 }
 
 /// Cron job create response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct CronJobCreateResponse {
     pub job_id: String,
     pub name: String,
@@ -196,14 +212,16 @@ pub(crate) struct CronJobCreateResponse {
 }
 
 /// Cron job delete response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct CronJobDeleteResponse {
     pub deleted: bool,
     pub job_id: String,
 }
 
 /// Cron job trigger response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct CronJobTriggerResponse {
     pub triggered: bool,
     pub job_id: String,
@@ -212,7 +230,8 @@ pub(crate) struct CronJobTriggerResponse {
 }
 
 /// Skill item for list response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub struct SkillItem {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -221,13 +240,15 @@ pub struct SkillItem {
 }
 
 /// Response for skill list endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct SkillListResponse {
     pub skills: Vec<SkillItem>,
 }
 
 /// Response for skill get endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct SkillGetResponse {
     pub name: String,
     pub description: String,
@@ -243,34 +264,39 @@ pub(crate) struct SkillGetResponse {
 }
 
 /// Response for skill create endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct SkillCreateResponse {
     pub name: String,
     pub created: bool,
 }
 
 /// Response for skill update endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct SkillUpdateResponse {
     pub name: String,
     pub updated: bool,
 }
 
 /// Response for skill delete endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct SkillDeleteResponse {
     pub name: String,
     pub deleted: bool,
 }
 
 /// Individual receipt file entry
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct ReceiptItem {
     pub file: String,
 }
 
 /// Response for receipts list endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct ReceiptsListResponse {
     pub receipts: Vec<ReceiptItem>,
 }
@@ -283,7 +309,8 @@ pub(crate) struct ReceiptGetResponse {
 }
 
 /// Provider status item in the list response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct ProviderStatusItem {
     pub provider: String,
     pub name: String,
@@ -302,13 +329,15 @@ pub(crate) struct ProviderStatusItem {
 }
 
 /// Response for provider status list endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct ProviderStatusListResponse {
     pub providers: Vec<ProviderStatusItem>,
 }
 
 /// Response for device flow start endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct DeviceFlowStartResponse {
     pub device_code: String,
     pub user_code: String,
@@ -319,7 +348,8 @@ pub(crate) struct DeviceFlowStartResponse {
 }
 
 /// Response for device flow poll endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct DeviceFlowPollResponse {
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -331,14 +361,16 @@ pub(crate) struct DeviceFlowPollResponse {
 }
 
 /// Response for provider auth save operation
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct ProviderAuthResponse {
     pub success: bool,
     pub message: String,
 }
 
 /// Response for masked key endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct MaskedKeyResponse {
     pub provider: String,
     pub has_key: bool,
@@ -349,14 +381,16 @@ pub(crate) struct MaskedKeyResponse {
 }
 
 /// Response for provider key clear/set operations
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct ProviderSetKeyResponse {
     pub ok: bool,
     pub provider: String,
 }
 
 /// Model information for discovery responses
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct ModelInfo {
     pub id: String,
     pub name: String,
@@ -388,7 +422,8 @@ pub(crate) struct ModelInfo {
 }
 
 /// Response for listing available models
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct ModelsListResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<Vec<ModelInfo>>,
@@ -397,7 +432,8 @@ pub(crate) struct ModelsListResponse {
 }
 
 /// Response for config save operation
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct ConfigSaveResponse {
     pub saved: bool,
 }
@@ -418,7 +454,8 @@ pub(crate) struct ModelsRegistryResponse {
 }
 
 /// Session list item
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct SessionItem {
     pub file: String,
     pub session_id: String,
@@ -431,7 +468,8 @@ pub(crate) struct SessionItem {
 }
 
 /// Response for listing sessions
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct SessionsListResponse {
     pub sessions: Vec<SessionItem>,
 }
@@ -444,7 +482,8 @@ pub(crate) struct SessionGetResponse {
 }
 
 /// Response for session update operation
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct SessionUpdateResponse {
     pub session_id: String,
     pub saved: bool,
@@ -452,21 +491,24 @@ pub(crate) struct SessionUpdateResponse {
 }
 
 /// Response for getting current session
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct SessionCurrentResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session_id: Option<String>,
 }
 
 /// Response for session delete operation
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct SessionDeleteResponse {
     pub session_id: String,
     pub deleted: bool,
 }
 
 /// Dashboard session item for global sessions endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct DashboardSessionItem {
     pub id: String,
     pub agent_id: String,
@@ -477,7 +519,8 @@ pub(crate) struct DashboardSessionItem {
 }
 
 /// Response for global sessions list endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct GlobalSessionsListResponse {
     pub sessions: Vec<DashboardSessionItem>,
 }
@@ -489,7 +532,8 @@ pub(crate) struct DebugPayloadListResponse {
 }
 
 /// Log entry for agent logs
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct LogEntry {
     pub timestamp: u64,
     pub level: String,
@@ -504,7 +548,8 @@ pub(crate) struct LogEntry {
 }
 
 /// Token counts for log entry
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct LogTokens {
     pub prompt: u64,
     pub completion: u64,
@@ -512,20 +557,23 @@ pub(crate) struct LogTokens {
 }
 
 /// Logs list response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct LogsListResponse {
     pub logs: Vec<LogEntry>,
 }
 
 /// Cron enhance response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct CronEnhanceResponse {
     pub original: String,
     pub enhanced: String,
 }
 
 /// Usage row for usage endpoint (from store::UsageBucket)
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct UsageRow {
     pub day: String,
     pub agent: String,
@@ -540,7 +588,8 @@ pub(crate) struct UsageRow {
 }
 
 /// Response for usage endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct UsageResponse {
     pub usage: Vec<UsageRow>,
     pub total_cost_usd: f64,
@@ -548,7 +597,8 @@ pub(crate) struct UsageResponse {
 }
 
 /// Memory item for list response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct MemoryItem {
     pub key: String,
     pub value: String,
@@ -560,13 +610,15 @@ pub(crate) struct MemoryItem {
 }
 
 /// Response for memory list endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct MemoryListResponse {
     pub entries: Vec<MemoryItem>,
 }
 
 /// Response for memory delete endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct MemoryDeleteResponse {
     pub deleted: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -574,7 +626,8 @@ pub(crate) struct MemoryDeleteResponse {
 }
 
 /// Individual heartbeat status item
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct HeartbeatStatusItem {
     pub agent_id: String,
     pub enabled: bool,
@@ -592,13 +645,15 @@ pub(crate) struct HeartbeatStatusItem {
 }
 
 /// Response for heartbeat status endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct HeartbeatStatusResponse {
     pub agents: Vec<HeartbeatStatusItem>,
 }
 
 /// Response for health endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct HealthResponse {
     pub status: String,
     pub version: String,
@@ -607,14 +662,16 @@ pub(crate) struct HealthResponse {
 }
 
 /// Response for webhook ingest endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct WebhookIngestResponse {
     pub success: bool,
     pub message: String,
 }
 
 /// Webhook configuration for an agent
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, TS)]
+#[ts(export)]
 pub(crate) struct WebhookConfig {
     pub enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -625,7 +682,8 @@ pub(crate) struct WebhookConfig {
 }
 
 /// Response for webhook config endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct WebhookConfigResponse {
     pub agent_id: String,
     #[serde(flatten)]
@@ -639,18 +697,21 @@ pub(crate) struct UpdateWebhookConfigRequest {
     #[serde(default)]
     pub secret: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)]
     pub event_types: Vec<String>,
 }
 
 /// Response for webhook config update
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct WebhookConfigUpdateResponse {
     pub agent_id: String,
     pub updated: bool,
 }
 
 /// Individual webhook delivery log entry
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct WebhookDeliveryItem {
     pub id: String,
     pub timestamp: u64,
@@ -667,7 +728,8 @@ pub(crate) struct WebhookDeliveryItem {
 }
 
 /// Response for webhook deliveries list endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct WebhookDeliveriesResponse {
     pub agent_id: String,
     pub deliveries: Vec<WebhookDeliveryItem>,
@@ -687,7 +749,8 @@ fn default_test_event_type() -> String {
 }
 
 /// Response for webhook test endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct WebhookTestResponse {
     pub success: bool,
     pub message: String,
@@ -696,7 +759,8 @@ pub(crate) struct WebhookTestResponse {
 }
 
 /// Individual command info for slash commands
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct CommandInfo {
     pub name: String,
     pub description: String,
@@ -704,7 +768,8 @@ pub(crate) struct CommandInfo {
 }
 
 /// Response for slash commands endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct SlashCommandsResponse {
     pub commands: Vec<CommandInfo>,
 }
@@ -716,14 +781,16 @@ pub(crate) struct TestAgentRequest {
 }
 
 /// Usage info for test agent response
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct TestAgentUsage {
     pub input_tokens: u64,
     pub output_tokens: u64,
 }
 
 /// Response for agent test endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct TestAgentResponse {
     pub response: String,
     #[serde(skip_serializing_if = "Option::is_none")]

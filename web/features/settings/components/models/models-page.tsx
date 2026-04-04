@@ -123,8 +123,12 @@ function modelInfoToDevModel(model: ModelInfo): ModelsDevModel {
     } : undefined,
     limit: (model.context_window !== undefined && model.context_window !== null) || 
             (model.max_output !== undefined && model.max_output !== null) ? {
-      context: model.context_window ?? undefined,
-      output: model.max_output ?? undefined,
+      context: model.context_window !== undefined && model.context_window !== null
+        ? Number(model.context_window)
+        : undefined,
+      output: model.max_output !== undefined && model.max_output !== null
+        ? Number(model.max_output)
+        : undefined,
     } : undefined,
     modalities: model.modalities ?? undefined,
   };
@@ -415,7 +419,7 @@ function DefaultModelCard({
                 )}
                 {selectedModel.context_window && (
                   <Badge variant="secondary" className="text-xs">
-                    {(selectedModel.context_window / 1000).toFixed(0)}K ctx
+                    {(Number(selectedModel.context_window) / 1000).toFixed(0)}K ctx
                   </Badge>
                 )}
               </div>

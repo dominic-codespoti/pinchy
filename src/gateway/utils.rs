@@ -33,6 +33,7 @@ pub(crate) fn not_found_response(agent_id: impl Into<String>) -> Response {
 }
 
 /// Create a standardized "bad request" error response.
+#[allow(dead_code)]
 pub(crate) fn bad_request_response(message: impl Into<String>, id: Option<String>) -> Response {
     (
         StatusCode::BAD_REQUEST,
@@ -63,6 +64,7 @@ pub(crate) fn conflict_response(message: impl Into<String>, id: impl Into<String
 }
 
 /// Create a standardized error response for an invalid path segment.
+#[allow(dead_code)]
 pub(crate) fn invalid_path_response(segment: impl Into<String>) -> Response {
     let segment = segment.into();
     (
@@ -136,16 +138,7 @@ pub(crate) async fn list_agent_ids() -> Vec<String> {
 ///
 /// If validation fails, returns a BAD_REQUEST error response.
 /// Use this instead of manually calling `validate_path_segment`.
-///
-/// # Example
-/// ```rust
-/// pub(crate) async fn handler(
-///     ValidatedAgentId(agent_id): ValidatedAgentId,
-/// ) -> impl IntoResponse {
-///     // agent_id is guaranteed to be valid
-///     // ...
-/// }
-/// ```
+#[allow(dead_code)]
 pub(crate) struct ValidatedAgentId(pub String);
 
 #[async_trait]
@@ -196,8 +189,10 @@ where
 }
 
 /// Extension trait for easier error handling with path validation.
+#[allow(dead_code)]
 pub(crate) trait PathValidationExt {
     /// Validates this string as a path segment, returning an error response if invalid.
+    #[allow(clippy::result_large_err)]
     fn validate(&self) -> Result<(), Response>;
 }
 
@@ -248,4 +243,5 @@ macro_rules! agent_exists_or_return {
 }
 
 // Re-export macros for convenience within gateway module
+#[allow(unused_imports)]
 pub(crate) use crate::{agent_exists_or_return, validate_or_return};

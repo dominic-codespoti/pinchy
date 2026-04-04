@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, Page } from '@playwright/test';
 
 /**
  * Theme System Live Verification
@@ -14,21 +14,21 @@ import { test, expect } from '@playwright/test';
  */
 
 // Helper to get CSS variable value
-async function getCssVar(page: any, varName: string) {
+async function getCssVar(page: Page, varName: string): Promise<string> {
   return await page.evaluate((name: string) => {
     return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
   }, varName);
 }
 
 // Helper to get attribute from html element
-async function getHtmlAttr(page: any, attr: string) {
+async function getHtmlAttr(page: Page, attr: string): Promise<string | null> {
   return await page.evaluate((attribute: string) => {
     return document.documentElement.getAttribute(attribute);
   }, attr);
 }
 
 // Reset theme state
-async function resetTheme(page: any) {
+async function resetTheme(page: Page) {
   await page.evaluate(() => {
     localStorage.removeItem('pinchy-palette-v1');
     localStorage.removeItem('pinchy-surface-v1');
@@ -40,7 +40,7 @@ async function resetTheme(page: any) {
 }
 
 // Select a palette
-async function selectPalette(page: any, paletteName: string) {
+async function selectPalette(page: Page, paletteName: string) {
   const picker = page.locator('button[aria-label="Choose color theme"]').first();
   await picker.click();
   await page.waitForTimeout(300);
@@ -50,7 +50,7 @@ async function selectPalette(page: any, paletteName: string) {
 }
 
 // Select "No theme"
-async function selectNoTheme(page: any) {
+async function selectNoTheme(page: Page) {
   const picker = page.locator('button[aria-label="Choose color theme"]').first();
   await picker.click();
   await page.waitForTimeout(400);
@@ -62,7 +62,7 @@ async function selectNoTheme(page: any) {
 }
 
 // Set light/dark/system mode
-async function setMode(page: any, mode: 'light' | 'dark' | 'system') {
+async function setMode(page: Page, mode: 'light' | 'dark' | 'system') {
   const switcher = page.locator('button[aria-label="Toggle theme"]').first();
   await switcher.click();
   await page.waitForTimeout(300);
@@ -72,7 +72,7 @@ async function setMode(page: any, mode: 'light' | 'dark' | 'system') {
 }
 
 // Set surface style by navigating directly with URL params
-async function setSurface(page: any, style: string) {
+async function setSurface(page: Page, style: string) {
   await page.evaluate((s: string) => {
     localStorage.setItem('pinchy-surface-v1', s);
     document.documentElement.setAttribute('data-surface', s);

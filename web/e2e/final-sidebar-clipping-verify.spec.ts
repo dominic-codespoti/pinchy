@@ -77,7 +77,7 @@ test('Sidebar clipping - real data verification', async ({ page }) => {
   console.log(`Sessions found: ${analysis.sessionCount}`);
 
   let allPass = true;
-  const measurements: any[] = [];
+  const measurements: Array<Record<string, unknown>> = [];
 
   for (let i = 0; i < analysis.results.length; i++) {
     const r = analysis.results[i];

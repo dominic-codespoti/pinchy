@@ -3,8 +3,8 @@
  * Domain-specific types for the settings module
  */
 
-// Re-export ModelInfo from the central schema
-import type { ModelInfo } from '@/lib/validation/schemas';
+// Re-export ModelInfo from the generated bindings
+import type { ModelInfo } from '@/src/lib/bindings';
 export type { ModelInfo };
 
 // ============================================================================

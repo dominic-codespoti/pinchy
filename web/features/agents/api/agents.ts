@@ -4,9 +4,9 @@
  */
 
 import { fetchApi, getErrorMessage, type ApiError } from '@/shared/api/client';
+import type { AgentListItem } from '@/src/lib/bindings';
 import type {
   Agent,
-  RawAgent,
   CreateAgentInput,
   UpdateAgentInput,
   CloneAgentResult,
@@ -19,7 +19,7 @@ const API_BASE = '/api/agents';
 // ============================================================================
 
 interface AgentsListResponse {
-  agents: RawAgent[];
+  agents: AgentListItem[];
 }
 
 interface AgentDetailResponse {
@@ -69,33 +69,35 @@ interface CloneAgentResponse {
 // ============================================================================
 
 /**
- * Transform RawAgent from API to frontend Agent format
+ * Transform AgentListItem from API to frontend Agent format
  */
-function transformRawAgent(raw: RawAgent): Agent {
+function transformRawAgent(raw: AgentListItem): Agent {
   return {
     id: raw.id,
     name: raw.id, // Use ID as name (backend doesn't provide separate name)
     description: '', // Backend doesn't provide description directly
     status: raw.has_heartbeat ? 'active' : 'inactive',
     config: {
-      model: raw.model,
-      provider: raw.provider || 'openai',
+      model: raw.model ?? undefined,
+      provider: 'openai', // Default provider - AgentListItem doesn't have provider field
       systemPrompt: '', // Populated from SOUL.md when loading detail
-      toolsEnabled: raw.enabled_skills || [],
+      toolsEnabled: raw.enabled_skills ?? [],
     },
-    createdAt: raw.created_at || new Date().toISOString(),
+    createdAt: new Date().toISOString(),
     hasHeartbeat: raw.has_heartbeat,
-    lastHeartbeatAt: raw.last_heartbeat_at ? new Date(raw.last_heartbeat_at * 1000).toISOString() : undefined,
-    heartbeatInterval: raw.heartbeat_secs || undefined,
-    maxTurns: raw.max_turns,
-    historyMessages: raw.history_messages,
-    compactKeepRecentTurns: raw.compact_keep_recent_turns,
-    maxToolIterations: raw.max_tool_iterations,
-    reasoningEffort: raw.reasoning_effort,
-    enabledSkills: raw.enabled_skills,
-    timezone: raw.timezone,
-    cronJobsCount: raw.cron_jobs_count,
-    watchPaths: raw.watch_paths,
+    lastHeartbeatAt: raw.last_heartbeat_at
+      ? new Date(Number(raw.last_heartbeat_at) * 1000).toISOString()
+      : undefined,
+    heartbeatInterval: raw.heartbeat_secs ? Number(raw.heartbeat_secs) : undefined,
+    maxTurns: raw.max_turns ?? undefined,
+    historyMessages: raw.history_messages ?? undefined,
+    compactKeepRecentTurns: raw.compact_keep_recent_turns ?? undefined,
+    maxToolIterations: raw.max_tool_iterations ?? undefined,
+    reasoningEffort: raw.reasoning_effort ?? undefined,
+    enabledSkills: raw.enabled_skills ?? undefined,
+    timezone: raw.timezone ?? undefined,
+    cronJobsCount: raw.cron_jobs_count ?? undefined,
+    watchPaths: undefined, // AgentListItem doesn't have watch_paths field
   };
 }
 

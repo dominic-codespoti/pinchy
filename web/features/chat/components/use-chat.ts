@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
-import { TurnReceiptSchema } from '@/lib/validation/schemas';
+import { TurnReceiptSchema } from '@/features/receipts/types';
 import { attachReceiptsToMessages, dedupeReceipts, getSessionMessages, getSessionReceipts } from '@/features/chat/api';
 import { useWebSocket } from '@/shared/providers/websocket';
 import { TIMEOUTS } from '@/lib/config/timeouts';

@@ -1,5 +1,4 @@
 import { ApiError } from '@/shared/types/api';
-import { z } from 'zod';
 
 export type { ApiError } from '@/shared/types/api';
 
@@ -79,8 +78,7 @@ export function getErrorMessage(error: unknown): string {
  */
 export async function fetchApi<T>(
   endpoint: string,
-  options?: RequestInit,
-  schema?: z.ZodType<T>
+  options?: RequestInit
 ): Promise<T> {
   const url = endpoint;
 
@@ -107,35 +105,18 @@ export async function fetchApi<T>(
     
     if (response.status === 204 || contentLength === '0') {
       // Return undefined for empty responses
-      if (schema) {
-        return schema.parse(undefined);
-      }
       return undefined as T;
     }
 
     // Only parse JSON if content-type indicates JSON
     if (contentType?.includes('application/json')) {
       const data = await response.json();
-
-      // Validate with Zod schema if provided
-      if (schema) {
-        return schema.parse(data);
-      }
-
       return data as T;
     }
 
     // For non-JSON responses, return the response for manual handling
     return response as unknown as T;
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      console.error('[fetchApi] Validation error:', error.issues);
-      const apiError: ApiError = {
-        message: `API response validation failed: ${error.issues.map((i: z.ZodIssue) => `${i.path.join('.')}: ${i.message}`).join(', ')}`,
-        status: 422,
-      };
-      throw apiError;
-    }
     if ((error as ApiError).message) {
       throw error;
     }

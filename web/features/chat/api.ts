@@ -1,6 +1,7 @@
 import { fetchApi, isNotFoundError } from '@/shared/api/client';
-import { ReceiptGetResponseSchema, Session, RawSession } from '@/lib/validation/schemas';
+import type { SessionItem as RawSession } from '@/src/lib/bindings';
 import { Message, ToolCall, ToolResult, TurnReceipt } from '@/shared/types/common';
+import { Session } from './types';
 
 interface SessionsListResponse {
   sessions: RawSession[];
@@ -37,8 +38,8 @@ function transformSession(raw: RawSession): Session {
     agentId: raw.agent_id,
     title: raw.title ?? undefined,
     messageCount: raw.message_count ?? 0,
-    createdAt: new Date(raw.created_at).toISOString(),
-    updatedAt: new Date(raw.modified * 1000).toISOString(),
+    createdAt: new Date(Number(raw.created_at)).toISOString(),
+    updatedAt: new Date(Number(raw.modified) * 1000).toISOString(),
   };
 }
 
@@ -368,8 +369,7 @@ export async function getSessionReceipts(sessionId: string, agentId: string): Pr
     const sessionFile = `${sessionId}.receipts.jsonl`;
     const response = await fetchApi<ReceiptGetResponse>(
       `/api/agents/${agentId}/receipts/${sessionFile}`,
-      undefined,
-      ReceiptGetResponseSchema
+      undefined
     );
 
     return dedupeReceipts(response.receipts ?? []);

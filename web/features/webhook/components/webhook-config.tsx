@@ -417,7 +417,7 @@ export function WebhookConfig({ agentId }: WebhookConfigProps) {
                 {deliveries.deliveries.map((delivery) => (
                   <TableRow key={delivery.id}>
                     <TableCell className="font-mono text-xs">
-                      {new Date(delivery.timestamp * 1000).toLocaleString()}
+                      {new Date(Number(delivery.timestamp) * 1000).toLocaleString()}
                     </TableCell>
                     <TableCell>
                       <Badge variant="outline">{delivery.event_type}</Badge>

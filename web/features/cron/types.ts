@@ -2,11 +2,11 @@
  * Cron feature types
  */
 
-import { BackendCronJob as ZodBackendCronJob, CronRunItem as ZodCronRunItem } from '@/lib/validation/schemas';
+import type { CronJobItem, CronRunItem } from '@/src/lib/bindings';
 
-// Re-export Zod types for consistency with backend
-export type BackendCronJob = ZodBackendCronJob;
-export type JobRun = ZodCronRunItem;
+// Re-export bindings types for consistency with backend
+export type BackendCronJob = CronJobItem;
+export type JobRun = CronRunItem;
 
 export interface CronJob {
   id: string;

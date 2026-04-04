@@ -11,12 +11,6 @@ import {
   UpdateCronJobInput,
   JobRun,
 } from './types';
-import {
-  CronJobsListResponseSchema,
-  BackendCronJobSchema,
-  AgentsListResponseSchema,
-  CronRunsListResponseSchema,
-} from '@/lib/validation/schemas';
 
 function transformCronJob(raw: BackendCronJob): CronJob {
   return {
@@ -31,20 +25,18 @@ function transformCronJob(raw: BackendCronJob): CronJob {
 }
 
 export async function getCronJobs(): Promise<CronJob[]> {
-  const response = await fetchApi(
+  const response = await fetchApi<{ jobs: BackendCronJob[] }>(
     '/api/cron/jobs',
-    undefined,
-    CronJobsListResponseSchema
+    undefined
   );
   return response.jobs.map(transformCronJob);
 }
 
 export async function getCronAgents(): Promise<CronAgent[]> {
   // Minimal agent info for cron feature dropdown
-  const response = await fetchApi(
+  const response = await fetchApi<{ agents: { id: string }[] }>(
     '/api/agents',
-    undefined,
-    AgentsListResponseSchema
+    undefined
   );
   return response.agents.map((a) => ({
     id: a.id,
@@ -80,13 +72,12 @@ export async function updateCronJob(
   id: string,
   data: UpdateCronJobInput
 ): Promise<CronJob> {
-  const response = await fetchApi(
+  const response = await fetchApi<BackendCronJob>(
     `/api/cron/jobs/${id}/update`,
     {
       method: 'PUT',
       body: JSON.stringify(data),
-    },
-    BackendCronJobSchema
+    }
   );
   return transformCronJob(response);
 }
@@ -98,13 +89,12 @@ export async function deleteCronJob(id: string): Promise<void> {
 }
 
 export async function toggleCronJob(id: string, enabled: boolean): Promise<CronJob> {
-  const response = await fetchApi(
+  const response = await fetchApi<BackendCronJob>(
     `/api/cron/jobs/${id}/update`,
     {
       method: 'PUT',
       body: JSON.stringify({ enabled }),
-    },
-    BackendCronJobSchema
+    }
   );
   return transformCronJob(response);
 }
@@ -114,10 +104,9 @@ export async function triggerJob(jobId: string): Promise<void> {
 }
 
 export async function getJobRuns(jobId: string): Promise<JobRun[]> {
-  const response = await fetchApi(
+  const response = await fetchApi<{ runs: JobRun[] }>(
     `/api/cron/jobs/${jobId}/runs`,
-    undefined,
-    CronRunsListResponseSchema
+    undefined
   );
   return response.runs;
 }

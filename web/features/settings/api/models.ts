@@ -1,7 +1,6 @@
 import type { ModelsDevProvider, ModelsDevModel } from '../types';
 import { fetchApi } from '@/shared/api/client';
-import { z } from 'zod';
-import type { ModelInfo } from '@/lib/validation/schemas';
+import type { ModelInfo } from '@/src/lib/bindings';
 
 export type { ModelInfo };
 
@@ -12,23 +11,6 @@ export interface ProviderConfig {
   endpointUrl?: string;
   enabled: boolean;
 }
-
-// Schema for models API response
-const ModelsApiResponseSchema = z.object({
-  models: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    provider_id: z.string(),
-    config_id: z.string(),
-    vendor: z.string().optional(),
-    supported_endpoints: z.array(z.string()).optional(),
-    is_default: z.boolean().optional(),
-    input_price: z.number().optional(),
-    output_price: z.number().optional(),
-    description: z.string().optional(),
-    max_tokens: z.number().optional(),
-  })),
-});
 
 export interface ModelsApiResponse {
   models: Array<{
@@ -47,19 +29,26 @@ export interface ModelsApiResponse {
 }
 
 export async function fetchModels(): Promise<ModelInfo[]> {
-  const response = await fetchApi(
+  const response = await fetchApi<ModelsApiResponse>(
     '/api/models',
-    undefined,
-    ModelsApiResponseSchema
+    undefined
   );
   return response.models.map(m => ({
     id: m.id,
     name: m.name,
     provider: m.provider_id,
-    description: m.description,
-    input_price: m.input_price,
-    output_price: m.output_price,
-    context_window: m.max_tokens,
+    description: m.description ?? null,
+    input_price: m.input_price ?? null,
+    output_price: m.output_price ?? null,
+    context_window: m.max_tokens ? BigInt(m.max_tokens) : null,
+    max_output: null,
+    tool_call: false,
+    reasoning: false,
+    attachment: false,
+    family: null,
+    cache_read_price: null,
+    cache_write_price: null,
+    modalities: null,
   }));
 }
 
