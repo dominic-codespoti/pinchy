@@ -104,21 +104,7 @@ export interface ProviderConfig {
   enabled: boolean;
 }
 
-export interface ModelsApiResponse {
-  models: Array<{
-    id: string;
-    name: string;
-    provider_id: string;
-    config_id: string;
-    vendor?: string;
-    supported_endpoints?: string[];
-    is_default?: boolean;
-    input_price?: number;
-    output_price?: number;
-    description?: string;
-    max_tokens?: number;
-  }>;
-}
+// ModelsApiResponse is defined in api/models.ts (matches actual API response)
 
 export interface ProviderStatus {
   provider: string;
@@ -139,6 +125,8 @@ export interface ProviderTestResult {
   latencyMs?: number;
 }
 
+// UI-specific provider status for the settings UI
+// Note: This is different from ApiProviderStatus which is the raw API response type
 export interface ProviderStatusItem {
   id: string;
   name: string;
@@ -146,6 +134,9 @@ export interface ProviderStatusItem {
   method?: string;
   tested?: boolean;
 }
+
+// Re-export the API type from bindings with an alias for when the raw API type is needed
+export type { ProviderStatusItem as ApiProviderStatus } from '@/src/lib/bindings';
 
 export interface SetProviderAuthResult {
   success: boolean;

@@ -1,19 +1,12 @@
 import { fetchApi, ApiError } from '@/shared/api/client';
-import type { AgentListItem } from '@/src/lib/bindings';
+import type { AgentListItem, CronJobItem } from '@/src/lib/bindings';
 import { DashboardAgent, DashboardCronJob, DashboardSession, HealthResponse } from './types';
 
 export type { DashboardAgent, DashboardCronJob, DashboardSession, HealthResponse } from './types';
 export type { ApiError };
 
-// Backend cron job shape
-interface BackendCronJob {
-  id: string;
-  agent_id: string;
-  name: string;
-  schedule: string;
-  message?: string;
-  last_status?: string | null;
-}
+// Backend cron job type - use canonical CronJobItem from bindings
+export type BackendCronJob = CronJobItem;
 
 // Transform functions to convert raw API data to dashboard-friendly format
 function transformAgent(raw: AgentListItem): DashboardAgent {
@@ -33,7 +26,7 @@ function transformAgent(raw: AgentListItem): DashboardAgent {
   };
 }
 
-function transformCronJob(raw: BackendCronJob): DashboardCronJob {
+function transformCronJob(raw: CronJobItem): DashboardCronJob {
   return {
     id: raw.id,
     agentId: raw.agent_id,

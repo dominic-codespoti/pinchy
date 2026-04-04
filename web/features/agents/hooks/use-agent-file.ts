@@ -2,17 +2,13 @@
 
 import { fetchApi, isNotFoundError } from '@/shared/api/client';
 import { GC_TIME } from '@/lib/query-config';
+import type { AgentFileGetResponse } from '@/src/lib/bindings';
 import { useQueryWithToast } from '@/shared/hooks/use-query-with-toast';
 import { agentsKeys } from '../query-keys';
 
-interface AgentFileResponse {
-  filename: string;
-  content: string;
-}
-
 async function fetchAgentFile(agentId: string, filename: string): Promise<string | null> {
   try {
-    const response = await fetchApi<AgentFileResponse>(
+    const response = await fetchApi<AgentFileGetResponse>(
       `/api/agents/${agentId}/files/${filename}`
     );
     return response.content;

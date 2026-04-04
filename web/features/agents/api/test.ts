@@ -10,51 +10,6 @@ const ASSISTANT_API_BASE = '/api/assistant';
 const PINCHY_API_BASE = '/api/pinchy';
 
 // ============================================================================
-// Request/Response Types
-// ============================================================================
-
-interface TestMessageRequest {
-  message: string;
-  scope: {
-    scope_type: 'agent';
-    agent_id: string;
-  };
-  history?: Array<{
-    role: 'user' | 'assistant';
-    content: string;
-  }>;
-}
-
-interface AssistantChatResponse {
-  reply: string;
-  proposed_actions?: Array<{
-    action_type: string;
-    description: string;
-    params: Record<string, unknown>;
-  }>;
-  used_model: boolean;
-}
-
-interface PinchyChatRequest {
-  message: string;
-  session_id?: string;
-  context?: {
-    scope_type: 'agent';
-    agent_id: string;
-  };
-  history?: Array<{
-    role: string;
-    content: string;
-  }>;
-}
-
-interface PinchyChatResponse {
-  reply: string;
-  session_id: string;
-  agent_id: string;
-}
-
-// ============================================================================
 // Test Types
 // ============================================================================
 
@@ -100,16 +55,24 @@ export async function testAgentWithAssistant(
   options?: TestAgentOptions
 ): Promise<TestAgentResult> {
   try {
-    const request: TestMessageRequest = {
+    const request = {
       message,
       scope: {
-        scope_type: 'agent',
+        scope_type: 'agent' as const,
         agent_id: agentId,
       },
       history: options?.history,
     };
 
-    const response = await fetchApi<AssistantChatResponse>(
+    const response = await fetchApi<{
+      reply: string;
+      proposed_actions?: Array<{
+        action_type: string;
+        description: string;
+        params: Record<string, unknown>;
+      }>;
+      used_model: boolean;
+    }>(
       `${ASSISTANT_API_BASE}/chat`,
       {
         method: 'POST',
@@ -150,17 +113,21 @@ export async function testAgentWithPinchy(
   options?: TestAgentOptions
 ): Promise<TestAgentResult> {
   try {
-    const request: PinchyChatRequest = {
+    const request = {
       message,
       session_id: options?.sessionId,
       context: {
-        scope_type: 'agent',
+        scope_type: 'agent' as const,
         agent_id: agentId,
       },
       history: options?.history,
     };
 
-    const response = await fetchApi<PinchyChatResponse>(
+    const response = await fetchApi<{
+      reply: string;
+      session_id: string;
+      agent_id: string;
+    }>(
       `${PINCHY_API_BASE}/chat`,
       {
         method: 'POST',

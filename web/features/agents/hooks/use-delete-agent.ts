@@ -3,17 +3,13 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { fetchApi } from '@/shared/api/client';
+import type { AgentDeleteResponse } from '@/src/lib/bindings';
 import { toast } from 'sonner';
 import { Agent } from '../types';
 import { agentsKeys } from '../query-keys';
 
-interface DeleteAgentResponse {
-  id: string;
-  deleted: boolean;
-}
-
-async function deleteAgent(agentId: string): Promise<DeleteAgentResponse> {
-  const response = await fetchApi<DeleteAgentResponse>(`/api/agents/${agentId}`, {
+async function deleteAgent(agentId: string): Promise<AgentDeleteResponse> {
+  const response = await fetchApi<AgentDeleteResponse>(`/api/agents/${agentId}`, {
     method: 'DELETE',
   });
   return response;
@@ -30,7 +26,7 @@ export function useDeleteAgent(): UseDeleteAgentResult {
   const router = useRouter();
 
   const mutation = useMutation<
-    DeleteAgentResponse,
+    AgentDeleteResponse,
     Error,
     string,
     { previousAgents: Agent[] | undefined }

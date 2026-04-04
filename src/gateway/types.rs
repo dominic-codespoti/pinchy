@@ -698,7 +698,7 @@ pub(crate) struct UpdateWebhookConfigRequest {
     pub secret: Option<String>,
     #[serde(default)]
     #[allow(dead_code)]
-    pub event_types: Vec<String>,
+    pub event_types: Vec<String>, // Reserved for future use
 }
 
 /// Response for webhook config update

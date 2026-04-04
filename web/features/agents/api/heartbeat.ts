@@ -4,17 +4,10 @@
  */
 
 import { fetchApi } from '@/shared/api/client';
-import type { RawHeartbeatStatus, HeartbeatStatusData } from '../types';
+import type { HeartbeatStatusResponse, HeartbeatStatusItem } from '@/src/lib/bindings';
+import type { HeartbeatStatusData } from '../types';
 
 const API_BASE = '/api/heartbeat';
-
-// ============================================================================
-// Response Types
-// ============================================================================
-
-interface AllHeartbeatsResponse {
-  agents: RawHeartbeatStatus[];
-}
 
 // ============================================================================
 // Helper Functions
@@ -23,20 +16,18 @@ interface AllHeartbeatsResponse {
 /**
  * Transform raw heartbeat status to frontend format
  */
-function transformHeartbeatStatus(raw: RawHeartbeatStatus): HeartbeatStatusData {
+function transformHeartbeatStatus(raw: HeartbeatStatusItem): HeartbeatStatusData {
   return {
     agentId: raw.agent_id,
     enabled: raw.enabled,
     health: raw.health as 'OK' | 'MISSED',
-    lastTick: raw.last_tick,
-    nextTick: raw.next_tick,
-    intervalSecs: raw.interval_secs,
-    messagePreview: raw.message_preview,
-    latestSession: typeof raw.latest_session === 'object' && raw.latest_session !== null
-      ? raw.latest_session
-      : raw.latest_session
-        ? { id: raw.latest_session }
-        : undefined,
+    lastTick: raw.last_tick ? new Date(Number(raw.last_tick) * 1000).toISOString() : null,
+    nextTick: raw.next_tick ? new Date(Number(raw.next_tick) * 1000).toISOString() : null,
+    intervalSecs: raw.interval_secs ? Number(raw.interval_secs) : null,
+    messagePreview: raw.message_preview ?? undefined,
+    latestSession: typeof raw.latest_session === 'string' && raw.latest_session
+      ? { id: raw.latest_session }
+      : undefined,
   };
 }
 
@@ -49,7 +40,7 @@ function transformHeartbeatStatus(raw: RawHeartbeatStatus): HeartbeatStatusData 
  * GET /api/heartbeat/status/:agent_id
  */
 export async function getAgentHeartbeat(agentId: string): Promise<HeartbeatStatusData> {
-  const response = await fetchApi<RawHeartbeatStatus>(
+  const response = await fetchApi<HeartbeatStatusItem>(
     `${API_BASE}/status/${encodeURIComponent(agentId)}`
   );
   return transformHeartbeatStatus(response);
@@ -60,7 +51,7 @@ export async function getAgentHeartbeat(agentId: string): Promise<HeartbeatStatu
  * GET /api/heartbeat/status
  */
 export async function getAllAgentsHeartbeat(): Promise<HeartbeatStatusData[]> {
-  const response = await fetchApi<AllHeartbeatsResponse>(`${API_BASE}/status`);
+  const response = await fetchApi<HeartbeatStatusResponse>(`${API_BASE}/status`);
   return response.agents.map(transformHeartbeatStatus);
 }
 

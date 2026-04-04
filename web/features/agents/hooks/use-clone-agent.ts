@@ -3,16 +3,14 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { fetchApi } from '@/shared/api/client';
+import type { AgentCloneResponse } from '@/src/lib/bindings';
 import { toast } from 'sonner';
 import { CloneAgentOptions, CloneAgentResult } from '../types';
 import { agentsKeys } from '../query-keys';
 
+// Local type for clone request body
 interface CloneAgentRequest {
   new_id: string;
-}
-
-interface CloneAgentResponse {
-  id: string;
 }
 
 interface CloneAgentVariables {
@@ -21,9 +19,9 @@ interface CloneAgentVariables {
   options?: CloneAgentOptions;
 }
 
-async function cloneAgent({ agentId, newId }: CloneAgentVariables): Promise<CloneAgentResponse> {
+async function cloneAgent({ agentId, newId }: CloneAgentVariables): Promise<AgentCloneResponse> {
   const body: CloneAgentRequest = { new_id: newId };
-  const response = await fetchApi<CloneAgentResponse>(`/api/agents/${agentId}/clone`, {
+  const response = await fetchApi<AgentCloneResponse>(`/api/agents/${agentId}/clone`, {
     method: 'POST',
     body: JSON.stringify(body),
   });
@@ -40,7 +38,7 @@ export function useCloneAgent(): UseCloneAgentResult {
   const queryClient = useQueryClient();
   const router = useRouter();
 
-  const mutation = useMutation<CloneAgentResponse, Error, CloneAgentVariables>({
+  const mutation = useMutation<AgentCloneResponse, Error, CloneAgentVariables>({
     mutationFn: cloneAgent,
     onSuccess: (data, variables) => {
       // Invalidate agents list to include cloned agent

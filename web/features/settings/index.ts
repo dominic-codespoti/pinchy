@@ -7,7 +7,6 @@
 export type { ModelInfo } from '@/src/lib/bindings';
 export type {
   ProviderConfig,
-  ModelsApiResponse,
   ProviderStatus,
   ProviderTestResult,
   ProviderStatusItem,
@@ -23,6 +22,7 @@ export type {
   McpServers,
   McpTransport,
 } from './types';
+export type { ModelsApiResponse } from './api/models';
 
 // API
 export {

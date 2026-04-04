@@ -2,23 +2,19 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchApi } from '@/shared/api/client';
+import type { AgentUpdateResponse } from '@/src/lib/bindings';
 import { toast } from 'sonner';
 import { Agent, UpdateAgentInput } from '../types';
 import { transformAgentDetail } from '../utils';
 import { agentsKeys } from '../query-keys';
-
-interface UpdateAgentResponse {
-  id: string;
-  updated: string[];
-}
 
 interface UpdateAgentVariables {
   agentId: string;
   input: UpdateAgentInput;
 }
 
-async function updateAgent({ agentId, input }: UpdateAgentVariables): Promise<UpdateAgentResponse> {
-  const response = await fetchApi<UpdateAgentResponse>(`/api/agents/${agentId}`, {
+async function updateAgent({ agentId, input }: UpdateAgentVariables): Promise<AgentUpdateResponse> {
+  const response = await fetchApi<AgentUpdateResponse>(`/api/agents/${agentId}`, {
     method: 'PUT',
     body: JSON.stringify({
       soul: input.soul,
@@ -49,7 +45,7 @@ export function useUpdateAgent(): UseUpdateAgentResult {
   const queryClient = useQueryClient();
 
   const mutation = useMutation<
-    UpdateAgentResponse,
+    AgentUpdateResponse,
     Error,
     UpdateAgentVariables,
     { previousAgent: Agent | undefined }

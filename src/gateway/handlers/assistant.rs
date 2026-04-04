@@ -147,7 +147,6 @@ struct RawAction {
 
 /// Action metadata for validation and documentation.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 struct ActionMetadata {
     description: &'static str,
     required_params: &'static [&'static str],

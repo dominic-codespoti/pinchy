@@ -4,22 +4,9 @@
  */
 
 import { fetchApi } from '@/shared/api/client';
+import type { AgentFileGetResponse, AgentFilePutResponse } from '@/src/lib/bindings';
 
 const API_BASE = '/api/agents';
-
-// ============================================================================
-// Response Types
-// ============================================================================
-
-interface AgentFileResponse {
-  filename: string;
-  content: string;
-}
-
-interface SaveFileResponse {
-  filename: string;
-  saved: boolean;
-}
 
 /**
  * Agent file metadata (for file listing)
@@ -86,7 +73,7 @@ export async function getAgentFile(
     throw new Error(`Invalid filename: ${filename}. Allowed: ${ALLOWED_AGENT_FILES.join(', ')}`);
   }
 
-  const response = await fetchApi<AgentFileResponse>(
+  const response = await fetchApi<AgentFileGetResponse>(
     `${API_BASE}/${encodeURIComponent(agentId)}/files/${encodeURIComponent(filename)}`
   );
 
@@ -109,7 +96,7 @@ export async function saveAgentFile(
     throw new Error(`Invalid filename: ${filename}. Allowed: ${ALLOWED_AGENT_FILES.join(', ')}`);
   }
 
-  await fetchApi<SaveFileResponse>(
+  await fetchApi<AgentFilePutResponse>(
     `${API_BASE}/${encodeURIComponent(agentId)}/files/${encodeURIComponent(filename)}`,
     {
       method: 'PUT',

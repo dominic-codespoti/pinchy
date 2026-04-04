@@ -12,6 +12,7 @@ export interface ProviderConfig {
   enabled: boolean;
 }
 
+// API response type - matches the actual /api/models endpoint response
 export interface ModelsApiResponse {
   models: Array<{
     id: string;
@@ -33,7 +34,7 @@ export async function fetchModels(): Promise<ModelInfo[]> {
     '/api/models',
     undefined
   );
-  return response.models.map(m => ({
+  return response.models.map((m) => ({
     id: m.id,
     name: m.name,
     provider: m.provider_id,

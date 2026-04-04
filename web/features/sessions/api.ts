@@ -1,12 +1,9 @@
 import { fetchApi, isNotFoundError } from '@/shared/api/client';
+import type { SessionsListResponse, SessionItem } from '@/src/lib/bindings';
 import { Agent } from '@/features/agents/types';
-import { Session, RawSession } from './types';
+import { Session } from './types';
 
-interface SessionsListResponse {
-  sessions: RawSession[];
-}
-
-function transformSession(raw: RawSession): Session {
+function transformSession(raw: SessionItem): Session {
   return {
     id: raw.session_id,
     agentId: raw.agent_id,

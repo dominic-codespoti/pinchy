@@ -4,7 +4,6 @@
  */
 
 import { fetchApi } from '@/shared/api/client';
-import { PAGINATION } from '@/lib/query-config';
 import type { Memory } from '../types';
 import type { MemoryListResponse, RawMemory } from '@/features/memories/types';
 

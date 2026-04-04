@@ -6,7 +6,7 @@ import { fetchApi, isNotFoundError } from '@/shared/api/client';
 import { LogEntry, LogLevel } from '@/shared/types/common';
 import { PAGINATION } from '@/lib/query-config';
 
-// Backend response types
+// Backend response types for persisted logs (from SQLite)
 interface PersistedLogEntry {
   id: number;
   type: string;
@@ -26,6 +26,7 @@ interface PersistedLogsResponse {
   retention: string;
 }
 
+// Backend response types for recent logs (in-memory buffer)
 interface RecentLogEntry {
   type: string;
   level: string;

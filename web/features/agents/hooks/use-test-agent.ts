@@ -2,21 +2,13 @@
 
 import { useMutation } from '@tanstack/react-query';
 import { fetchApi } from '@/shared/api/client';
+import type { TestAgentResponse, TestAgentUsage } from '@/src/lib/bindings';
 import { toast } from 'sonner';
 import { SendTestMessageResponse } from '../types';
 
 interface TestAgentVariables {
   agentId: string;
   message: string;
-}
-
-interface TestAgentResponse {
-  response: string;
-  content?: string;
-  usage?: {
-    input_tokens?: number;
-    output_tokens?: number;
-  };
 }
 
 async function testAgent({ agentId, message }: TestAgentVariables): Promise<TestAgentResponse> {
@@ -53,8 +45,13 @@ export function useTestAgent(): UseTestAgentResult {
       const response = await mutation.mutateAsync({ agentId, message });
       return {
         response: response.response,
-        content: response.content,
-        usage: response.usage,
+        content: response.content ?? undefined,
+        usage: response.usage
+          ? {
+              input_tokens: Number((response.usage as TestAgentUsage).input_tokens) || undefined,
+              output_tokens: Number((response.usage as TestAgentUsage).output_tokens) || undefined,
+            }
+          : undefined,
       };
     },
     isPending: mutation.isPending,

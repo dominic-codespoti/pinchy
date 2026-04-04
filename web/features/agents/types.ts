@@ -1,25 +1,14 @@
 import { Session, RawSession } from '@/features/sessions/types';
 import { Memory, RawMemory } from '@/features/memories/types';
 import type { AgentListItem, AgentDetail } from '@/src/lib/bindings';
+import type { ReceiptsListResponse, ReceiptsBySessionResponse } from '@/features/receipts/types';
 
 export type { Session, RawSession } from '@/features/sessions/types';
 export type { Memory, RawMemory } from '@/features/memories/types';
 export type { ApiError } from '@/shared/types/api';
 export type { AgentListItem, AgentDetail } from '@/src/lib/bindings';
-
-// ============================================================================
-// Receipt Types (moved from deleted api/receipts-api)
-// ============================================================================
-
-export interface ReceiptsListResponse {
-  receipts: TurnReceipt[];
-  total: number;
-}
-
-export interface ReceiptsBySessionResponse {
-  session_id: string;
-  receipts: TurnReceipt[];
-}
+// Re-export receipt types from canonical source
+export type { ReceiptsListResponse, ReceiptsBySessionResponse } from '@/features/receipts/types';
 
 // ============================================================================
 // Heartbeat Types

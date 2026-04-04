@@ -4,46 +4,16 @@
  */
 
 import { fetchApi } from '@/shared/api/client';
-import type { Session, RawSession } from '../types';
+import type {
+  SessionsListResponse,
+  SessionItem,
+  SessionDeleteResponse,
+  SessionUpdateResponse,
+  SessionCurrentResponse,
+} from '@/src/lib/bindings';
+import type { Session } from '../types';
 
 const API_BASE = '/api/agents';
-
-// ============================================================================
-// Response Types
-// ============================================================================
-
-interface SessionsListResponse {
-  sessions: RawSessionItem[];
-}
-
-interface RawSessionItem {
-  file: string;
-  session_id: string;
-  created_at: number;
-  modified: number;
-  title?: string;
-  message_count?: number;
-}
-
-interface SessionDetailResponse {
-  file: string;
-  messages: unknown[];
-}
-
-interface CurrentSessionResponse {
-  session_id: string | null;
-}
-
-interface DeleteSessionResponse {
-  session_id: string;
-  deleted: boolean;
-}
-
-interface UpdateSessionResponse {
-  session_id: string;
-  saved: boolean;
-  count: number;
-}
 
 // ============================================================================
 // Helper Functions
@@ -53,13 +23,13 @@ interface UpdateSessionResponse {
  * Transform raw session item to Session type
  */
 function transformSessionItem(agentId: string) {
-  return (raw: RawSessionItem): Session => {
+  return (raw: SessionItem): Session => {
     return {
       id: raw.session_id,
       agentId,
-      createdAt: new Date(raw.created_at * 1000).toISOString(),
-      updatedAt: new Date(raw.modified * 1000).toISOString(),
-      title: raw.title,
+      createdAt: new Date(Number(raw.created_at) * 1000).toISOString(),
+      updatedAt: new Date(Number(raw.modified) * 1000).toISOString(),
+      title: raw.title ?? undefined,
       messageCount: raw.message_count || 0,
     };
   };
@@ -87,13 +57,13 @@ export async function getAgentSessions(agentId: string): Promise<Session[]> {
 export async function getAgentSession(
   agentId: string,
   sessionFile: string
-): Promise<SessionDetailResponse> {
+): Promise<{ file: string; messages: unknown[] }> {
   // Ensure .jsonl extension
   const filename = sessionFile.endsWith('.jsonl')
     ? sessionFile
     : `${sessionFile}.jsonl`;
 
-  return await fetchApi<SessionDetailResponse>(
+  return await fetchApi<{ file: string; messages: unknown[] }>(
     `${API_BASE}/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(filename)}`
   );
 }
@@ -103,7 +73,7 @@ export async function getAgentSession(
  * GET /api/agents/:id/session/current
  */
 export async function getAgentCurrentSession(agentId: string): Promise<string | null> {
-  const response = await fetchApi<CurrentSessionResponse>(
+  const response = await fetchApi<SessionCurrentResponse>(
     `${API_BASE}/${encodeURIComponent(agentId)}/session/current`
   );
   return response.session_id;
@@ -123,7 +93,7 @@ export async function updateAgentSession(
     ? sessionFile
     : `${sessionFile}.jsonl`;
 
-  await fetchApi<UpdateSessionResponse>(
+  await fetchApi<SessionUpdateResponse>(
     `${API_BASE}/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(filename)}`,
     {
       method: 'PUT',
@@ -145,7 +115,7 @@ export async function deleteAgentSession(
     ? sessionFile
     : `${sessionFile}.jsonl`;
 
-  await fetchApi<DeleteSessionResponse>(
+  await fetchApi<SessionDeleteResponse>(
     `${API_BASE}/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(filename)}`,
     {
       method: 'DELETE',

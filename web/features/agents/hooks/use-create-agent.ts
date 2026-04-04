@@ -3,17 +3,13 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { fetchApi } from '@/shared/api/client';
+import type { AgentCreateResponse } from '@/src/lib/bindings';
 import { toast } from 'sonner';
 import { CreateAgentInput } from '../types';
 import { agentsKeys } from '../query-keys';
 
-interface CreateAgentResponse {
-  id: string;
-  created: boolean;
-}
-
-async function createAgent(input: CreateAgentInput): Promise<CreateAgentResponse> {
-  const response = await fetchApi<CreateAgentResponse>('/api/agents', {
+async function createAgent(input: CreateAgentInput): Promise<AgentCreateResponse> {
+  const response = await fetchApi<AgentCreateResponse>('/api/agents', {
     method: 'POST',
     body: JSON.stringify({
       id: input.id,
@@ -39,7 +35,7 @@ export function useCreateAgent(): UseCreateAgentResult {
   const queryClient = useQueryClient();
   const router = useRouter();
 
-  const mutation = useMutation<CreateAgentResponse, Error, CreateAgentInput>({
+  const mutation = useMutation<AgentCreateResponse, Error, CreateAgentInput>({
     mutationFn: createAgent,
     onSuccess: (data) => {
       // Invalidate agents list to include new agent

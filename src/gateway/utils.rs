@@ -1,15 +1,12 @@
 //! Shared helper functions for gateway handlers to eliminate code duplication.
 
 use axum::{
-    async_trait,
-    extract::{FromRequestParts, Path},
-    http::{request::Parts, StatusCode},
+    http::StatusCode,
     response::{IntoResponse, Response},
     Json,
 };
 use std::path::PathBuf;
 
-use super::auth::validate_path_segment;
 use super::types::ErrorResponse;
 
 // =============================================================================
@@ -32,22 +29,6 @@ pub(crate) fn not_found_response(agent_id: impl Into<String>) -> Response {
         .into_response()
 }
 
-/// Create a standardized "bad request" error response.
-#[allow(dead_code)]
-pub(crate) fn bad_request_response(message: impl Into<String>, id: Option<String>) -> Response {
-    (
-        StatusCode::BAD_REQUEST,
-        Json(ErrorResponse {
-            error: message.into(),
-            id,
-            agent_id: None,
-            filename: None,
-            allowed: None,
-        }),
-    )
-        .into_response()
-}
-
 /// Create a standardized "conflict" error response (e.g., agent already exists).
 pub(crate) fn conflict_response(message: impl Into<String>, id: impl Into<String>) -> Response {
     (
@@ -55,23 +36,6 @@ pub(crate) fn conflict_response(message: impl Into<String>, id: impl Into<String
         Json(ErrorResponse {
             error: message.into(),
             id: Some(id.into()),
-            agent_id: None,
-            filename: None,
-            allowed: None,
-        }),
-    )
-        .into_response()
-}
-
-/// Create a standardized error response for an invalid path segment.
-#[allow(dead_code)]
-pub(crate) fn invalid_path_response(segment: impl Into<String>) -> Response {
-    let segment = segment.into();
-    (
-        StatusCode::BAD_REQUEST,
-        Json(ErrorResponse {
-            error: "invalid path segment".to_string(),
-            id: Some(segment),
             agent_id: None,
             filename: None,
             allowed: None,
@@ -128,82 +92,6 @@ pub(crate) async fn list_agent_ids() -> Vec<String> {
         .into_iter()
         .map(|entry| entry.agent_id)
         .collect()
-}
-
-// =============================================================================
-// Axum Extractor for Validated Agent IDs
-// =============================================================================
-
-/// Axum extractor that validates the `agent_id` path parameter.
-///
-/// If validation fails, returns a BAD_REQUEST error response.
-/// Use this instead of manually calling `validate_path_segment`.
-#[allow(dead_code)]
-pub(crate) struct ValidatedAgentId(pub String);
-
-#[async_trait]
-impl<S> FromRequestParts<S> for ValidatedAgentId
-where
-    S: Send + Sync,
-{
-    type Rejection = Response;
-
-    async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
-        // Extract the agent_id from the path
-        let params: Path<std::collections::HashMap<String, String>> =
-            Path::from_request_parts(parts, _state).await.map_err(|_| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    Json(ErrorResponse {
-                        error: "missing path parameters".to_string(),
-                        id: None,
-                        agent_id: None,
-                        filename: None,
-                        allowed: None,
-                    }),
-                )
-                    .into_response()
-            })?;
-
-        let Some(agent_id) = params.get("agent_id") else {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "missing agent_id path parameter".to_string(),
-                    id: None,
-                    agent_id: None,
-                    filename: None,
-                    allowed: None,
-                }),
-            )
-                .into_response());
-        };
-
-        // Validate the agent_id
-        if let Err(e) = validate_path_segment(agent_id) {
-            return Err(e.into_response());
-        }
-
-        Ok(ValidatedAgentId(agent_id.clone()))
-    }
-}
-
-/// Extension trait for easier error handling with path validation.
-#[allow(dead_code)]
-pub(crate) trait PathValidationExt {
-    /// Validates this string as a path segment, returning an error response if invalid.
-    #[allow(clippy::result_large_err)]
-    fn validate(&self) -> Result<(), Response>;
-}
-
-impl PathValidationExt for str {
-    fn validate(&self) -> Result<(), Response> {
-        if let Err(e) = validate_path_segment(self) {
-            Err(e.into_response())
-        } else {
-            Ok(())
-        }
-    }
 }
 
 /// Convenience function to validate a path segment and return early if invalid.

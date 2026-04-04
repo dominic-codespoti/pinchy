@@ -12,13 +12,8 @@ export interface StatItem {
   tone?: 'default' | 'success' | 'warning' | 'danger';
 }
 
-// Health check response from backend
-export interface HealthResponse {
-  status: string;
-  version: string;
-  uptime_secs: number;
-  agents: number;
-}
+// Health check response from backend - re-export from canonical source
+export type { HealthResponse } from '@/src/lib/bindings';
 
 // Dashboard-specific Agent type (minimal fields needed)
 export interface DashboardAgent {
@@ -39,14 +34,8 @@ export interface DashboardCronJob {
   lastStatus: boolean;
 }
 
-export interface RawCronJob {
-  id: string;
-  agent_id: string;
-  name: string;
-  schedule: string;
-  message?: string;
-  last_status?: string | null;
-}
+// RawCronJob type - re-export from cron feature for consistency
+export type { RawCronJob } from '@/features/cron/types';
 
 // Dashboard session type for activity feed
 export interface DashboardSession {

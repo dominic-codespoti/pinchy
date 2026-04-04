@@ -1,17 +1,15 @@
 import { fetchApi, isNotFoundError } from '@/shared/api/client';
-import type { SessionItem as RawSession } from '@/src/lib/bindings';
+import type { SessionItem as RawSession, SessionsListResponse, ReceiptsListResponse } from '@/src/lib/bindings';
 import { Message, ToolCall, ToolResult, TurnReceipt } from '@/shared/types/common';
 import { Session } from './types';
 
-interface SessionsListResponse {
-  sessions: RawSession[];
-}
-
+// Local type for session messages (backend returns raw JSON)
 interface MessagesResponse {
   messages: unknown[];
 }
 
-interface ReceiptGetResponse {
+// Local type for receipts response (backend returns parsed receipt data)
+interface ReceiptsGetResponse {
   file: string;
   receipts: TurnReceipt[];
 }
@@ -367,7 +365,7 @@ export async function getSessionMessages(sessionId: string, agentId: string): Pr
 export async function getSessionReceipts(sessionId: string, agentId: string): Promise<TurnReceipt[]> {
   try {
     const sessionFile = `${sessionId}.receipts.jsonl`;
-    const response = await fetchApi<ReceiptGetResponse>(
+    const response = await fetchApi<ReceiptsGetResponse>(
       `/api/agents/${agentId}/receipts/${sessionFile}`,
       undefined
     );

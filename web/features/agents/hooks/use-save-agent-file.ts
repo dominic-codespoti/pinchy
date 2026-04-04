@@ -2,13 +2,9 @@
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchApi } from '@/shared/api/client';
+import type { AgentFilePutResponse } from '@/src/lib/bindings';
 import { toast } from 'sonner';
 import { agentsKeys } from '../query-keys';
-
-interface SaveAgentFileResponse {
-  filename: string;
-  saved: boolean;
-}
 
 interface SaveAgentFileVariables {
   agentId: string;
@@ -16,8 +12,8 @@ interface SaveAgentFileVariables {
   content: string;
 }
 
-async function saveAgentFile({ agentId, filename, content }: SaveAgentFileVariables): Promise<SaveAgentFileResponse> {
-  const response = await fetchApi<SaveAgentFileResponse>(`/api/agents/${agentId}/files/${filename}`, {
+async function saveAgentFile({ agentId, filename, content }: SaveAgentFileVariables): Promise<AgentFilePutResponse> {
+  const response = await fetchApi<AgentFilePutResponse>(`/api/agents/${agentId}/files/${filename}`, {
     method: 'PUT',
     body: JSON.stringify({ content }),
   });
@@ -33,7 +29,7 @@ export interface UseSaveAgentFileResult {
 export function useSaveAgentFile(): UseSaveAgentFileResult {
   const queryClient = useQueryClient();
 
-  const mutation = useMutation<SaveAgentFileResponse, Error, SaveAgentFileVariables>({
+  const mutation = useMutation<AgentFilePutResponse, Error, SaveAgentFileVariables>({
     mutationFn: saveAgentFile,
     onSuccess: (_, variables) => {
       // Invalidate the specific file cache

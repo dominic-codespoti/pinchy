@@ -27,7 +27,7 @@ struct DeviceFlowState {
 #[allow(dead_code)]
 enum DeviceFlowStatus {
     Waiting,
-    Complete(String), // github_token
+    Complete(String), // github_token - stored but not exposed in API
     Failed(String),   // error message
 }
 
