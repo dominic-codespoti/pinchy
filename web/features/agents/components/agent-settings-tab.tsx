@@ -44,8 +44,25 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
   const { data: models, isLoading: modelsLoading } = useAvailableModels();
   const { data: providers, isLoading: providersLoading } = useProvidersStatus();
 
-  // Build dynamic options
-  const modelOptions = models?.map((m) => ({ value: m.id, label: m.name })) || [];
+  // Build dynamic options - deduplicate models by ID to avoid duplicate keys
+  const modelOptions = (() => {
+    if (!models) return [];
+    
+    // Deduplicate by model ID (keep first occurrence)
+    const seen = new Set<string>();
+    return models.filter((m) => {
+      if (seen.has(m.id)) {
+        return false;
+      }
+      seen.add(m.id);
+      return true;
+    }).map((m) => ({ 
+      value: m.id, 
+      label: m.name,
+      provider: m.provider,
+    }));
+  })();
+  
   const providerOptions =
     providers
       ?.filter((p) => p.configured)
@@ -152,7 +169,7 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
                     </SelectItem>
                   ) : (
                     modelOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
+                      <SelectItem key={`${option.provider}-${option.value}`} value={option.value}>
                         {option.label}
                       </SelectItem>
                     ))

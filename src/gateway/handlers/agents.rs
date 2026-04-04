@@ -233,6 +233,7 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
         heartbeat,
         session_count,
         model: None,
+        provider: None,
         heartbeat_secs: None,
         max_tool_iterations: None,
         enabled_skills: None,
@@ -249,6 +250,7 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
     if let Ok(cfg) = crate::config::Config::load(&config_path).await {
         if let Some(ac) = cfg.agents.iter().find(|a| a.id == agent_id) {
             detail.model = ac.model.clone();
+            detail.provider = ac.provider.clone();
             detail.heartbeat_secs = ac.heartbeat_secs;
             detail.max_tool_iterations = ac.max_tool_iterations;
             detail.enabled_skills = ac.enabled_skills.clone();
@@ -378,6 +380,7 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
                         id: body.id.clone(),
                         root: format!("agents/{}", body.id),
                         model: body.model,
+                        provider: None,
                         heartbeat_secs: body.heartbeat_secs,
                         cron_jobs: Vec::new(),
                         max_tool_iterations: None,
@@ -429,6 +432,8 @@ pub(crate) struct UpdateAgentRequest {
     heartbeat: Option<String>,
     #[serde(default)]
     model: Option<String>,
+    #[serde(default)]
+    provider: Option<String>,
     /// `null` → disable heartbeat (set to None), missing → don't update, number → update interval.
     #[serde(default, deserialize_with = "deserialize_optional_nullable")]
     heartbeat_secs: Option<Option<u64>>,
@@ -537,6 +542,7 @@ pub(crate) async fn api_agent_update(
 
     // Update config fields if any were provided.
     if body.model.is_some()
+        || body.provider.is_some()
         || body.heartbeat_secs.is_some()
         || body.max_tool_iterations.is_some()
         || body.enabled_skills.is_some()
@@ -553,6 +559,10 @@ pub(crate) async fn api_agent_update(
                     if let Some(model) = body.model {
                         ac.model = Some(model);
                         updated.push("model".to_string());
+                    }
+                    if let Some(provider) = body.provider {
+                        ac.provider = Some(provider);
+                        updated.push("provider".to_string());
                     }
                     if let Some(hs_opt) = body.heartbeat_secs {
                         // Some(Some(n)) → set interval, Some(None) → disable heartbeat

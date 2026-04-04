@@ -15,6 +15,7 @@ import {
   CronJobsListResponseSchema,
   BackendCronJobSchema,
   AgentsListResponseSchema,
+  CronRunsListResponseSchema,
 } from '@/lib/validation/schemas';
 
 function transformCronJob(raw: BackendCronJob): CronJob {
@@ -113,6 +114,10 @@ export async function triggerJob(jobId: string): Promise<void> {
 }
 
 export async function getJobRuns(jobId: string): Promise<JobRun[]> {
-  const response = await fetchApi<{ runs: JobRun[] }>(`/api/cron/jobs/${jobId}/runs`);
+  const response = await fetchApi(
+    `/api/cron/jobs/${jobId}/runs`,
+    undefined,
+    CronRunsListResponseSchema
+  );
   return response.runs;
 }

@@ -2,6 +2,12 @@
  * Cron feature types
  */
 
+import { BackendCronJob as ZodBackendCronJob, CronRunItem as ZodCronRunItem } from '@/lib/validation/schemas';
+
+// Re-export Zod types for consistency with backend
+export type BackendCronJob = ZodBackendCronJob;
+export type JobRun = ZodCronRunItem;
+
 export interface CronJob {
   id: string;
   agentId: string;
@@ -24,32 +30,6 @@ export interface RawCronJob {
   retry_delay_secs?: number;
   retry_count?: number;
   last_status?: string | null;
-}
-
-export interface BackendCronJob {
-  id: string;
-  agent_id: string;
-  name: string;
-  schedule: string;
-  message?: string;
-  kind?: string;
-  depends_on?: string[];
-  max_retries?: number;
-  retry_delay_secs?: number;
-  retry_count?: number;
-  last_status?: string | null;
-}
-
-export interface JobRun {
-  id: string;
-  jobId: string;
-  scheduledAt: number;
-  executedAt?: number;
-  completedAt?: number;
-  status: 'PENDING' | 'RUNNING' | 'SUCCESS' | string;
-  outputPreview?: string;
-  error?: string;
-  durationMs?: number;
 }
 
 export interface CreateCronJobInput {

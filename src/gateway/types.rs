@@ -51,6 +51,8 @@ pub(crate) struct AgentDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub heartbeat_secs: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tool_iterations: Option<usize>,

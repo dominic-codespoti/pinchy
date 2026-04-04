@@ -13,7 +13,6 @@ use crate::gateway::types::ErrorResponse;
 /// Response shape for admin stats endpoint.
 /// Matches the frontend SystemStats type.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AdminStats {
     pub total_agents: usize,
     pub total_sessions: usize,
@@ -70,7 +69,6 @@ fn compute_stats() -> AdminStats {
 
 /// Response shape for database status.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DbStatusResponse {
     pub journal_mode: String,
     pub synchronous: i32,
@@ -132,7 +130,6 @@ pub async fn api_admin_db_status() -> impl IntoResponse {
 
 /// Table information response item.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct TableInfo {
     pub name: String,
     pub row_count: i64,
@@ -141,7 +138,6 @@ pub struct TableInfo {
 
 /// Response shape for database tables.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DbTablesResponse {
     pub tables: Vec<TableInfo>,
 }
@@ -192,7 +188,6 @@ pub async fn api_admin_db_tables() -> impl IntoResponse {
 
 /// Response shape for optimize operation.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct OptimizeResponse {
     pub success: bool,
     pub size_before_bytes: i64,
@@ -244,7 +239,6 @@ pub async fn api_admin_db_optimize() -> impl IntoResponse {
 
 /// Response shape for WAL checkpoint.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct WalCheckpointResponse {
     pub success: bool,
     pub status: String,
@@ -300,7 +294,6 @@ pub async fn api_admin_db_wal_checkpoint() -> impl IntoResponse {
 
 /// Backup info response item.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct BackupInfo {
     pub filename: String,
     pub size_bytes: u64,
@@ -309,7 +302,6 @@ pub struct BackupInfo {
 
 /// Response shape for backup list.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct BackupListResponse {
     pub backups: Vec<BackupInfo>,
     pub backup_dir: String,
@@ -374,7 +366,6 @@ pub async fn api_admin_backups_list() -> impl IntoResponse {
 
 /// Response shape for backup creation.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct CreateBackupResponse {
     pub success: bool,
     pub filename: String,
@@ -449,7 +440,6 @@ pub async fn api_admin_backup_create() -> impl IntoResponse {
 
 /// Response shape for database index info.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct IndexInfoResponse {
     pub name: String,
     pub table: String,
@@ -460,7 +450,6 @@ pub struct IndexInfoResponse {
 
 /// Response shape for agent storage summary.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AgentStorageResponse {
     pub agent_id: String,
     pub session_count: i64,
@@ -472,7 +461,6 @@ pub struct AgentStorageResponse {
 
 /// Response shape for PRAGMA diagnostics.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct PragmaDiagnosticsResponse {
     pub encoding: String,
     pub schema_version: i32,
@@ -487,7 +475,6 @@ pub struct PragmaDiagnosticsResponse {
 
 /// Response shape for database diagnostics.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct DbDiagnosticsResponse {
     pub indexes: Vec<IndexInfoResponse>,
     pub agent_storage: Vec<AgentStorageResponse>,
@@ -746,7 +733,6 @@ pub async fn api_admin_backup_download(AxumPath(filename): AxumPath<String>) -> 
 
 /// Response shape for backup verification.
 #[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct VerifyBackupResponse {
     pub valid: bool,
     pub filename: String,

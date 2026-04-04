@@ -144,6 +144,7 @@ export interface UpdateAgentInput {
   tools?: string;
   heartbeat?: string;
   model?: string;
+  provider?: string;
   heartbeat_secs?: number | null;
   max_tool_iterations?: number;
   enabled_skills?: string[];

@@ -25,6 +25,7 @@ async function updateAgent({ agentId, input }: UpdateAgentVariables): Promise<Up
       tools: input.tools,
       heartbeat: input.heartbeat,
       model: input.model,
+      provider: input.provider,
       heartbeat_secs: input.heartbeat_secs,
       max_tool_iterations: input.max_tool_iterations,
       enabled_skills: input.enabled_skills,
@@ -72,6 +73,7 @@ export function useUpdateAgent(): UseUpdateAgentResult {
           config: {
             ...previousAgent.config,
             model: input.model ?? previousAgent.config.model,
+            provider: input.provider ?? previousAgent.config.provider,
             systemPrompt: input.soul ?? previousAgent.config.systemPrompt,
           },
           heartbeatInterval: input.heartbeat_secs ?? previousAgent.heartbeatInterval,

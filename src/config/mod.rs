@@ -325,6 +325,10 @@ pub struct AgentConfig {
     /// Model id to use for inference.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Provider kind: "openai", "anthropic", "copilot", etc.
+    /// If unset, the provider is derived from the model configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     /// Seconds between heartbeat pings (0 = disabled).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heartbeat_secs: Option<u64>,

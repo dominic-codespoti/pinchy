@@ -29,6 +29,7 @@ interface AgentDetailResponse {
   heartbeat?: string;
   session_count?: number;
   model?: string;
+  provider?: string;
   heartbeat_secs?: number | null;
   max_tool_iterations?: number;
   enabled_skills?: string[];
@@ -109,7 +110,7 @@ function transformAgentDetail(raw: AgentDetailResponse): Agent {
     status: 'active',
     config: {
       model: raw.model,
-      provider: 'openai',
+      provider: raw.provider || 'openai',
       systemPrompt: raw.soul || '',
       toolsEnabled: raw.enabled_skills || [],
     },
@@ -186,6 +187,7 @@ export async function updateAgent(
   if (data.tools !== undefined) body.tools = data.tools;
   if (data.heartbeat !== undefined) body.heartbeat = data.heartbeat;
   if (data.model !== undefined) body.model = data.model;
+  if (data.provider !== undefined) body.provider = data.provider;
   if (data.heartbeat_secs !== undefined) body.heartbeat_secs = data.heartbeat_secs;
   if (data.max_tool_iterations !== undefined) body.max_tool_iterations = data.max_tool_iterations;
   if (data.enabled_skills !== undefined) body.enabled_skills = data.enabled_skills;

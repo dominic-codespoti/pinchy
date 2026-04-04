@@ -342,6 +342,7 @@ pub fn interactive_onboard_tui(
                             id: id.to_string(),
                             root: workspace_str,
                             model: Some(model_config_id.clone()),
+                            provider: None,
                             heartbeat_secs: None,
                             cron_jobs: vec![],
                             max_tool_iterations: None,

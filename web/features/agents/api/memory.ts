@@ -5,29 +5,10 @@
 
 import { fetchApi } from '@/shared/api/client';
 import { PAGINATION } from '@/lib/query-config';
+import { MemoryListResponseSchema, MemoryDeleteResponseSchema, MemoryItem } from '@/lib/validation/schemas';
 import type { Memory } from '../types';
 
 const API_BASE = '/api/agents';
-
-// ============================================================================
-// Response Types
-// ============================================================================
-
-interface MemoryListResponse {
-  entries: RawMemoryEntry[];
-}
-
-interface RawMemoryEntry {
-  key: string;
-  value: string;
-  tags?: string[];
-  created_at?: number;
-  updated_at?: number;
-}
-
-interface DeleteMemoryResponse {
-  deleted: boolean;
-}
 
 // ============================================================================
 // Helper Functions
@@ -37,15 +18,15 @@ interface DeleteMemoryResponse {
  * Transform raw memory entry to Memory type
  */
 function transformMemoryEntry(agentId: string) {
-  return (raw: RawMemoryEntry): Memory => {
+  return (raw: MemoryItem): Memory => {
     return {
       id: raw.key,
       agentId,
       content: raw.value,
       category: raw.tags?.[0],
       tags: raw.tags || [],
-      timestamp: raw.created_at ? new Date(raw.created_at * 1000).toISOString() : new Date().toISOString(),
-      score: undefined,
+      timestamp: raw.timestamp,
+      score: raw.score,
     };
   };
 }
@@ -96,7 +77,7 @@ export async function getAgentMemories(
     queryString ? `?${queryString}` : ''
   }`;
 
-  const response = await fetchApi<MemoryListResponse>(url);
+  const response = await fetchApi(url, undefined, MemoryListResponseSchema);
   return response.entries.map(transformMemoryEntry(agentId));
 }
 
@@ -129,11 +110,12 @@ export async function deleteAgentMemory(
   agentId: string,
   key: string
 ): Promise<boolean> {
-  const response = await fetchApi<DeleteMemoryResponse>(
+  const response = await fetchApi(
     `${API_BASE}/${encodeURIComponent(agentId)}/memory/${encodeURIComponent(key)}`,
     {
       method: 'DELETE',
-    }
+    },
+    MemoryDeleteResponseSchema
   );
   return response.deleted;
 }

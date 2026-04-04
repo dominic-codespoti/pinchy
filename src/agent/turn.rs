@@ -219,6 +219,7 @@ impl Agent {
             id: self.id.clone(),
             root: self.agent_root.display().to_string(),
             model: self.model_config_ref.clone(),
+            provider: Some(self.provider.clone()),
             heartbeat_secs: None,
             cron_jobs: Vec::new(),
             max_tool_iterations: Some(self.max_tool_iterations),

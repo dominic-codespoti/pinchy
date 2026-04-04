@@ -166,19 +166,20 @@ export const CronJobSchema = z.object({
   last_status: z.string().nullable(),
 });
 
-// Backend cron job schema with all optional fields
+// Backend cron job schema - matches Rust CronJobItem struct
 export const BackendCronJobSchema = z.object({
   id: z.string(),
   agent_id: z.string(),
   name: z.string(),
   schedule: z.string(),
   message: z.string().optional(),
-  kind: z.string().optional(),
+  kind: z.string(),
   depends_on: z.array(z.string()).optional(),
   max_retries: z.number().optional(),
   retry_delay_secs: z.number().optional(),
-  retry_count: z.number().optional(),
+  retry_count: z.number(), // Required - u32 in Rust
   last_status: z.string().nullable().optional(),
+  enabled: z.boolean(), // Required - bool in Rust
 });
 
 // API response wrapper schemas
@@ -317,7 +318,9 @@ export const WebhookTestResponseSchema = z.object({
 // Log Schemas
 // ============================================================================
 
-export const LogEntrySchema = z.object({
+// Schema for recent/persisted log entries - matches Rust logs::LogEntry struct
+// Used by /api/logs/recent and /api/logs endpoints
+export const RecentLogEntrySchema = z.object({
   type: z.string(),
   level: z.string(),
   target: z.string(),
@@ -326,11 +329,60 @@ export const LogEntrySchema = z.object({
   ts: z.string(),
 });
 
+// Schema for persisted log entries - matches Rust logs::PersistedLogEntry struct
+export const PersistedLogEntrySchema = z.object({
+  id: z.number(),
+  type: z.string(),
+  level: z.string(),
+  target: z.string(),
+  message: z.string(),
+  fields: z.record(z.string(), z.unknown()).optional(),
+  ts: z.string(),
+  timestamp: z.number().optional(),
+});
+
+// Response schemas for logs endpoints
 export const RecentLogsResponseSchema = z.object({
-  logs: z.array(LogEntrySchema),
+  logs: z.array(RecentLogEntrySchema),
   has_more: z.boolean(),
   buffer_capacity: z.number(),
   retention: z.string(),
+});
+
+export const PersistedLogsResponseSchema = z.object({
+  logs: z.array(PersistedLogEntrySchema),
+  total: z.number(),
+  has_more: z.boolean(),
+  next_offset: z.number(),
+  retention: z.string(),
+});
+
+// ============================================================================
+// Agent Log Schemas - matches Rust gateway::types::LogEntry struct
+// ============================================================================
+
+export const LogTokensSchema = z.object({
+  prompt: z.number(),
+  completion: z.number(),
+  total: z.number(),
+});
+
+// Schema for agent logs - matches Rust LogEntry struct
+// Used by /api/agents/:id/logs endpoint
+export const LogEntrySchema = z.object({
+  timestamp: z.number(), // u64 in Rust (unix timestamp)
+  level: z.string(),
+  agent: z.string(),
+  source: z.string(),
+  message: z.string(),
+  duration_ms: z.number().optional(), // Option<u64>
+  model: z.string(),
+  tool_calls: z.number(), // usize in Rust
+  tokens: LogTokensSchema,
+});
+
+export const LogsListResponseSchema = z.object({
+  logs: z.array(LogEntrySchema),
 });
 
 // ============================================================================
@@ -354,6 +406,80 @@ export const UsageApiResponseSchema = z.object({
   total_turns: z.number(),
 });
 
+// ============================================================================
+// Cron Run Schemas - matches Rust CronRunItem struct
+// ============================================================================
+
+export const CronRunItemSchema = z.object({
+  id: z.string(),
+  job_id: z.string(),
+  scheduled_at: z.number(), // u64 in Rust
+  executed_at: z.number().optional(), // Option<u64>
+  completed_at: z.number().optional(), // Option<u64>
+  status: z.string(),
+  output_preview: z.string().optional(),
+  error: z.string().optional(),
+  duration_ms: z.number().optional(), // Option<u64>
+});
+
+export const CronRunsListResponseSchema = z.object({
+  runs: z.array(CronRunItemSchema),
+});
+
+// ============================================================================
+// Memory Schemas - matches Rust MemoryItem struct
+// ============================================================================
+
+export const MemoryItemSchema = z.object({
+  key: z.string(),
+  value: z.string(),
+  tags: z.array(z.string()).default([]),
+  timestamp: z.string(),
+  score: z.number().optional(), // Option<f64>
+});
+
+export const MemoryListResponseSchema = z.object({
+  entries: z.array(MemoryItemSchema),
+});
+
+export const MemoryDeleteResponseSchema = z.object({
+  deleted: z.boolean(),
+  key: z.string().optional(),
+});
+
+// ============================================================================
+// Skill Schemas - matches Rust SkillItem struct
+// ============================================================================
+
+export const SkillItemSchema = z.object({
+  name: z.string(),
+  description: z.string().optional(),
+  has_skill: z.boolean(),
+});
+
+export const SkillListResponseSchema = z.object({
+  skills: z.array(SkillItemSchema),
+});
+
+// ============================================================================
+// Heartbeat Status Schemas - matches Rust HeartbeatStatusItem struct
+// ============================================================================
+
+export const HeartbeatStatusItemSchema = z.object({
+  agent_id: z.string(),
+  enabled: z.boolean(),
+  health: z.string(),
+  last_tick: z.number().optional(), // Option<u64>
+  next_tick: z.number().optional(), // Option<u64>
+  interval_secs: z.number().optional(), // Option<u64>
+  message_preview: z.string().optional(),
+  latest_session: z.string().optional(),
+});
+
+export const HeartbeatStatusResponseSchema = z.object({
+  agents: z.array(HeartbeatStatusItemSchema),
+});
+
 export type Agent = z.infer<typeof AgentSchema>;
 export type RawAgent = z.infer<typeof RawAgentSchema>;
 export type Session = z.infer<typeof TransformedSessionSchema>;
@@ -367,6 +493,7 @@ export type TurnReceipt = z.infer<typeof TurnReceiptSchema>;
 export type ProviderStatus = z.infer<typeof ProviderStatusSchema>;
 export type CronJob = z.infer<typeof CronJobSchema>;
 export type BackendCronJob = z.infer<typeof BackendCronJobSchema>;
+export type CronRunItem = z.infer<typeof CronRunItemSchema>;
 export type ModelInfo = z.infer<typeof ModelInfoSchema>;
 export type ChatGptAuthSession = z.infer<typeof ChatGptAuthSessionSchema>;
 export type ChatGptAuthStatus = z.infer<typeof ChatGptAuthStatusSchema>;
@@ -382,3 +509,10 @@ export type WebhookDeliveriesResponse = z.infer<typeof WebhookDeliveriesResponse
 export type WebhookTestResponse = z.infer<typeof WebhookTestResponseSchema>;
 export type UsageBucket = z.infer<typeof UsageBucketSchema>;
 export type UsageApiResponse = z.infer<typeof UsageApiResponseSchema>;
+export type RecentLogEntry = z.infer<typeof RecentLogEntrySchema>;
+export type PersistedLogEntry = z.infer<typeof PersistedLogEntrySchema>;
+export type LogEntry = z.infer<typeof LogEntrySchema>;
+export type LogTokens = z.infer<typeof LogTokensSchema>;
+export type MemoryItem = z.infer<typeof MemoryItemSchema>;
+export type SkillItem = z.infer<typeof SkillItemSchema>;
+export type HeartbeatStatusItem = z.infer<typeof HeartbeatStatusItemSchema>;

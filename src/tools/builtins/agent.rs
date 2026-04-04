@@ -241,6 +241,7 @@ pub async fn create_agent(_workspace: &Path, args: Value) -> anyhow::Result<Valu
                 id: id.to_string(),
                 root: format!("agents/{id}"),
                 model: model.clone(),
+                provider: None,
                 heartbeat_secs,
                 cron_jobs: Vec::new(),
                 max_tool_iterations,
