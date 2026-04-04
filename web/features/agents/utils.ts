@@ -4,7 +4,6 @@
  */
 
 import { Agent, AgentListItem, AgentDetail } from './types';
-import { FALLBACKS } from '@/lib/constants/fallbacks';
 
 /**
  * Transform a AgentListItem from the list endpoint to a frontend Agent
@@ -17,7 +16,7 @@ export function transformAgent(raw: AgentListItem): Agent {
     status: raw.has_heartbeat ? 'active' : 'inactive',
     config: {
       model: raw.model ?? undefined,
-      provider: FALLBACKS.PROVIDER,
+      provider: undefined,
       systemPrompt: '', // Will be populated from SOUL.md
       toolsEnabled: raw.has_tools ? ['read_file', 'write_file', 'exec_shell'] : [],
     },
@@ -66,7 +65,8 @@ export function transformAgentDetail(raw: AgentDetail, id?: string): Agent {
     config: {
       ...base.config,
       systemPrompt: raw.soul || base.config.systemPrompt,
-      provider: raw.provider || base.config.provider,
+      model: raw.model ?? undefined,
+      provider: raw.provider ?? undefined,
       // Don't split tools by comma - we'll parse the markdown properly in the component
       toolsEnabled: raw.tools ? [] : base.config.toolsEnabled,
     },

@@ -34,7 +34,7 @@ export function AgentsList({
       (agent) =>
         agent.name.toLowerCase().includes(query) ||
         agent.id.toLowerCase().includes(query) ||
-        agent.config.provider.toLowerCase().includes(query) ||
+        (agent.config.provider && agent.config.provider.toLowerCase().includes(query)) ||
         (agent.config.model && agent.config.model.toLowerCase().includes(query))
     );
   }, [agents, searchQuery]);

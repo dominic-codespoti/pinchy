@@ -498,7 +498,7 @@ export function AgentOverviewTab({ agent, isLoading, onSwitchTab }: AgentOvervie
         <StatCard
           icon={<Bot className="h-4 w-4 text-primary" />}
           label="Provider"
-          value={agent.config.provider}
+          value={agent.config.provider || 'Not set'}
           subtext={agent.config.model || FALLBACKS.MODEL}
         />
         <StatCard

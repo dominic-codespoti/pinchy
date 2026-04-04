@@ -93,7 +93,7 @@ export interface Agent {
   status: 'active' | 'inactive' | 'error';
   config: {
     model?: string;
-    provider: string;
+    provider?: string;
     systemPrompt: string;
     toolsEnabled: string[];
   };
