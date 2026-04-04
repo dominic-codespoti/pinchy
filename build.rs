@@ -28,11 +28,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // This check prevented proper UI regeneration during development.
         // The `make dev` command now handles cleanup via dev.sh.
 
-        // Detect pnpm or npm with fallback
-        let (pm, install_args) = if Command::new("pnpm").arg("--version").output().is_ok() {
+        // Detect package manager with lockfile priority:
+        // - Use pnpm only if pnpm-lock.yaml exists
+        // - Use npm if package-lock.json exists (or as fallback)
+        let web_dir_path = Path::new("web");
+        let (pm, install_args) = if web_dir_path.join("pnpm-lock.yaml").exists()
+            && Command::new("pnpm").arg("--version").output().is_ok()
+        {
             ("pnpm", &["install", "--frozen-lockfile"][..])
-        } else if Command::new("npm").arg("--version").output().is_ok() {
+        } else if web_dir_path.join("package-lock.json").exists()
+            && Command::new("npm").arg("--version").output().is_ok()
+        {
             ("npm", &["ci"][..])
+        } else if Command::new("npm").arg("--version").output().is_ok() {
+            // Fallback to npm install if no lockfile found
+            ("npm", &["install"][..])
         } else {
             println!("cargo:warning=Neither pnpm nor npm found - skipping web build");
             // Ensure folder exists for RustEmbed even if no package manager found
