@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
@@ -31,6 +32,7 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
   const [formData, setFormData] = useState({
     model: agent.config.model || '',
     provider: agent.config.provider,
+    heartbeatEnabled: agent.hasHeartbeat ?? false,
     heartbeatInterval: agent.heartbeatInterval || 60,
     maxTurns: agent.maxTurns || 10,
     historyMessages: agent.historyMessages || 5,
@@ -68,7 +70,7 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
       ?.filter((p) => p.configured)
       ?.map((p) => ({ value: p.id, label: p.name || p.id })) || [];
 
-  const handleChange = (field: string, value: string | number) => {
+  const handleChange = (field: string, value: string | number | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     setHasChanges(true);
   };
@@ -82,7 +84,8 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
           model: formData.model,
           provider: formData.provider,
         },
-        heartbeatInterval: formData.heartbeatInterval,
+        heartbeatEnabled: formData.heartbeatEnabled,
+        heartbeatInterval: formData.heartbeatEnabled ? formData.heartbeatInterval : undefined,
         maxTurns: formData.maxTurns,
         historyMessages: formData.historyMessages,
         maxToolIterations: formData.maxToolIterations,
@@ -186,35 +189,47 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
               <Heart className="h-4 w-4" />
               Heartbeat Settings
             </h4>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="heartbeat-interval">Interval (seconds)</Label>
-                <Input
-                  id="heartbeat-interval"
-                  type="number"
-                  min={LIMITS.MIN_HEARTBEAT_INTERVAL_SECONDS}
-                  max={LIMITS.MAX_HEARTBEAT_INTERVAL_SECONDS}
-                  value={formData.heartbeatInterval}
-                  onChange={(e) => handleChange('heartbeatInterval', parseInt(e.target.value))}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Time between heartbeat checks
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="timezone">Timezone</Label>
-                <Input
-                  id="timezone"
-                  value={formData.timezone}
-                  onChange={(e) => handleChange('timezone', e.target.value)}
-                  placeholder="UTC"
-                />
-                <p className="text-xs text-muted-foreground">
-                  Agent&apos;s local timezone
-                </p>
-              </div>
+            <div className="flex items-center space-x-2 mb-4">
+              <Checkbox
+                id="heartbeat-enabled"
+                checked={formData.heartbeatEnabled}
+                onCheckedChange={(checked) => handleChange('heartbeatEnabled', checked)}
+              />
+              <Label htmlFor="heartbeat-enabled" className="font-normal cursor-pointer">
+                Enable heartbeat
+              </Label>
             </div>
+            {formData.heartbeatEnabled && (
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="heartbeat-interval">Interval (seconds)</Label>
+                  <Input
+                    id="heartbeat-interval"
+                    type="number"
+                    min={LIMITS.MIN_HEARTBEAT_INTERVAL_SECONDS}
+                    max={LIMITS.MAX_HEARTBEAT_INTERVAL_SECONDS}
+                    value={formData.heartbeatInterval}
+                    onChange={(e) => handleChange('heartbeatInterval', parseInt(e.target.value))}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Time between heartbeat checks
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="timezone">Timezone</Label>
+                  <Input
+                    id="timezone"
+                    value={formData.timezone}
+                    onChange={(e) => handleChange('timezone', e.target.value)}
+                    placeholder="UTC"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Agent&apos;s local timezone
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
           <Separator />

@@ -38,6 +38,7 @@ pub(crate) async fn api_agents_list() -> impl IntoResponse {
             has_soul,
             has_tools,
             has_heartbeat,
+            heartbeat_enabled: false,
             last_heartbeat_at: None,
             model: None,
             heartbeat_secs: None,
@@ -56,6 +57,7 @@ pub(crate) async fn api_agents_list() -> impl IntoResponse {
             if let Some(ac) = cfg.agents.iter().find(|a| a.id == item.id) {
                 item.model = ac.model.clone();
                 item.heartbeat_secs = ac.heartbeat_secs;
+                item.heartbeat_enabled = ac.heartbeat_secs.is_some();
                 item.max_tool_iterations = ac.max_tool_iterations;
                 item.enabled_skills = ac.enabled_skills.clone();
                 item.cron_jobs_count = crate::store::global_db()
@@ -234,6 +236,7 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
         session_count,
         model: None,
         provider: None,
+        heartbeat_enabled: false,
         heartbeat_secs: None,
         max_tool_iterations: None,
         enabled_skills: None,
@@ -252,6 +255,7 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
             detail.model = ac.model.clone();
             detail.provider = ac.provider.clone();
             detail.heartbeat_secs = ac.heartbeat_secs;
+            detail.heartbeat_enabled = ac.heartbeat_secs.is_some();
             detail.max_tool_iterations = ac.max_tool_iterations;
             detail.enabled_skills = ac.enabled_skills.clone();
             detail.history_messages = ac.history_messages;
@@ -437,6 +441,10 @@ pub(crate) struct UpdateAgentRequest {
     /// `null` → disable heartbeat (set to None), missing → don't update, number → update interval.
     #[serde(default, deserialize_with = "deserialize_optional_nullable")]
     heartbeat_secs: Option<Option<u64>>,
+    /// When Some(false), disables heartbeat (sets heartbeat_secs to None).
+    /// When Some(true) and heartbeat_secs is provided, enables heartbeat.
+    #[serde(default)]
+    heartbeat_enabled: Option<bool>,
     #[serde(default)]
     max_tool_iterations: Option<usize>,
     #[serde(default)]
@@ -544,6 +552,7 @@ pub(crate) async fn api_agent_update(
     if body.model.is_some()
         || body.provider.is_some()
         || body.heartbeat_secs.is_some()
+        || body.heartbeat_enabled.is_some()
         || body.max_tool_iterations.is_some()
         || body.enabled_skills.is_some()
         || body.max_turns.is_some()
@@ -568,6 +577,16 @@ pub(crate) async fn api_agent_update(
                         // Some(Some(n)) → set interval, Some(None) → disable heartbeat
                         ac.heartbeat_secs = hs_opt;
                         updated.push("heartbeat_secs".to_string());
+                    }
+                    // Handle heartbeat_enabled: when false, disable heartbeat
+                    if let Some(enabled) = body.heartbeat_enabled {
+                        if !enabled {
+                            // Disable heartbeat by setting heartbeat_secs to None
+                            ac.heartbeat_secs = None;
+                        }
+                        // Note: when enabled=true, heartbeat_secs must also be provided
+                        // The frontend should send both heartbeat_enabled=true and heartbeat_secs=N
+                        updated.push("heartbeat_enabled".to_string());
                     }
                     if let Some(mti) = body.max_tool_iterations {
                         ac.max_tool_iterations = Some(mti);

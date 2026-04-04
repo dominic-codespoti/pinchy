@@ -85,6 +85,7 @@ function transformAgentDetail(raw: AgentDetail): Agent {
     heartbeat: raw.heartbeat ?? undefined,
     sessionCount: raw.session_count ?? undefined,
     heartbeatInterval: raw.heartbeat_secs ? Number(raw.heartbeat_secs) : undefined,
+    heartbeatEnabled: raw.heartbeat_enabled ?? (raw.heartbeat_secs !== null),
     maxTurns: raw.max_turns ?? undefined,
     historyMessages: raw.history_messages ?? undefined,
     compactKeepRecentTurns: raw.compact_keep_recent_turns ?? undefined,
@@ -167,6 +168,7 @@ export async function updateAgent(
       body.heartbeat_secs = null;
     }
   }
+  if (data.heartbeatEnabled !== undefined) body.heartbeat_enabled = data.heartbeatEnabled;
 
   const response = await fetchApi<AgentUpdateResponse>(
     `${API_BASE}/${encodeURIComponent(id)}`,

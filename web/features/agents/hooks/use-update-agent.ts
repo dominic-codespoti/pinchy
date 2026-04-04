@@ -73,6 +73,7 @@ export function useUpdateAgent(): UseUpdateAgentResult {
             systemPrompt: input.soul ?? previousAgent.config.systemPrompt,
           },
           heartbeatInterval: input.heartbeat_secs ?? previousAgent.heartbeatInterval,
+          heartbeatEnabled: input.heartbeatEnabled ?? previousAgent.heartbeatEnabled,
           maxTurns: input.max_turns ?? previousAgent.maxTurns,
           historyMessages: input.history_messages ?? previousAgent.historyMessages,
           compactKeepRecentTurns: input.compact_keep_recent_turns ?? previousAgent.compactKeepRecentTurns,

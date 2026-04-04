@@ -3,4 +3,4 @@
 /**
  * Full agent detail response
  */
-export type AgentDetail = { id: string, soul: string | null, tools: string | null, heartbeat: string | null, session_count: number, model: string | null, provider: string | null, heartbeat_secs: bigint | null, max_tool_iterations: number | null, enabled_skills: Array<string> | null, history_messages: number | null, max_turns: number | null, compact_keep_recent_turns: number | null, timezone: string | null, reasoning_effort: string | null, watch_paths: Array<string>, };
+export type AgentDetail = { id: string, soul: string | null, tools: string | null, heartbeat: string | null, session_count: number, model: string | null, provider: string | null, heartbeat_enabled: boolean, heartbeat_secs: bigint | null, max_tool_iterations: number | null, enabled_skills: Array<string> | null, history_messages: number | null, max_turns: number | null, compact_keep_recent_turns: number | null, timezone: string | null, reasoning_effort: string | null, watch_paths: Array<string>, };

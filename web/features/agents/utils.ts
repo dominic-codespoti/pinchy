@@ -23,6 +23,7 @@ export function transformAgent(raw: AgentListItem): Agent {
     },
     createdAt: new Date().toISOString(), // Backend doesn't provide creation time
     hasHeartbeat: raw.has_heartbeat,
+    heartbeatEnabled: raw.heartbeat_enabled ?? raw.has_heartbeat,
     lastHeartbeatAt: raw.last_heartbeat_at ? new Date(Number(raw.last_heartbeat_at) * 1000).toISOString() : undefined,
     heartbeatInterval: raw.heartbeat_secs ? Number(raw.heartbeat_secs) : undefined,
     cronJobsCount: raw.cron_jobs_count ?? 0,

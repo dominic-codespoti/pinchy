@@ -99,6 +99,7 @@ export interface Agent {
   // Backend does not provide creation time - generated client-side
   createdAt: string;
   hasHeartbeat?: boolean;
+  heartbeatEnabled?: boolean;
   lastHeartbeatAt?: string;
   heartbeatInterval?: number;
   // Additional fields from api_agent_get
@@ -135,6 +136,7 @@ export interface UpdateAgentInput {
   model?: string;
   provider?: string;
   heartbeat_secs?: number | null;
+  heartbeatEnabled?: boolean;
   max_tool_iterations?: number;
   enabled_skills?: string[];
   max_turns?: number;

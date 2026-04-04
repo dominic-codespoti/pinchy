@@ -16,6 +16,7 @@ pub(crate) struct AgentListItem {
     pub has_soul: bool,
     pub has_tools: bool,
     pub has_heartbeat: bool,
+    pub heartbeat_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_heartbeat_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -56,6 +57,7 @@ pub(crate) struct AgentDetail {
     pub model: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<String>,
+    pub heartbeat_enabled: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heartbeat_secs: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
