@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Bot, Heart, Clock, Zap, Settings, FileText, Brain, MessageSquare, Receipt, Webhook } from 'lucide-react';
 import { useAgent } from '../hooks/use-agent';
+import { useUpdateAgent } from '../hooks/use-update-agent';
 import { Agent } from '../types';
 import { sendTestMessage as sendTestMessageApi } from '../api';
 import { AgentOverviewTab } from './agent-overview-tab';
@@ -88,6 +89,7 @@ function HeroSection({ agent }: { agent: Agent }) {
 
 export function AgentDetail({ id }: AgentDetailProps) {
   const { agent, isLoading, error } = useAgent(id);
+  const { updateAgent } = useUpdateAgent();
   const [activeTab, setActiveTab] = useState('overview');
 
   if (isLoading) {
@@ -184,7 +186,21 @@ export function AgentDetail({ id }: AgentDetailProps) {
         </TabsContent>
 
         <TabsContent value="settings" className="mt-0">
-          <AgentSettingsTab agent={agent} />
+          <AgentSettingsTab 
+            agent={agent} 
+            onSave={async (settings) => {
+              await updateAgent(agent.id, {
+                model: settings.model,
+                provider: settings.provider,
+                heartbeatEnabled: settings.heartbeatEnabled,
+                heartbeat_secs: settings.heartbeatInterval,
+                max_turns: settings.maxTurns,
+                history_messages: settings.historyMessages,
+                max_tool_iterations: settings.maxToolIterations,
+                reasoning_effort: settings.reasoningEffort,
+              });
+            }}
+          />
         </TabsContent>
 
         <TabsContent value="webhooks" className="mt-0">

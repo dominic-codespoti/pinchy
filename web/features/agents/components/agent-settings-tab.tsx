@@ -17,10 +17,23 @@ import { LIMITS } from '@/lib/config/timeouts';
 import { FALLBACKS } from '@/lib/constants/fallbacks';
 
 // Types
+interface AgentSettingsData {
+  config: Agent['config'];
+  model?: string;
+  provider?: string;
+  heartbeatEnabled?: boolean;
+  heartbeatInterval?: number;
+  maxTurns?: number;
+  historyMessages?: number;
+  maxToolIterations?: number;
+  reasoningEffort?: string;
+  timezone?: string;
+}
+
 interface AgentSettingsTabProps {
   agent: Agent;
   isLoading?: boolean;
-  onSave?: (settings: Partial<Agent>) => void;
+  onSave?: (settings: AgentSettingsData) => void | Promise<void>;
 }
 
 interface SectionCardProps {
@@ -393,6 +406,11 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
   };
 
   const handleSave = async () => {
+    console.log('Saving settings:', { 
+      model: formData.model, 
+      provider: formData.provider,
+      heartbeatEnabled: formData.heartbeatEnabled 
+    });
     setIsSaving(true);
     try {
       await onSave?.({
@@ -401,6 +419,9 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
           model: formData.model,
           provider: formData.provider || agent.config.provider,
         },
+        // Also pass at top level for the hook
+        model: formData.model,
+        provider: formData.provider,
         heartbeatEnabled: formData.heartbeatEnabled,
         heartbeatInterval: formData.heartbeatEnabled ? formData.heartbeatInterval : undefined,
         maxTurns: formData.maxTurns,
@@ -409,7 +430,10 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
         reasoningEffort: formData.reasoningEffort,
         timezone: formData.timezone,
       });
+      console.log('Settings saved successfully');
       setHasChanges(false);
+    } catch (err) {
+      console.error('Failed to save settings:', err);
     } finally {
       setIsSaving(false);
     }
