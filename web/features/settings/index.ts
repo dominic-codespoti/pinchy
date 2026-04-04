@@ -41,6 +41,7 @@ export {
 // Hooks
 export {
   useAvailableModels,
+  useAgentModels,
   useProvidersStatus,
   useTestProviderConnection,
   useSetProviderAuth,

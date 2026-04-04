@@ -24,7 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, Pencil, Save, Bot } from 'lucide-react';
 import { Agent } from '../types';
-import { useAvailableModels, useProvidersStatus } from '@/features/settings';
+import { useAgentModels, useProvidersStatus } from '@/features/settings';
 
 interface EditAgentSheetProps {
   agent: Agent;
@@ -49,7 +49,7 @@ export function EditAgentSheet({ agent, open: controlledOpen, onOpenChange, onSa
     heartbeatInterval: agent.heartbeatInterval || 60,
   });
 
-  const { data: models, isLoading: modelsLoading } = useAvailableModels();
+  const { data: models, isLoading: modelsLoading } = useAgentModels();
   const { data: providers, isLoading: providersLoading } = useProvidersStatus();
 
   // Build dynamic options

@@ -65,6 +65,7 @@ export interface ConfigModelInfo {
 export interface ModelsDevModel {
   id: string;
   name: string;
+  description?: string | null;
   family?: string;
   release_date?: string;
   attachment?: boolean;

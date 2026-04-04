@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Plus, Loader2 } from 'lucide-react';
-import { useAvailableModels, useProvidersStatus } from '@/features/settings';
+import { useAgentModels, useProvidersStatus } from '@/features/settings';
 
 interface CreateAgentDialogProps {
   open?: boolean;
@@ -45,7 +45,7 @@ export function CreateAgentDialog({ open: controlledOpen, onOpenChange, onCreate
   });
   const [error, setError] = useState<string | null>(null);
 
-  const { data: models, isLoading: modelsLoading } = useAvailableModels();
+  const { data: models, isLoading: modelsLoading } = useAgentModels();
   const { data: providers, isLoading: providersLoading } = useProvidersStatus();
 
   // Build dynamic options

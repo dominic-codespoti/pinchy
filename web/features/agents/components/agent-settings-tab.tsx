@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,7 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Settings, Save, Heart, Wrench, Bot, Clock, AlertTriangle } from 'lucide-react';
 import { Agent } from '../types';
-import { useAvailableModels, useProvidersStatus } from '@/features/settings';
+import { useAgentModels, useProvidersStatus } from '@/features/settings';
 import { LIMITS } from '@/lib/config/timeouts';
 import { FALLBACKS } from '@/lib/constants/fallbacks';
 
@@ -397,8 +397,15 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const { data: models, isLoading: modelsLoading } = useAvailableModels();
+  const { data: models, isLoading: modelsLoading, source: modelsSource } = useAgentModels();
   const { data: providers, isLoading: providersLoading } = useProvidersStatus();
+
+  // Debug: log which model source is being used
+  useEffect(() => {
+    if (models) {
+      console.log(`[AgentSettings] Using models from: ${modelsSource} (${models.length} models)`);
+    }
+  }, [models, modelsSource]);
 
   const handleChange = (field: string, value: string | number | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }));

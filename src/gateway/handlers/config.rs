@@ -1,4 +1,5 @@
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
+use serde::Serialize;
 
 use super::super::types::*;
 use super::super::AppState;
@@ -30,6 +31,55 @@ pub(crate) async fn api_config_get(State(state): State<AppState>) -> impl IntoRe
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: format!("{e:#}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
+        )
+            .into_response(),
+    }
+}
+
+/// `GET /api/config/models`
+///
+/// Returns only the models defined in the config file.
+/// These are the only models valid for agent configuration.
+#[derive(Serialize)]
+struct ConfigModelInfo {
+    id: String,
+    name: String,
+    provider: String,
+    description: Option<String>,
+    model: Option<String>,  // The actual model identifier sent to the provider API
+}
+
+#[derive(Serialize)]
+struct ConfigModelsResponse {
+    models: Vec<ConfigModelInfo>,
+}
+
+pub(crate) async fn api_config_models_get(State(state): State<AppState>) -> impl IntoResponse {
+    match crate::config::Config::load(&state.config_path).await {
+        Ok(cfg) => {
+            let models: Vec<ConfigModelInfo> = cfg
+                .models
+                .into_iter()
+                .map(|m| ConfigModelInfo {
+                    id: m.id.clone(),
+                    name: m.id.clone(),  // Use id as name, or could use model field
+                    provider: m.provider.clone(),
+                    description: m.model.clone(),  // Show actual model name as description
+                    model: m.model,
+                })
+                .collect();
+            
+            (StatusCode::OK, Json(ConfigModelsResponse { models })).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("config load: {e:#}"),
                 id: None,
                 agent_id: None,
                 filename: None,
