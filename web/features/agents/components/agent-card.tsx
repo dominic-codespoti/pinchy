@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { Bot, Heart, Clock, Play, Pencil, Trash2 } from 'lucide-react';
 import Link from 'next/link';
 import { Agent } from '../types';
+import { getSelectedAgentModelLabel } from '../model-options';
 
 interface AgentCardProps {
   agent: Agent;
@@ -27,6 +28,7 @@ function getStatusVariant(status: string): 'default' | 'secondary' | 'destructiv
 }
 
 export function AgentCard({ agent, onTest, onEdit, onDelete }: AgentCardProps) {
+  const modelLabel = getSelectedAgentModelLabel(agent.config.model, undefined);
   return (
     <Card className="transition-shadow hover:shadow-lg">
       <CardHeader className="pb-3">
@@ -38,7 +40,7 @@ export function AgentCard({ agent, onTest, onEdit, onDelete }: AgentCardProps) {
             <div className="min-w-0">
               <CardTitle className="text-lg truncate">{agent.name}</CardTitle>
               <CardDescription className="line-clamp-1">
-                {agent.config.model || agent.config.provider}
+                {modelLabel}
               </CardDescription>
             </div>
           </div>

@@ -11,6 +11,8 @@ import { useUpdateAgent } from '../hooks/use-update-agent';
 import { Agent } from '../types';
 import { sendTestMessage as sendTestMessageApi } from '../api';
 import { AgentOverviewTab } from './agent-overview-tab';
+import { useAgentModels } from '@/features/settings';
+import { getAgentModelProviderLabel, getSelectedAgentModelLabel } from '../model-options';
 
 /**
  * Wrapper to adapt the API function to the component's expected interface
@@ -45,6 +47,9 @@ function getStatusVariant(status: string): 'default' | 'secondary' | 'destructiv
 }
 
 function HeroSection({ agent }: { agent: Agent }) {
+  const { data: models } = useAgentModels();
+  const modelLabel = getSelectedAgentModelLabel(agent.config.model, models);
+  const providerLabel = getAgentModelProviderLabel(agent.config.model, models);
   return (
     <Card className="mb-6">
       <CardContent className="p-6">
@@ -61,7 +66,7 @@ function HeroSection({ agent }: { agent: Agent }) {
                 </Badge>
               </div>
               <p className="text-muted-foreground max-w-xl">
-                {agent.config.model || 'Default model'} via {agent.config.provider}
+                {modelLabel} via {providerLabel}
               </p>
             </div>
           </div>

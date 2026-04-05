@@ -11,7 +11,7 @@ import { toast } from 'sonner';
 import { STALE_TIME } from '@/lib/query-config';
 import {
   fetchModels,
-  fetchModelsRegistry,
+  fetchAgentModelOptions,
   getAllProvidersStatus,
   setProviderAuth,
   testProviderConnection,
@@ -21,14 +21,13 @@ import {
   getConfigSchema,
 } from './api';
 import { fetchApi } from '@/shared/api/client';
-import { ModelInfo, ProviderConfig, ProviderTestResult, ConfigModelInfo, UIProviderStatusItem } from './types';
+import { ModelInfo, ProviderConfig, ProviderTestResult, UIProviderStatusItem, AgentModelOption } from './types';
 
 // ============================================================================
 // Model Hooks
 // ============================================================================
 
 export const MODELS_QUERY_KEY = ['settings', 'models'];
-export const MODELS_REGISTRY_QUERY_KEY = ['settings', 'models', 'registry'];
 export const CONFIG_MODELS_QUERY_KEY = ['settings', 'config', 'models'];
 export const PROVIDERS_STATUS_QUERY_KEY = ['settings', 'providers', 'status'];
 
@@ -56,85 +55,15 @@ export function useAvailableModels() {
  * Falls back to registry models only if the config endpoint fails.
  */
 export function useAgentModels() {
-  // First, try to get config-defined models
-  const configModelsQuery = useQuery<ModelInfo[], Error>({
+  const query = useQuery<AgentModelOption[], Error>({
     queryKey: CONFIG_MODELS_QUERY_KEY,
-    queryFn: async () => {
-      const response = await fetchApi<{ models: Array<{
-        id: string;
-        name: string;
-        provider: string;
-        description?: string | null;
-        model?: string | null;
-      }> }>('/api/config/models');
-      
-      return response.models.map((m) => ({
-        id: m.id,
-        name: m.name,
-        provider: m.provider,
-        description: m.description ?? null,
-        input_price: null,
-        output_price: null,
-        context_window: null,
-        max_output: null,
-        tool_call: false,
-        reasoning: false,
-        attachment: false,
-        family: null,
-        cache_read_price: null,
-        cache_write_price: null,
-        modalities: null,
-      }));
-    },
+    queryFn: fetchAgentModelOptions,
     staleTime: STALE_TIME.LONG,
   });
 
-  // Fallback to registry if config models fail or are empty
-  const registryQuery = useQuery<ModelInfo[], Error>({
-    queryKey: MODELS_REGISTRY_QUERY_KEY,
-    queryFn: async () => {
-      const registry = await fetchModelsRegistry();
-      const models: ModelInfo[] = [];
-      for (const provider of registry) {
-        for (const model of provider.models || []) {
-          models.push({
-            id: model.id,
-            name: model.name,
-            provider: provider.id,
-            description: model.description ?? null,
-            input_price: null,
-            output_price: null,
-            context_window: null,
-            max_output: null,
-            tool_call: false,
-            reasoning: false,
-            attachment: false,
-            family: null,
-            cache_read_price: null,
-            cache_write_price: null,
-            modalities: null,
-          });
-        }
-      }
-      return models;
-    },
-    staleTime: STALE_TIME.LONG,
-    enabled: configModelsQuery.isError || 
-             (!configModelsQuery.isLoading && 
-              (!configModelsQuery.data || configModelsQuery.data.length === 0)),
-  });
-
-  // Use config models if available, otherwise registry
-  const data = configModelsQuery.data?.length 
-    ? configModelsQuery.data 
-    : registryQuery.data;
-  
-  const isLoading = configModelsQuery.isLoading || 
-    (registryQuery.isFetching && !configModelsQuery.data?.length);
-  
-  const error = configModelsQuery.data?.length 
-    ? configModelsQuery.error 
-    : registryQuery.error;
+  const data = query.data;
+  const isLoading = query.isLoading;
+  const error = query.error;
 
   useEffect(() => {
     if (error) {
@@ -146,7 +75,8 @@ export function useAgentModels() {
     data, 
     isLoading, 
     error,
-    source: configModelsQuery.data?.length ? 'config' : 'registry' as const,
+    source: 'config' as const,
+    isValid: !!data?.length,
   };
 }
 
@@ -271,51 +201,6 @@ export function useConfigSchema() {
   useEffect(() => {
     if (error) {
       toast.error(`Failed to load config schema: ${error.message}`);
-    }
-  }, [error]);
-
-  return { data, isLoading, error };
-}
-
-// Query key for config models (legacy - uses getConfig)
-const LEGACY_CONFIG_MODELS_QUERY_KEY = ['settings', 'config-models'];
-
-/**
- * Hook to fetch configured models from the config
- */
-export function useConfigModels() {
-  const { data, isLoading, error } = useQuery<ConfigModelInfo[], Error>({
-    queryKey: LEGACY_CONFIG_MODELS_QUERY_KEY,
-    queryFn: async () => {
-      const config = await getConfig();
-      const models = config.models as Array<{
-        id: string;
-        name?: string;
-        provider: string;
-        model: string;
-        reasoning?: boolean;
-        enabled?: boolean;
-      }> | undefined;
-      
-      if (!models || !Array.isArray(models)) {
-        return [];
-      }
-      
-      return models.map(m => ({
-        id: m.id,
-        name: m.name || m.id,
-        provider: m.provider,
-        catalogModel: m.model,
-        reasoning: m.reasoning,
-        enabled: m.enabled,
-      }));
-    },
-    staleTime: STALE_TIME.NORMAL,
-  });
-
-  useEffect(() => {
-    if (error) {
-      toast.error(`Failed to load config models: ${error.message}`);
     }
   }, [error]);
 

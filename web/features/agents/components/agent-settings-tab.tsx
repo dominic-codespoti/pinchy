@@ -7,14 +7,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Settings, Save, Heart, Wrench, Bot, Clock, AlertTriangle } from 'lucide-react';
 import { Agent } from '../types';
-import { useAgentModels, useProvidersStatus } from '@/features/settings';
+import { useAgentModels } from '@/features/settings';
+import type { AgentModelOption } from '@/features/settings';
 import { LIMITS } from '@/lib/config/timeouts';
 import { FALLBACKS } from '@/lib/constants/fallbacks';
+import { AgentModelPicker } from './agent-model-picker';
+import { normalizeAgentModelSelection } from '../model-options';
 
 // Types
 interface AgentSettingsData {
@@ -42,12 +44,6 @@ interface SectionCardProps {
   description?: string;
   children: React.ReactNode;
   footer?: React.ReactNode;
-}
-
-interface SettingsSectionProps {
-  icon: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
 }
 
 interface FormData {
@@ -88,101 +84,39 @@ function SectionCard({ icon, title, description, children, footer }: SectionCard
   );
 }
 
-function SettingsSection({ icon, title, children }: SettingsSectionProps) {
-  return (
-    <div className="space-y-4">
-      <CardTitle className="flex items-center gap-2 text-sm font-medium">
-        {icon}
-        {title}
-      </CardTitle>
-      {children}
-    </div>
-  );
-}
-
 interface ModelProviderSectionProps {
   formData: FormData;
-  models: { id: string; name: string; provider: string }[] | undefined;
-  providers: { id: string; name: string; configured: boolean }[] | undefined;
+  models: AgentModelOption[] | undefined;
   modelsLoading: boolean;
-  providersLoading: boolean;
   onChange: (field: string, value: string | number | boolean) => void;
 }
 
 function ModelProviderSection({
   formData,
   models,
-  providers,
   modelsLoading,
-  providersLoading,
   onChange,
 }: ModelProviderSectionProps) {
-  // Deduplicate models by ID to avoid duplicate keys
-  const seen = new Set<string>();
-  const modelOptions = models?.filter((m) => {
-    if (seen.has(m.id)) return false;
-    seen.add(m.id);
-    return true;
-  }) ?? [];
-
-  const providerOptions =
-    providers
-      ?.filter((p) => p.configured)
-      ?.map((p) => ({ value: p.id, label: p.name || p.id })) || [];
+  const modelOptions = models ?? [];
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2">
-      <div className="space-y-2">
-        <Label htmlFor="provider">Provider</Label>
-        <Select
-          value={formData.provider || ''}
-          onValueChange={(v) => onChange('provider', v)}
-          disabled={providersLoading}
-        >
-          <SelectTrigger id="provider">
-            <SelectValue placeholder={providersLoading ? 'Loading...' : 'Select provider'} />
-          </SelectTrigger>
-          <SelectContent>
-            {providerOptions.length === 0 ? (
-              <SelectItem value="__empty__" disabled>
-                No configured providers
-              </SelectItem>
-            ) : (
-              providerOptions.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="model">Model</Label>
-        <Select
-          value={formData.model}
-          onValueChange={(v) => onChange('model', v)}
-          disabled={modelsLoading}
-        >
-          <SelectTrigger id="model">
-            <SelectValue placeholder={modelsLoading ? 'Loading...' : 'Select model'} />
-          </SelectTrigger>
-          <SelectContent>
-            {modelOptions.length === 0 ? (
-              <SelectItem value="__empty__" disabled>
-                No models available
-              </SelectItem>
-            ) : (
-              modelOptions.map((option) => (
-                <SelectItem key={`${option.provider}-${option.id}`} value={option.id}>
-                  {option.name}
-                </SelectItem>
-              ))
-            )}
-          </SelectContent>
-        </Select>
-      </div>
+    <div className="space-y-4">
+      <CardTitle className="flex items-center gap-2 text-sm font-medium">
+        <Settings className="h-4 w-4" />
+        Model Selection
+      </CardTitle>
+      <AgentModelPicker
+        modelOptions={modelOptions}
+        provider={formData.provider || ''}
+        model={formData.model}
+        disabled={modelsLoading}
+        providerPlaceholder="Select provider"
+        modelPlaceholder="Select model"
+        onChange={({ provider, model }) => {
+          onChange('provider', provider);
+          onChange('model', model);
+        }}
+      />
     </div>
   );
 }
@@ -194,7 +128,11 @@ interface HeartbeatSettingsSectionProps {
 
 function HeartbeatSettingsSection({ formData, onChange }: HeartbeatSettingsSectionProps) {
   return (
-    <SettingsSection icon={<Heart className="h-4 w-4" />} title="Heartbeat Settings">
+    <div className="space-y-4">
+      <CardTitle className="flex items-center gap-2 text-sm font-medium">
+        <Heart className="h-4 w-4" />
+        Heartbeat Settings
+      </CardTitle>
       <div className="flex items-center space-x-2">
         <Checkbox
           id="heartbeat-enabled"
@@ -237,7 +175,7 @@ function HeartbeatSettingsSection({ formData, onChange }: HeartbeatSettingsSecti
           </div>
         </div>
       )}
-    </SettingsSection>
+    </div>
   );
 }
 
@@ -248,7 +186,11 @@ interface ExecutionSettingsSectionProps {
 
 function ExecutionSettingsSection({ formData, onChange }: ExecutionSettingsSectionProps) {
   return (
-    <SettingsSection icon={<Wrench className="h-4 w-4" />} title="Execution Settings">
+    <div className="space-y-4">
+      <CardTitle className="flex items-center gap-2 text-sm font-medium">
+        <Wrench className="h-4 w-4" />
+        Execution Settings
+      </CardTitle>
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="max-turns">Max Turns</Label>
@@ -299,7 +241,7 @@ function ExecutionSettingsSection({ formData, onChange }: ExecutionSettingsSecti
           <Label htmlFor="reasoning-effort">Reasoning Effort</Label>
           <Select
             value={formData.reasoningEffort}
-            onValueChange={(v) => onChange('reasoningEffort', v)}
+            onValueChange={(v: string) => onChange('reasoningEffort', v)}
           >
             <SelectTrigger id="reasoning-effort">
               <SelectValue />
@@ -317,7 +259,7 @@ function ExecutionSettingsSection({ formData, onChange }: ExecutionSettingsSecti
           </p>
         </div>
       </div>
-    </SettingsSection>
+    </div>
   );
 }
 
@@ -382,9 +324,12 @@ function AgentSettingsSkeleton() {
 
 // Main component
 export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabProps) {
+  const { data: models, isLoading: modelsLoading } = useAgentModels();
+  const modelOptions = models ?? [];
+  const selection = normalizeAgentModelSelection(agent.config.provider, agent.config.model, modelOptions);
   const [formData, setFormData] = useState<FormData>({
-    model: agent.config.model || '',
-    provider: agent.config.provider,
+    model: selection.model,
+    provider: selection.provider || agent.config.provider,
     heartbeatEnabled: agent.hasHeartbeat ?? false,
     heartbeatInterval: agent.heartbeatInterval || 60,
     maxTurns: agent.maxTurns || 10,
@@ -397,27 +342,22 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  const { data: models, isLoading: modelsLoading, source: modelsSource } = useAgentModels();
-  const { data: providers, isLoading: providersLoading } = useProvidersStatus();
-
-  // Debug: log which model source is being used
+  // Sync from agent config once the canonical model options are available.
   useEffect(() => {
-    if (models) {
-      console.log(`[AgentSettings] Using models from: ${modelsSource} (${models.length} models)`);
-    }
-  }, [models, modelsSource]);
-
-  // Validate model when models load - reset if current model is invalid
-  useEffect(() => {
-    if (models && models.length > 0 && formData.model) {
-      const validModelIds = models.map(m => m.id);
-      if (!validModelIds.includes(formData.model)) {
-        console.log(`[AgentSettings] Invalid model '${formData.model}' not in available models, resetting to '${models[0].id}'`);
-        setFormData(prev => ({ ...prev, model: models[0].id }));
-        setHasChanges(true);
-      }
-    }
-  }, [models, formData.model]);
+    if (!models?.length) return;
+    setFormData({
+      model: selection.model,
+      provider: selection.provider || agent.config.provider,
+      heartbeatEnabled: agent.hasHeartbeat ?? false,
+      heartbeatInterval: agent.heartbeatInterval || 60,
+      maxTurns: agent.maxTurns || 10,
+      historyMessages: agent.historyMessages || 5,
+      maxToolIterations: agent.maxToolIterations || 5,
+      reasoningEffort: agent.reasoningEffort || 'medium',
+      timezone: agent.timezone || FALLBACKS.TIMEZONE,
+    });
+    setHasChanges(false);
+  }, [models, agent, selection.model, selection.provider]);
 
   const handleChange = (field: string, value: string | number | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -425,22 +365,18 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
   };
 
   const handleSave = async () => {
-    console.log('Saving settings:', { 
-      model: formData.model, 
-      provider: formData.provider,
-      heartbeatEnabled: formData.heartbeatEnabled 
-    });
+    const selection = normalizeAgentModelSelection(formData.provider, formData.model, modelOptions);
     setIsSaving(true);
     try {
       await onSave?.({
         config: {
           ...agent.config,
-          model: formData.model,
-          provider: formData.provider || agent.config.provider,
+          model: selection.model,
+          provider: selection.provider || agent.config.provider,
         },
         // Also pass at top level for the hook
-        model: formData.model,
-        provider: formData.provider,
+        model: selection.model,
+        provider: selection.provider || agent.config.provider,
         heartbeatEnabled: formData.heartbeatEnabled,
         heartbeatInterval: formData.heartbeatEnabled ? formData.heartbeatInterval : undefined,
         maxTurns: formData.maxTurns,
@@ -449,7 +385,6 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
         reasoningEffort: formData.reasoningEffort,
         timezone: formData.timezone,
       });
-      console.log('Settings saved successfully');
       setHasChanges(false);
     } catch (err) {
       console.error('Failed to save settings:', err);
@@ -487,9 +422,7 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
         <ModelProviderSection
           formData={formData}
           models={models}
-          providers={providers}
           modelsLoading={modelsLoading}
-          providersLoading={providersLoading}
           onChange={handleChange}
         />
 

@@ -6,6 +6,8 @@
 // Types
 export type { ModelInfo } from '@/src/lib/bindings';
 export type {
+  AgentModelOption,
+  AgentModelOptionsResponse,
   ProviderConfig,
   ProviderStatus,
   ProviderTestResult,

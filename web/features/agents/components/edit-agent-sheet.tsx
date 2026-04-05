@@ -13,18 +13,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, Pencil, Save, Bot } from 'lucide-react';
 import { Agent } from '../types';
-import { useAgentModels, useProvidersStatus } from '@/features/settings';
+import { useAgentModels } from '@/features/settings';
+import { AgentModelPicker } from './agent-model-picker';
+import { normalizeAgentModelSelection } from '../model-options';
 
 interface EditAgentSheetProps {
   agent: Agent;
@@ -50,26 +45,21 @@ export function EditAgentSheet({ agent, open: controlledOpen, onOpenChange, onSa
   });
 
   const { data: models, isLoading: modelsLoading } = useAgentModels();
-  const { data: providers, isLoading: providersLoading } = useProvidersStatus();
 
-  // Build dynamic options
-  const modelOptions = models?.map((m) => ({ value: m.id, label: m.name })) || [];
-  const providerOptions =
-    providers
-      ?.filter((p) => p.configured)
-      ?.map((p) => ({ value: p.id, label: p.name || p.id })) || [];
+  const modelOptions = models || [];
+  const selection = normalizeAgentModelSelection(formData.provider, formData.model, modelOptions);
 
   // Reset form when agent changes or sheet opens
   useEffect(() => {
     if (open) {
       setFormData({
-        model: agent.config.model || '',
-        provider: agent.config.provider,
+        model: selection.model,
+        provider: selection.provider,
         heartbeatInterval: agent.heartbeatInterval || 60,
       });
       setHasChanges(false);
     }
-  }, [agent, open]);
+  }, [agent, open, modelOptions, selection.model, selection.provider]);
 
   const handleChange = (field: string, value: string | number) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -84,8 +74,8 @@ export function EditAgentSheet({ agent, open: controlledOpen, onOpenChange, onSa
       await onSave?.(agent.id, {
         config: {
           ...agent.config,
-          model: formData.model,
-          provider: formData.provider,
+          model: selection.model,
+          provider: selection.provider,
         },
         heartbeatInterval: formData.heartbeatInterval,
       });
@@ -127,57 +117,18 @@ export function EditAgentSheet({ agent, open: controlledOpen, onOpenChange, onSa
           </div>
 
           <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-provider">Provider</Label>
-              <Select
-                value={formData.provider}
-                onValueChange={(v) => handleChange('provider', v)}
-                disabled={providersLoading}
-              >
-                <SelectTrigger id="edit-provider">
-                  <SelectValue placeholder={providersLoading ? 'Loading...' : 'Select provider'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {providerOptions.length === 0 ? (
-                    <SelectItem value="__empty__" disabled>
-                      No configured providers
-                    </SelectItem>
-                  ) : (
-                    providerOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="edit-model">Model</Label>
-              <Select
-                value={formData.model}
-                onValueChange={(v) => handleChange('model', v)}
-                disabled={modelsLoading}
-              >
-                <SelectTrigger id="edit-model">
-                  <SelectValue placeholder={modelsLoading ? 'Loading...' : 'Select model'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {modelOptions.length === 0 ? (
-                    <SelectItem value="__empty__" disabled>
-                      No models available
-                    </SelectItem>
-                  ) : (
-                    modelOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
+            <AgentModelPicker
+              modelOptions={modelOptions}
+              provider={formData.provider || ''}
+              model={formData.model}
+              disabled={modelsLoading}
+              providerPlaceholder="Select provider"
+              modelPlaceholder="Select model"
+              onChange={({ provider, model }) => {
+                setFormData((prev) => ({ ...prev, provider, model }));
+                setHasChanges(true);
+              }}
+            />
           </div>
 
           <Separator />

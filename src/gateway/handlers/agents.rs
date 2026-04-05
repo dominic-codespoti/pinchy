@@ -17,6 +17,21 @@ where
     Ok(Some(Option::<T>::deserialize(deserializer)?))
 }
 
+fn resolve_agent_model_view(
+    cfg: &crate::config::Config,
+    agent_model_ref: Option<&str>,
+) -> (Option<String>, Option<String>) {
+    let Some(model_ref) = agent_model_ref else {
+        return (None, None);
+    };
+
+    let Some(model_cfg) = cfg.models.iter().find(|m| m.id == model_ref) else {
+        return (None, None);
+    };
+
+    (model_cfg.model.clone(), Some(model_cfg.provider.clone()))
+}
+
 /// `GET /api/agents` — list all agent directories.
 pub(crate) async fn api_agents_list() -> impl IntoResponse {
     let mut agents = Vec::new();
@@ -252,8 +267,9 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
     let config_path = crate::pinchy_home().join("config.yaml");
     if let Ok(cfg) = crate::config::Config::load(&config_path).await {
         if let Some(ac) = cfg.agents.iter().find(|a| a.id == agent_id) {
-            detail.model = ac.model.clone();
-            detail.provider = ac.provider.clone();
+            let (model, provider) = resolve_agent_model_view(&cfg, ac.model.as_deref());
+            detail.model = model;
+            detail.provider = provider;
             detail.heartbeat_secs = ac.heartbeat_secs;
             detail.heartbeat_enabled = ac.heartbeat_secs.is_some();
             detail.max_tool_iterations = ac.max_tool_iterations;
@@ -379,12 +395,33 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
         let _guard = crate::config::config_lock().await;
         match crate::config::Config::load_unvalidated(&config_path).await {
             Ok(mut cfg) => {
+                let provider = if let Some(ref model_ref) = body.model {
+                    match cfg.models.iter().find(|m| &m.id == model_ref) {
+                        Some(model_cfg) => Some(model_cfg.provider.clone()),
+                        None => {
+                            return (
+                                StatusCode::BAD_REQUEST,
+                                Json(ErrorResponse {
+                                    error: format!("unknown model id '{model_ref}'"),
+                                    id: Some(body.id.clone()),
+                                    agent_id: None,
+                                    filename: None,
+                                    allowed: None,
+                                }),
+                            )
+                                .into_response();
+                        }
+                    }
+                } else {
+                    None
+                };
+
                 if !cfg.agents.iter().any(|a| a.id == body.id) {
                     cfg.agents.push(crate::config::AgentConfig {
                         id: body.id.clone(),
                         root: format!("agents/{}", body.id),
                         model: body.model,
-                        provider: None,
+                        provider,
                         heartbeat_secs: body.heartbeat_secs,
                         cron_jobs: Vec::new(),
                         max_tool_iterations: None,
@@ -495,6 +532,40 @@ pub(crate) async fn api_agent_update(
         }
     }
 
+    if let Some(ref model_ref) = body.model {
+        let config_path = crate::pinchy_home().join("config.yaml");
+        match crate::config::Config::load(&config_path).await {
+            Ok(cfg) => {
+                if !cfg.models.iter().any(|m| &m.id == model_ref) {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse {
+                            error: format!("unknown model id '{model_ref}'"),
+                            id: None,
+                            agent_id: Some(agent_id.clone()),
+                            filename: None,
+                            allowed: None,
+                        }),
+                    )
+                        .into_response();
+                }
+            }
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("load config: {e}"),
+                        id: None,
+                        agent_id: Some(agent_id.clone()),
+                        filename: None,
+                        allowed: None,
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    }
+
     let mut updated = Vec::new();
 
     if let Some(soul) = &body.soul {
@@ -567,6 +638,7 @@ pub(crate) async fn api_agent_update(
                 if let Some(ac) = cfg.agents.iter_mut().find(|a| a.id == agent_id) {
                     if let Some(model) = body.model {
                         ac.model = Some(model);
+                        ac.provider = None;
                         updated.push("model".to_string());
                     }
                     if let Some(provider) = body.provider {

@@ -5,6 +5,7 @@
 
 import {
   ModelInfo,
+  AgentModelOptionsResponse,
   ProviderTestResult,
   SetProviderAuthResult,
   UIProviderStatusItem,
@@ -92,6 +93,11 @@ export async function fetchModels(): Promise<ModelInfo[]> {
     console.error('[settings] Failed to fetch models:', error);
     return [];
   }
+}
+
+export async function fetchAgentModelOptions() {
+  const response = await fetchApi<AgentModelOptionsResponse>(`${API_BASE_URL}/api/config/models`, undefined);
+  return response.models || [];
 }
 
 export async function getAllProvidersStatus(): Promise<UIProviderStatusItem[]> {

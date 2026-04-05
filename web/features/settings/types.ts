@@ -7,6 +7,30 @@
 import type { ModelInfo } from '@/src/lib/bindings';
 export type { ModelInfo };
 
+// ==========================================================================
+// Agent Model Selection Types
+// ==========================================================================
+
+export interface AgentModelOption {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  config_model_id: string;
+  model_id: string;
+  model_name: string;
+  description?: string | null;
+}
+
+export interface AgentModelSelection {
+  provider: string;
+  model: string;
+}
+
+export interface AgentModelOptionsResponse {
+  models: AgentModelOption[];
+}
+
 // ============================================================================
 // Auth Prompt Types (for OAuth dialog)
 // ============================================================================

@@ -13,15 +13,10 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Plus, Loader2 } from 'lucide-react';
-import { useAgentModels, useProvidersStatus } from '@/features/settings';
+import { useAgentModels } from '@/features/settings';
+import { AgentModelPicker } from './agent-model-picker';
+import { normalizeAgentModelSelection } from '../model-options';
 
 interface CreateAgentDialogProps {
   open?: boolean;
@@ -46,14 +41,9 @@ export function CreateAgentDialog({ open: controlledOpen, onOpenChange, onCreate
   const [error, setError] = useState<string | null>(null);
 
   const { data: models, isLoading: modelsLoading } = useAgentModels();
-  const { data: providers, isLoading: providersLoading } = useProvidersStatus();
 
-  // Build dynamic options
-  const modelOptions = models?.map((m) => ({ value: m.id, label: m.name })) || [];
-  const providerOptions =
-    providers
-      ?.filter((p) => p.configured)
-      ?.map((p) => ({ value: p.id, label: p.name || p.id })) || [];
+  const modelOptions = models || [];
+  const selection = normalizeAgentModelSelection(formData.provider, formData.model, modelOptions);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,7 +61,11 @@ export function CreateAgentDialog({ open: controlledOpen, onOpenChange, onCreate
 
     setIsCreating(true);
     try {
-      await onCreate?.(formData);
+      await onCreate?.({
+        ...formData,
+        model: selection.model,
+        provider: selection.provider,
+      });
       setOpen(false);
       setFormData({ id: '', model: '', provider: '' });
     } catch (err) {
@@ -116,57 +110,15 @@ export function CreateAgentDialog({ open: controlledOpen, onOpenChange, onCreate
               </p>
             </div>
 
-            <div className="grid gap-2">
-              <Label htmlFor="provider">Provider</Label>
-              <Select
-                value={formData.provider}
-                onValueChange={(v) => setFormData((prev) => ({ ...prev, provider: v }))}
-                disabled={isCreating || providersLoading}
-              >
-                <SelectTrigger id="provider">
-                  <SelectValue placeholder={providersLoading ? 'Loading...' : 'Select provider'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {providerOptions.length === 0 ? (
-                    <SelectItem value="__empty__" disabled>
-                      No configured providers
-                    </SelectItem>
-                  ) : (
-                    providerOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="model">Model</Label>
-              <Select
-                value={formData.model}
-                onValueChange={(v) => setFormData((prev) => ({ ...prev, model: v }))}
-                disabled={isCreating || modelsLoading}
-              >
-                <SelectTrigger id="model">
-                  <SelectValue placeholder={modelsLoading ? 'Loading...' : 'Select model'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {modelOptions.length === 0 ? (
-                    <SelectItem value="__empty__" disabled>
-                      No models available
-                    </SelectItem>
-                  ) : (
-                    modelOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            </div>
+            <AgentModelPicker
+              modelOptions={modelOptions}
+              provider={formData.provider}
+              model={formData.model}
+              disabled={isCreating || modelsLoading}
+              providerPlaceholder="Select provider"
+              modelPlaceholder="Select model"
+              onChange={({ provider, model }) => setFormData((prev) => ({ ...prev, provider, model }))}
+            />
 
             {error && (
               <p className="text-sm text-destructive">{error}</p>

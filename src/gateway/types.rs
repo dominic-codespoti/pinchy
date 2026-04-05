@@ -423,6 +423,31 @@ pub(crate) struct ModelInfo {
     pub modalities: Option<Vec<String>>,
 }
 
+/// Agent-selectable model option.
+///
+/// `config_model_id` is the internal reference persisted on the agent.
+/// `provider` + `model_id`/`model_name` are the real selectable/display values.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct AgentModelOption {
+    pub id: String,
+    pub name: String,
+    pub provider: String,
+    pub model: String,
+    pub config_model_id: String,
+    pub model_id: String,
+    pub model_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Response for agent model selection endpoints.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct AgentModelOptionsResponse {
+    pub models: Vec<AgentModelOption>,
+}
+
 /// Response for listing available models
 #[derive(Serialize, TS)]
 #[ts(export)]

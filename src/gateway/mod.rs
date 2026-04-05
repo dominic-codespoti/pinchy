@@ -396,7 +396,10 @@ pub async fn start_gateway_with_config(
             get(handlers::config::api_config_get).put(handlers::config::api_config_put),
         )
         .route("/config/schema", get(handlers::config::api_config_schema))
-        .route("/config/models", get(handlers::config::api_config_models_get))
+        .route(
+            "/config/models",
+            get(handlers::config::api_config_models_get),
+        )
         // Agents
         .route(
             "/agents",
