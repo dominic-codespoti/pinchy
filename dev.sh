@@ -19,7 +19,7 @@ pkill -f "target/debug/pinchy" 2>/dev/null || true
 pkill -f "target/release/pinchy" 2>/dev/null || true
 
 # Clean up Next.js cache files that can cause type errors
-rm -f "$WEB/.next/dev/types/validator.ts" 2>/dev/null || true
+rm -rf "$WEB/.next/dev" 2>/dev/null || true
 
 # Wait for ports to be free
 for port in 3131 3132; do
@@ -55,7 +55,7 @@ trap cleanup EXIT INT TERM
 
 # ── 1. Start Next.js dev server (HMR on :3000) ──
 echo "🔥 Starting Next.js dev server (http://localhost:3000)…"
-(cd "$WEB" && npx next dev --port 3000) &
+(cd "$WEB" && pnpm run dev) &
 
 # ── 2. Start Rust backend with cargo-watch (auto-rebuild on changes) ──
 if command -v cargo-watch &>/dev/null; then

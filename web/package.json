@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "bash ./scripts/dev.sh",
     "build": "next build",
     "start": "echo 'Error: Cannot use next start with static export. Use: npm run serve' && exit 1",
     "serve": "npx serve ../static/react",
