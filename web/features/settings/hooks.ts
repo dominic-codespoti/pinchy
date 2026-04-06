@@ -5,7 +5,7 @@
  * TanStack Query hooks for settings data fetching and mutations
  */
 
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { STALE_TIME } from '@/lib/query-config';
@@ -61,7 +61,6 @@ export function useAgentModels() {
     staleTime: STALE_TIME.LONG,
   });
 
-  const data = query.data;
   const isLoading = query.isLoading;
   const error = query.error;
 
@@ -72,11 +71,11 @@ export function useAgentModels() {
   }, [error]);
 
   return { 
-    data, 
+    data: query.data, 
     isLoading, 
     error,
     source: 'config' as const,
-    isValid: !!data?.length,
+    isValid: !!query.data?.length,
   };
 }
 

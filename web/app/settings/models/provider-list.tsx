@@ -126,7 +126,7 @@ const getProviderModels = (providerId: string): string[] => {
   const modelMap: Record<string, string[]> = {
     openai: ['GPT-4o', 'GPT-4o Mini', 'GPT-4 Turbo', 'o3-mini'],
     azure: ['GPT-4', 'GPT-4o', 'GPT-3.5 Turbo'],
-    copilot: ['Copilot GPT-4', 'Copilot Claude'],
+    copilot: [],
     anthropic: ['Claude 3.5 Sonnet', 'Claude 3 Opus', 'Claude 3 Haiku'],
     google: ['Gemini Pro', 'Gemini Ultra'],
     bedrock: ['Claude 3', 'Llama 3', 'Titan'],

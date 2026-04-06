@@ -3,4 +3,4 @@
 /**
  * Individual agent item in the list response
  */
-export type AgentListItem = { id: string, has_soul: boolean, has_tools: boolean, has_heartbeat: boolean, heartbeat_enabled: boolean, last_heartbeat_at: bigint | null, model: string | null, heartbeat_secs: bigint | null, max_tool_iterations: number | null, enabled_skills: Array<string> | null, cron_jobs_count: number | null, history_messages: number | null, max_turns: number | null, compact_keep_recent_turns: number | null, timezone: string | null, reasoning_effort: string | null, };
+export type AgentListItem = { id: string, has_soul: boolean, has_tools: boolean, has_heartbeat: boolean, heartbeat_enabled: boolean, last_heartbeat_at: bigint | null, model: string | null, provider: string | null, heartbeat_secs: bigint | null, max_tool_iterations: number | null, enabled_skills: Array<string> | null, cron_jobs_count: number | null, history_messages: number | null, max_turns: number | null, compact_keep_recent_turns: number | null, timezone: string | null, reasoning_effort: string | null, };

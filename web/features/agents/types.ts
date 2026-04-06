@@ -1,15 +1,25 @@
 import { Session, RawSession } from '@/features/sessions/types';
 import { Memory, RawMemory } from '@/features/memories/types';
-import type { AgentListItem, AgentDetail } from '@/src/lib/bindings';
+import type { AgentListItem as BackendAgentListItem, AgentDetail as BackendAgentDetail } from '@/src/lib/bindings';
 import type { ReceiptsListResponse, ReceiptsBySessionResponse } from '@/features/receipts/types';
 
 export type { Session, RawSession } from '@/features/sessions/types';
 export type { Memory, RawMemory } from '@/features/memories/types';
 export type { ApiError } from '@/shared/types/api';
 // Re-export binding types for convenience
-export type { AgentListItem, AgentDetail } from '@/src/lib/bindings';
+export type AgentListItem = BackendAgentListItem;
+export type AgentDetail = BackendAgentDetail;
 // Re-export receipt types from canonical source
 export type { ReceiptsListResponse, ReceiptsBySessionResponse } from '@/features/receipts/types';
+
+export interface AgentHeaderOverride {
+  header: string;
+  value: string;
+}
+
+export type AgentDetailResponse = AgentDetail & {
+  header_overrides?: AgentHeaderOverride[];
+};
 
 // ============================================================================
 // Heartbeat Types
@@ -97,6 +107,7 @@ export interface Agent {
     systemPrompt: string;
     toolsEnabled: string[];
   };
+  headerOverrides?: AgentHeaderOverride[];
   // Backend does not provide creation time - generated client-side
   createdAt: string;
   hasHeartbeat?: boolean;
@@ -128,6 +139,7 @@ export interface CreateAgentInput {
   heartbeat?: string;
   heartbeat_secs?: number;
   enabled_skills?: string[];
+  header_overrides?: AgentHeaderOverride[];
 }
 
 export interface UpdateAgentInput {
@@ -145,6 +157,7 @@ export interface UpdateAgentInput {
   history_messages?: number;
   reasoning_effort?: string;
   enabled?: boolean;
+  header_overrides?: AgentHeaderOverride[];
 }
 
 // ============================================================================

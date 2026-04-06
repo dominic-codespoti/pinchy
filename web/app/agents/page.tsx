@@ -58,6 +58,7 @@ function AgentsPageContent() {
   const handleUpdateAgent = async (agentId: string, data: Partial<Agent>) => {
     await updateAgent(agentId, {
       model: data.config?.model,
+      heartbeatEnabled: data.heartbeatEnabled,
       heartbeat_secs: data.heartbeatInterval,
       enabled_skills: data.enabledSkills ?? undefined,
     });

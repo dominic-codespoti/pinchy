@@ -49,6 +49,193 @@ fn is_catalog_alias(provider_id: &str, target_provider: &str) -> bool {
     matches!((provider_id, target_provider), ("openai-codex", "openai"))
 }
 
+fn copilot_fallback_model() -> ModelInfo {
+    ModelInfo {
+        id: crate::config::COPILOT_FALLBACK_MODEL_ID.to_string(),
+        name: crate::config::COPILOT_FALLBACK_MODEL_NAME.to_string(),
+        provider: "copilot".to_string(),
+        description: Some("stable fallback model for Copilot-backed agents".to_string()),
+        input_price: None,
+        output_price: None,
+        context_window: None,
+        max_output: None,
+        tool_call: true,
+        reasoning: false,
+        attachment: false,
+        family: None,
+        cache_read_price: None,
+        cache_write_price: None,
+        modalities: None,
+    }
+}
+
+/// Build the current selectable model inventory used by the UI and agent validation.
+pub(crate) async fn collect_model_inventory(cfg: &crate::config::Config) -> Vec<ModelInfo> {
+    let mut all_models: Vec<ModelInfo> = Vec::new();
+    let timeout_duration = std::time::Duration::from_secs(5);
+    let mut providers_with_live_models: HashSet<String> = HashSet::new();
+
+    all_models.push(copilot_fallback_model());
+
+    let copilot_auth = std::env::var("COPILOT_TOKEN")
+        .ok()
+        .or_else(|| crate::auth::github_device::retrieve_token().ok().flatten())
+        .or_else(|| {
+            dirs::home_dir()
+                .map(|h| h.join(".pinchy/copilot-token"))
+                .filter(|p| p.exists())
+                .and_then(|p| std::fs::read_to_string(&p).ok())
+        });
+
+    if copilot_auth.is_some() {
+        let copilot_provider = crate::models::CopilotProvider::new();
+        let timeout_duration = std::time::Duration::from_secs(10);
+
+        match tokio::time::timeout(timeout_duration, copilot_provider.list_models()).await {
+            Ok(Ok(Some(models))) if !models.is_empty() => {
+                providers_with_live_models.insert("copilot".to_string());
+                for model in models {
+                    all_models.push(ModelInfo {
+                        id: model.id.clone(),
+                        name: model.name.clone(),
+                        provider: "copilot".to_string(),
+                        description: model.vendor.clone(),
+                        input_price: model.input_price,
+                        output_price: model.output_price,
+                        context_window: model.max_tokens.map(|t| t as u64),
+                        max_output: None,
+                        tool_call: model
+                            .supported_endpoints
+                            .iter()
+                            .any(|e: &String| e.contains("chat")),
+                        reasoning: false,
+                        attachment: false,
+                        family: None,
+                        cache_read_price: None,
+                        cache_write_price: None,
+                        modalities: None,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    try_local_providers(
+        &mut all_models,
+        &mut providers_with_live_models,
+        cfg,
+        timeout_duration,
+    )
+    .await;
+
+    match crate::models_dev::get_or_load_registry().await {
+        Ok(registry) => {
+            for provider in registry.providers() {
+                if providers_with_live_models.contains(&provider.id) {
+                    continue;
+                }
+
+                let has_auth = provider
+                    .env
+                    .iter()
+                    .any(|env_var| std::env::var(env_var).is_ok());
+                let has_auth_store = cfg.models.iter().any(|m| {
+                    m.provider == provider.id
+                        || is_catalog_alias(&m.provider, &provider.id)
+                        || crate::models::providers::normalize_provider_id(&m.provider)
+                            == provider.id
+                }) || crate::auth::store::get_auth(&provider.id).is_some();
+                let has_config_key = cfg.models.iter().any(|m| {
+                    let provider_matches = m.provider == provider.id
+                        || is_catalog_alias(&m.provider, &provider.id)
+                        || crate::models::providers::normalize_provider_id(&m.provider)
+                            == provider.id;
+                    provider_matches
+                        && m.api_key
+                            .as_ref()
+                            .map(|k| !k.is_empty() && !k.starts_with('$'))
+                            .unwrap_or(false)
+                });
+                let has_special_auth = match provider.id.as_str() {
+                    "copilot" => {
+                        std::env::var("COPILOT_TOKEN").is_ok()
+                            || crate::auth::github_device::retrieve_token()
+                                .ok()
+                                .flatten()
+                                .is_some()
+                            || dirs::home_dir()
+                                .map(|h| h.join(".pinchy/copilot-token").exists())
+                                .unwrap_or(false)
+                    }
+                    "anthropic" => {
+                        std::env::var("ANTHROPIC_API_KEY").is_ok()
+                            || std::env::var("CLAUDE_CODE_OAUTH_TOKEN").is_ok()
+                    }
+                    "bedrock" => {
+                        std::env::var("AWS_BEARER_TOKEN_BEDROCK").is_ok()
+                            || (std::env::var("AWS_ACCESS_KEY_ID").is_ok()
+                                && std::env::var("AWS_SECRET_ACCESS_KEY").is_ok())
+                    }
+                    _ => false,
+                };
+
+                if has_auth || has_auth_store || has_config_key || has_special_auth {
+                    for model in &provider.models {
+                        let modalities = model.modalities.as_ref().map(|m| {
+                            let mut mods = Vec::new();
+                            if let Some(ref inputs) = m.input {
+                                for input in inputs {
+                                    mods.push(format!("input:{}", input));
+                                }
+                            }
+                            if let Some(ref outputs) = m.output {
+                                for output in outputs {
+                                    mods.push(format!("output:{}", output));
+                                }
+                            }
+                            mods
+                        });
+                        all_models.push(ModelInfo {
+                            id: model.id.clone(),
+                            name: model.name.clone(),
+                            provider: provider.id.clone(),
+                            description: model.prompt.clone(),
+                            input_price: model.cost.as_ref().and_then(|c| c.input),
+                            output_price: model.cost.as_ref().and_then(|c| c.output),
+                            context_window: model.limit.as_ref().and_then(|l| l.context),
+                            max_output: model.limit.as_ref().and_then(|l| l.output),
+                            tool_call: model.tool_call.unwrap_or(false),
+                            reasoning: model.reasoning.unwrap_or(false),
+                            attachment: model.attachment.unwrap_or(false),
+                            family: model.family.clone(),
+                            cache_read_price: model.cost.as_ref().and_then(|c| c.cache_read),
+                            cache_write_price: model.cost.as_ref().and_then(|c| c.cache_write),
+                            modalities,
+                        });
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to load models.dev registry");
+        }
+    }
+
+    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    all_models.retain(|m| {
+        let key = (m.provider.clone(), normalize_model_name(&m.name));
+        if seen.contains(&key) {
+            false
+        } else {
+            seen.insert(key);
+            true
+        }
+    });
+
+    all_models
+}
+
 /// `GET /api/models/:config_model_id`
 ///
 /// Looks up the model config entry by `id`, builds a provider, and calls
@@ -103,6 +290,7 @@ pub(crate) async fn api_models_list(
         model_cfg.embedding_deployment.as_deref(),
         model_cfg.api_key.as_deref(),
         model_cfg.headers.as_ref(),
+        None,
         None,
     );
 
@@ -184,221 +372,7 @@ pub(crate) async fn api_all_models(State(state): State<AppState>) -> impl IntoRe
         }
     };
 
-    let mut all_models: Vec<ModelInfo> = Vec::new();
-    let timeout_duration = std::time::Duration::from_secs(5);
-
-    // Track which providers have live-discovered models
-    let mut providers_with_live_models: HashSet<String> = HashSet::new();
-
-    // Try live discovery for Copilot if authenticated
-    let copilot_auth = std::env::var("COPILOT_TOKEN")
-        .ok()
-        .or_else(|| crate::auth::github_device::retrieve_token().ok().flatten())
-        .or_else(|| {
-            dirs::home_dir()
-                .map(|h| h.join(".pinchy/copilot-token"))
-                .filter(|p| p.exists())
-                .and_then(|p| std::fs::read_to_string(&p).ok())
-        });
-
-    if copilot_auth.is_some() {
-        let copilot_provider = crate::models::CopilotProvider::new();
-        let timeout_duration = std::time::Duration::from_secs(10);
-
-        match tokio::time::timeout(timeout_duration, copilot_provider.list_models()).await {
-            Ok(Ok(Some(models))) if !models.is_empty() => {
-                providers_with_live_models.insert("copilot".to_string());
-                for model in models {
-                    // Convert provider ModelInfo to gateway ModelInfo
-                    all_models.push(ModelInfo {
-                        id: model.id.clone(),
-                        name: model.name.clone(),
-                        provider: "copilot".to_string(),
-                        description: model.vendor.clone(),
-                        input_price: model.input_price,
-                        output_price: model.output_price,
-                        context_window: model.max_tokens.map(|t| t as u64),
-                        max_output: None,
-                        tool_call: model
-                            .supported_endpoints
-                            .iter()
-                            .any(|e: &String| e.contains("chat")),
-                        reasoning: false,
-                        attachment: false,
-                        family: None,
-                        cache_read_price: None,
-                        cache_write_price: None,
-                        modalities: None,
-                    });
-                }
-                tracing::debug!(
-                    model_count = all_models.len(),
-                    "added models from Copilot live discovery"
-                );
-            }
-            Ok(Ok(Some(_))) => {
-                tracing::debug!("Copilot live discovery returned empty model list");
-            }
-            Ok(Ok(None)) => {
-                tracing::debug!("Copilot provider does not support model discovery");
-            }
-            Ok(Err(e)) => {
-                tracing::warn!(error = %e, "Copilot live model discovery failed");
-            }
-            Err(_) => {
-                tracing::warn!("Copilot live model discovery timed out");
-            }
-        }
-    }
-
-    // Try live discovery for local providers
-    try_local_providers(
-        &mut all_models,
-        &mut providers_with_live_models,
-        &cfg,
-        timeout_duration,
-    )
-    .await;
-
-    // Load models.dev registry as FALLBACK for providers without live models
-    match crate::models_dev::get_or_load_registry().await {
-        Ok(registry) => {
-            tracing::info!(
-                providers = registry.providers().len(),
-                "loaded models.dev registry for fallback"
-            );
-
-            // For each provider in the registry, check if user has auth configured
-            for provider in registry.providers() {
-                // Skip if this provider already has live models
-                if providers_with_live_models.contains(&provider.id) {
-                    tracing::debug!(
-                        provider = %provider.id,
-                        "skipping registry models - live models already discovered"
-                    );
-                    continue;
-                }
-
-                // Check if any of the env vars are set
-                let has_auth = provider
-                    .env
-                    .iter()
-                    .any(|env_var| std::env::var(env_var).is_ok());
-
-                // Also check if there's an auth store entry (including alias matching)
-                let has_auth_store = cfg.models.iter().any(|m| {
-                    m.provider == provider.id
-                        || is_catalog_alias(&m.provider, &provider.id)
-                        || crate::models::providers::normalize_provider_id(&m.provider)
-                            == provider.id
-                }) || crate::auth::store::get_auth(&provider.id).is_some();
-
-                // Check config for api_key (including alias matching for openai-codex -> openai)
-                let has_config_key = cfg.models.iter().any(|m| {
-                    let provider_matches = m.provider == provider.id
-                        || is_catalog_alias(&m.provider, &provider.id)
-                        || crate::models::providers::normalize_provider_id(&m.provider)
-                            == provider.id;
-                    provider_matches
-                        && m.api_key
-                            .as_ref()
-                            .map(|k| !k.is_empty() && !k.starts_with('$'))
-                            .unwrap_or(false)
-                });
-
-                // Special cases
-                let has_special_auth = match provider.id.as_str() {
-                    "copilot" => {
-                        std::env::var("COPILOT_TOKEN").is_ok()
-                            || crate::auth::github_device::retrieve_token()
-                                .ok()
-                                .flatten()
-                                .is_some()
-                            || dirs::home_dir()
-                                .map(|h| h.join(".pinchy/copilot-token").exists())
-                                .unwrap_or(false)
-                    }
-                    "anthropic" => {
-                        std::env::var("ANTHROPIC_API_KEY").is_ok()
-                            || std::env::var("CLAUDE_CODE_OAUTH_TOKEN").is_ok()
-                    }
-                    "bedrock" => {
-                        std::env::var("AWS_BEARER_TOKEN_BEDROCK").is_ok()
-                            || (std::env::var("AWS_ACCESS_KEY_ID").is_ok()
-                                && std::env::var("AWS_SECRET_ACCESS_KEY").is_ok())
-                    }
-                    _ => false,
-                };
-
-                if has_auth || has_auth_store || has_config_key || has_special_auth {
-                    // Add all models from this provider
-                    for model in &provider.models {
-                        // Convert modalities from ModelsDevModalities to Vec<String>
-                        let modalities = model.modalities.as_ref().map(|m| {
-                            let mut mods = Vec::new();
-                            if let Some(ref inputs) = m.input {
-                                for input in inputs {
-                                    mods.push(format!("input:{}", input));
-                                }
-                            }
-                            if let Some(ref outputs) = m.output {
-                                for output in outputs {
-                                    mods.push(format!("output:{}", output));
-                                }
-                            }
-                            mods
-                        });
-                        all_models.push(ModelInfo {
-                            id: model.id.clone(),
-                            name: model.name.clone(),
-                            provider: provider.id.clone(),
-                            description: model.prompt.clone(),
-                            input_price: model.cost.as_ref().and_then(|c| c.input),
-                            output_price: model.cost.as_ref().and_then(|c| c.output),
-                            context_window: model.limit.as_ref().and_then(|l| l.context),
-                            max_output: model.limit.as_ref().and_then(|l| l.output),
-                            tool_call: model.tool_call.unwrap_or(false),
-                            reasoning: model.reasoning.unwrap_or(false),
-                            attachment: model.attachment.unwrap_or(false),
-                            family: model.family.clone(),
-                            cache_read_price: model.cost.as_ref().and_then(|c| c.cache_read),
-                            cache_write_price: model.cost.as_ref().and_then(|c| c.cache_write),
-                            modalities,
-                        });
-                    }
-                    tracing::debug!(
-                        provider = %provider.id,
-                        model_count = provider.models.len(),
-                        "added models from models.dev registry (fallback)"
-                    );
-                }
-            }
-        }
-        Err(e) => {
-            tracing::warn!(error = %e, "failed to load models.dev registry");
-        }
-    }
-
-    // Deduplicate models across all providers using composite key (provider, normalized_name)
-    // This handles duplicates from any source: registry, Copilot, local providers
-    // Models like "GPT-4o" and "gpt-4o" are considered the same after normalization
-    let mut seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
-    all_models.retain(|m| {
-        let key = (m.provider.clone(), normalize_model_name(&m.name));
-        if seen.contains(&key) {
-            tracing::debug!(provider = %m.provider, model_name = %m.name, normalized = %normalize_model_name(&m.name), "skipping duplicate model");
-            false
-        } else {
-            seen.insert(key);
-            true
-        }
-    });
-
-    tracing::info!(
-        total_models = all_models.len(),
-        live_providers = providers_with_live_models.len(),
-        "returning model list from all providers"
-    );
+    let all_models = collect_model_inventory(&cfg).await;
 
     (
         StatusCode::OK,
@@ -451,6 +425,7 @@ async fn try_local_providers(
                     m.embedding_deployment.as_deref(),
                     m.api_key.as_deref(),
                     m.headers.as_ref(),
+                    None,
                     None,
                 )
             }

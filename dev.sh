@@ -55,7 +55,7 @@ trap cleanup EXIT INT TERM
 
 # ── 1. Start Next.js dev server (HMR on :3000) ──
 echo "🔥 Starting Next.js dev server (http://localhost:3000)…"
-(cd "$WEB" && pnpm run dev) &
+(bash "$WEB/scripts/dev.sh") &
 
 # ── 2. Start Rust backend with cargo-watch (auto-rebuild on changes) ──
 if command -v cargo-watch &>/dev/null; then

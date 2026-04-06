@@ -263,39 +263,46 @@ impl CopilotProvider {
         // -----------------------------------------------------------------
         // Proxy HTTP with tools — 3-way dispatch based on model capabilities
         // -----------------------------------------------------------------
-        if let Some((ep, bearer)) = self.ensure_fresh_token().await {
-            let api_path = self.resolve_api_path().await;
-            debug!(model = %self.model_id, ?api_path, "CopilotProvider: routing function-call request");
+        let (ep, bearer) =
+            self.ensure_fresh_token()
+                .await
+                .ok_or_else(|| {
+                    crate::auth::AuthError {
+                provider: "GitHub Copilot".into(),
+                hint: "your token may have expired or is invalid — run `/gh-login` to re-authorise"
+                    .into(),
+            }
+                })?;
 
-            let result = match api_path {
-                CopilotApiPath::Messages => {
-                    self.try_anthropic_http_with_tools(&ep, &bearer, messages, functions)
-                        .await
-                }
-                CopilotApiPath::Responses => {
-                    self.try_responses_api_with_tools(&ep, &bearer, messages, functions)
-                        .await
-                }
-                CopilotApiPath::ChatCompletions => {
-                    self.try_proxy_http_with_tools(&ep, &bearer, messages, functions)
-                        .await
-                }
-            };
-            match result {
-                Ok((resp, usage)) => return Ok((resp, usage)),
-                Err(e) => {
-                    warn!("CopilotProvider: proxy (fn-call) failed ({e:#})");
-                }
+        // Refresh discovery metadata before routing function-calling
+        // requests so we do not rely on stale family heuristics.
+        self.prime_discovery_cache(&ep, &bearer).await;
+
+        let api_path = self.resolve_api_path().await?;
+        debug!(model = %self.model_id, ?api_path, "CopilotProvider: routing function-call request");
+
+        let result = match api_path {
+            CopilotApiPath::Messages => {
+                self.try_anthropic_http_with_tools(&ep, &bearer, messages, functions)
+                    .await
+            }
+            CopilotApiPath::Responses => {
+                self.try_responses_api_with_tools(&ep, &bearer, messages, functions)
+                    .await
+            }
+            CopilotApiPath::ChatCompletions => {
+                self.try_proxy_http_with_tools(&ep, &bearer, messages, functions)
+                    .await
+            }
+        };
+
+        match result {
+            Ok((resp, usage)) => Ok((resp, usage)),
+            Err(e) => {
+                warn!("CopilotProvider: proxy (fn-call) failed ({e:#})");
+                Err(e)
             }
         }
-
-        // No valid token available
-        Err(crate::auth::AuthError {
-            provider: "GitHub Copilot".into(),
-            hint: "your token may have expired or is invalid — run `/gh-login` to re-authorise"
-                .into(),
-        }
-        .into())
     }
 
     /// Attempt a direct HTTP POST to the Copilot proxy endpoint.
@@ -855,13 +862,21 @@ impl CopilotProvider {
             .await
             .context("no valid Copilot token for model discovery")?;
 
+        self.fetch_models_from_api_with_auth(&ep, &bearer).await
+    }
+
+    async fn fetch_models_from_api_with_auth(
+        &self,
+        proxy_ep: &str,
+        bearer: &str,
+    ) -> anyhow::Result<Vec<super::ModelInfo>> {
         let http = super::get_shared_http_client();
-        let base = ep.trim_end_matches('/');
+        let base = proxy_ep.trim_end_matches('/');
         let url = format!("{base}/models");
 
         debug!("CopilotProvider: fetching model list from {url}");
 
-        let headers = copilot_headers(&bearer, self.header_overrides.as_ref())
+        let headers = copilot_headers(bearer, self.header_overrides.as_ref())
             .context("failed to build copilot headers")?;
         let mut req = http.get(&url);
         for (k, v) in &headers {
@@ -962,34 +977,62 @@ impl CopilotProvider {
         Ok(models)
     }
 
+    async fn prime_discovery_cache(&self, proxy_ep: &str, bearer: &str) {
+        let needs_refresh = {
+            let guard = self.discovered_models.lock().await;
+            guard
+                .as_ref()
+                .map(|cached| cached.is_stale())
+                .unwrap_or(true)
+        };
+
+        if !needs_refresh {
+            return;
+        }
+
+        match self.fetch_models_from_api_with_auth(proxy_ep, bearer).await {
+            Ok(models) => {
+                let mut guard = self.discovered_models.lock().await;
+                *guard = Some(DiscoveredModels {
+                    models,
+                    fetched_at: std::time::Instant::now(),
+                });
+            }
+            Err(e) => {
+                debug!(error = %e, "CopilotProvider: discovery cache prime failed");
+            }
+        }
+    }
+
     /// Decide which API path to use for the current `model_id`.
     ///
-    /// 1. If we have discovery data and the model declares
-    ///    `supported_endpoints`, pick the best match.
-    /// 2. Otherwise fall back to `is_anthropic_model()` heuristic.
-    async fn resolve_api_path(&self) -> CopilotApiPath {
+    /// Prefer discovery metadata when available, otherwise fall back to
+    /// documented family heuristics.
+    async fn resolve_api_path(&self) -> anyhow::Result<CopilotApiPath> {
+        if self.model_id == crate::config::COPILOT_FALLBACK_MODEL_ID {
+            return Ok(CopilotApiPath::ChatCompletions);
+        }
+
         let guard = self.discovered_models.lock().await;
         if let Some(ref cached) = *guard {
             if let Some(info) = cached.models.iter().find(|m| m.id == self.model_id) {
-                let eps = &info.supported_endpoints;
-                // Prefer /responses when available, then /v1/messages, then /chat/completions.
-                if eps.iter().any(|e| e == "responses") {
-                    return CopilotApiPath::Responses;
+                if let Some(path) = resolve_api_path_from_model_info(info, &self.model_id) {
+                    return Ok(path);
                 }
-                if eps.iter().any(|e| e == "messages") {
-                    return CopilotApiPath::Messages;
-                }
-                return CopilotApiPath::ChatCompletions;
+                return Err(anyhow::anyhow!(
+                    "unsupported Copilot model '{}': discovery returned no supported chat path",
+                    self.model_id
+                ));
             }
         }
         drop(guard);
 
-        // Fallback heuristic
-        if is_anthropic_model(&self.model_id) {
-            CopilotApiPath::Messages
-        } else {
-            CopilotApiPath::ChatCompletions
-        }
+        resolve_api_path_from_model_id(&self.model_id).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unsupported Copilot model '{}': no matching Copilot API path",
+                self.model_id
+            )
+        })
     }
 }
 
@@ -1017,30 +1060,38 @@ async fn resolve_gh_token(token: &Mutex<Option<String>>) -> Option<String> {
 #[async_trait]
 impl ModelProvider for CopilotProvider {
     async fn send_chat(&self, messages: &[ChatMessage]) -> anyhow::Result<String> {
-        // -----------------------------------------------------------------
-        // Direct HTTP proxy
-        // -----------------------------------------------------------------
-        if let Some((ep, bearer)) = self.ensure_fresh_token().await {
-            let result = if is_anthropic_model(&self.model_id) {
-                self.try_anthropic_http(&ep, &bearer, messages).await
-            } else {
-                self.try_proxy_http(&ep, &bearer, messages).await
-            };
-            match result {
-                Ok(text) => return Ok(text),
-                Err(e) => {
-                    warn!("CopilotProvider: proxy failed ({e:#})");
-                }
+        let (ep, bearer) =
+            self.ensure_fresh_token()
+                .await
+                .ok_or_else(|| {
+                    crate::auth::AuthError {
+                provider: "GitHub Copilot".into(),
+                hint: "your token may have expired or is invalid — run `/gh-login` to re-authorise"
+                    .into(),
+            }
+                })?;
+
+        self.prime_discovery_cache(&ep, &bearer).await;
+
+        let result = match self.resolve_api_path().await? {
+            CopilotApiPath::Messages => self.try_anthropic_http(&ep, &bearer, messages).await,
+            CopilotApiPath::Responses => self
+                .try_responses_api_with_tools(&ep, &bearer, messages, &[])
+                .await
+                .map(|(resp, _usage)| match resp {
+                    super::ProviderResponse::Final(text) => text,
+                    other => format!("{other:?}"),
+                }),
+            CopilotApiPath::ChatCompletions => self.try_proxy_http(&ep, &bearer, messages).await,
+        };
+
+        match result {
+            Ok(text) => Ok(text),
+            Err(e) => {
+                warn!("CopilotProvider: proxy failed ({e:#})");
+                Err(e)
             }
         }
-
-        // No valid token available
-        Err(crate::auth::AuthError {
-            provider: "GitHub Copilot".into(),
-            hint: "your token may have expired or is invalid — run `/gh-login` to re-authorise"
-                .into(),
-        }
-        .into())
     }
 
     async fn send_chat_with_functions(
@@ -1059,89 +1110,84 @@ impl ModelProvider for CopilotProvider {
         Box<dyn futures_core::Stream<Item = Result<String, anyhow::Error>> + Send + 'a>,
     > {
         Box::pin(async_stream::try_stream! {
-            if let Some((ep, bearer)) = self.ensure_fresh_token().await {
-                let api_path = self.resolve_api_path().await;
-                debug!(model = %self.model_id, ?api_path, "CopilotProvider: routing stream request");
-                use tokio_stream::StreamExt as _;
+            let (ep, bearer) = self.ensure_fresh_token().await.ok_or_else(|| crate::auth::AuthError {
+                provider: "GitHub Copilot".into(),
+                hint: "your token may have expired or is invalid — run `/gh-login` to re-authorise".into(),
+            })?;
 
-                match api_path {
-                    CopilotApiPath::Messages => {
-                        // Anthropic path — use existing SSE streaming via try_anthropic_http
-                        let reply = self.try_anthropic_http(&ep, &bearer, messages).await?;
-                        yield reply;
-                    }
-                    CopilotApiPath::Responses => {
-                        // OpenAI Responses API — SSE streaming
-                        let http = super::get_shared_http_client();
-                        let base = ep.trim_end_matches('/');
-                        let url = format!("{base}/responses");
+            self.prime_discovery_cache(&ep, &bearer).await;
 
-                        // Build input from messages (system → instructions, rest → input).
-                        let mut instructions_parts = Vec::<String>::new();
-                        let mut input = Vec::<serde_json::Value>::new();
-                        for m in messages {
-                            if m.is_system() {
-                                instructions_parts.push(m.content.clone());
-                            } else {
-                                input.push(serde_json::json!({"role": &m.role, "content": m.content}));
-                            }
-                        }
+            let api_path = self.resolve_api_path().await?;
+            debug!(model = %self.model_id, ?api_path, "CopilotProvider: routing stream request");
+            use tokio_stream::StreamExt as _;
 
-                        let mut body = serde_json::json!({
-                            "model": &self.model_id,
-                            "input": input,
-                            "stream": true,
-                        });
-                        if !instructions_parts.is_empty() {
-                            body["instructions"] = serde_json::json!(instructions_parts.join("\n\n"));
-                        }
+            match api_path {
+                CopilotApiPath::Messages => {
+                    let reply = self.try_anthropic_http(&ep, &bearer, messages).await?;
+                    yield reply;
+                }
+                CopilotApiPath::Responses => {
+                    let http = super::get_shared_http_client();
+                    let base = ep.trim_end_matches('/');
+                    let url = format!("{base}/responses");
 
-                        let headers = copilot_headers(&bearer, self.header_overrides.as_ref())
-                            .context("failed to build copilot headers")?;
-                        let resp = http.post(&url).headers(headers).json(&body).send().await?;
-                        if !resp.status().is_success() {
-                            let status = resp.status();
-                            let text = resp.text().await.unwrap_or_default();
-                            Err(anyhow::anyhow!("Copilot /responses streaming returned {status}: {text}"))?;
-                            return;
-                        }
-
-                        // Parse SSE events for response.output_text.delta
-                        let mut delta_stream = stream_responses_sse_deltas(resp);
-                        while let Some(chunk) = delta_stream.next().await {
-                            yield chunk?;
+                    let mut instructions_parts = Vec::<String>::new();
+                    let mut input = Vec::<serde_json::Value>::new();
+                    for m in messages {
+                        if m.is_system() {
+                            instructions_parts.push(m.content.clone());
+                        } else {
+                            input.push(serde_json::json!({"role": &m.role, "content": m.content}));
                         }
                     }
-                    CopilotApiPath::ChatCompletions => {
-                        // OpenAI /chat/completions path — real SSE streaming
-                        let http = super::get_shared_http_client();
-                        let body = serde_json::json!({
-                            "model": &self.model_id,
-                            "messages": super::serialize_messages(messages),
-                            "stream": true,
-                        });
-                        let headers = copilot_headers(&bearer, self.header_overrides.as_ref())
-                            .context("failed to build copilot headers")?;
-                        let base = ep.trim_end_matches('/');
-                        let url = format!("{base}/chat/completions");
-                        let resp = http.post(&url).headers(headers).json(&body).send().await?;
-                        if !resp.status().is_success() {
-                            let status = resp.status();
-                            let text = resp.text().await.unwrap_or_default();
-                            Err(anyhow::anyhow!("Copilot streaming returned {status}: {text}"))?;
-                            return;
-                        }
-                        let mut delta_stream = super::stream_sse_deltas(resp);
-                        while let Some(chunk) = delta_stream.next().await {
-                            yield chunk?;
-                        }
+
+                    let mut body = serde_json::json!({
+                        "model": &self.model_id,
+                        "input": input,
+                        "stream": true,
+                    });
+                    if !instructions_parts.is_empty() {
+                        body["instructions"] = serde_json::json!(instructions_parts.join("\n\n"));
+                    }
+
+                    let headers = copilot_headers(&bearer, self.header_overrides.as_ref())
+                        .context("failed to build copilot headers")?;
+                    let resp = http.post(&url).headers(headers).json(&body).send().await?;
+                    if !resp.status().is_success() {
+                        let status = resp.status();
+                        let text = resp.text().await.unwrap_or_default();
+                        Err(anyhow::anyhow!("Copilot /responses streaming returned {status}: {text}"))?;
+                        return;
+                    }
+
+                    let mut delta_stream = stream_responses_sse_deltas(resp);
+                    while let Some(chunk) = delta_stream.next().await {
+                        yield chunk?;
                     }
                 }
-            } else {
-                Err(crate::auth::AuthError {
-                    provider: "GitHub Copilot".into(),
-                    hint: "your token may have expired or is invalid — run `/gh-login` to re-authorise".into(),
-                })?;
+                CopilotApiPath::ChatCompletions => {
+                    let http = super::get_shared_http_client();
+                    let body = serde_json::json!({
+                        "model": &self.model_id,
+                        "messages": super::serialize_messages(messages),
+                        "stream": true,
+                    });
+                    let headers = copilot_headers(&bearer, self.header_overrides.as_ref())
+                        .context("failed to build copilot headers")?;
+                    let base = ep.trim_end_matches('/');
+                    let url = format!("{base}/chat/completions");
+                    let resp = http.post(&url).headers(headers).json(&body).send().await?;
+                    if !resp.status().is_success() {
+                        let status = resp.status();
+                        let text = resp.text().await.unwrap_or_default();
+                        Err(anyhow::anyhow!("Copilot streaming returned {status}: {text}"))?;
+                        return;
+                    }
+                    let mut delta_stream = super::stream_sse_deltas(resp);
+                    while let Some(chunk) = delta_stream.next().await {
+                        yield chunk?;
+                    }
+                }
             }
         })
     }
@@ -1448,9 +1494,109 @@ fn extract_tool_call(json: &Value) -> Option<ProviderResponse> {
 /// Returns `true` when the model identifier refers to a Claude / Anthropic
 /// model that must be routed through the `/v1/messages` SSE endpoint
 /// rather than the OpenAI-compatible `/chat/completions` path.
+fn normalized_model_id(model_id: &str) -> &str {
+    model_id.rsplit(['/', ':']).next().unwrap_or(model_id)
+}
+
 fn is_anthropic_model(model_id: &str) -> bool {
-    let m = model_id.to_ascii_lowercase();
+    let m = normalized_model_id(model_id).to_ascii_lowercase();
     m.starts_with("claude")
+}
+
+/// Returns `true` when the model should use the OpenAI Responses API.
+fn is_responses_model(model_id: &str) -> bool {
+    let m = normalized_model_id(model_id).to_ascii_lowercase();
+    m.starts_with("o1") || m.starts_with("o3") || m.starts_with("o4")
+}
+
+/// Returns `true` when the model should use the OpenAI-compatible chat path.
+fn is_openai_or_google_model(model_id: &str) -> bool {
+    let m = normalized_model_id(model_id).to_ascii_lowercase();
+    m.starts_with("gpt-") || m.starts_with("gemini-")
+}
+
+fn is_gemini_model(model_id: &str) -> bool {
+    let model = normalized_model_id(model_id).to_ascii_lowercase();
+    model
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|part| part == "gemini")
+}
+
+fn resolve_api_path_from_model_info(
+    info: &super::ModelInfo,
+    model_id: &str,
+) -> Option<CopilotApiPath> {
+    let supported = |needle: &str| info.supported_endpoints.iter().any(|e| e.contains(needle));
+
+    if let Some(path) = resolve_api_path_from_model_id(model_id) {
+        return Some(path);
+    }
+
+    if is_gemini_model(model_id) {
+        return Some(CopilotApiPath::ChatCompletions);
+    }
+
+    if supported("responses") {
+        return Some(CopilotApiPath::Responses);
+    }
+
+    if supported("messages") {
+        return Some(CopilotApiPath::Messages);
+    }
+
+    if is_anthropic_discovery_model(info) {
+        return Some(CopilotApiPath::Messages);
+    }
+
+    if supported("chat") {
+        return Some(CopilotApiPath::ChatCompletions);
+    }
+
+    if is_openai_or_google_model(model_id) {
+        return Some(CopilotApiPath::ChatCompletions);
+    }
+
+    None
+}
+
+fn is_anthropic_discovery_model(info: &super::ModelInfo) -> bool {
+    let vendor = info
+        .vendor
+        .as_deref()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let name = info.name.to_ascii_lowercase();
+    vendor.contains("anthropic")
+        || name.contains("claude")
+        || name.contains("sonnet")
+        || name.contains("opus")
+        || name.contains("haiku")
+}
+
+fn resolve_api_path_from_model_id(model_id: &str) -> Option<CopilotApiPath> {
+    let model_id = normalized_model_id(model_id);
+
+    if model_id == crate::config::COPILOT_FALLBACK_MODEL_ID {
+        return Some(CopilotApiPath::ChatCompletions);
+    }
+
+    if is_anthropic_model(model_id) {
+        return Some(CopilotApiPath::Messages);
+    }
+
+    if is_responses_model(model_id) {
+        return Some(CopilotApiPath::Responses);
+    }
+
+    if is_openai_or_google_model(model_id) {
+        return Some(CopilotApiPath::ChatCompletions);
+    }
+
+    if is_gemini_model(model_id) {
+        return Some(CopilotApiPath::ChatCompletions);
+    }
+
+    None
 }
 
 /// Convert an OpenAI-style function definition into the Anthropic tool format.
@@ -2471,6 +2617,624 @@ mod tests {
             }
             (other, _) => panic!("expected FunctionCall, got: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn gpt_models_default_to_chat_completions_api() {
+        let provider = with_test_token("https://example.invalid", "test-bearer");
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::ChatCompletions)
+        ));
+    }
+
+    #[tokio::test]
+    async fn claude_models_default_to_messages_api() {
+        let mut provider = with_test_token("https://example.invalid", "test-bearer");
+        provider.model_id = "claude-sonnet-4-20250514".to_string();
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::Messages)
+        ));
+    }
+
+    #[tokio::test]
+    async fn gemini_models_default_to_chat_completions_api() {
+        let mut provider = with_test_token("https://example.invalid", "test-bearer");
+        provider.model_id = "gemini-2.5-pro".to_string();
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::ChatCompletions)
+        ));
+    }
+
+    #[tokio::test]
+    async fn unsupported_models_fail_clearly() {
+        let mut provider = with_test_token("https://example.invalid", "test-bearer");
+        provider.model_id = "unknown-model".to_string();
+        let err = provider.resolve_api_path().await.unwrap_err().to_string();
+        assert!(
+            err.contains("unsupported Copilot model"),
+            "unexpected error: {err}"
+        );
+    }
+
+    fn discovery_model(
+        id: &str,
+        name: &str,
+        vendor: Option<&str>,
+        supported_endpoints: &[&str],
+    ) -> crate::models::ModelInfo {
+        crate::models::ModelInfo {
+            id: id.to_string(),
+            name: name.to_string(),
+            vendor: vendor.map(str::to_string),
+            supported_endpoints: supported_endpoints.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+
+    async fn provider_with_discovery(
+        model_id: &str,
+        models: Vec<crate::models::ModelInfo>,
+    ) -> CopilotProvider {
+        let provider = with_test_token("https://example.invalid", "test-bearer");
+        {
+            let mut guard = provider.discovered_models.lock().await;
+            *guard = Some(DiscoveredModels {
+                models,
+                fetched_at: std::time::Instant::now(),
+            });
+        }
+
+        let mut provider = provider;
+        provider.model_id = model_id.to_string();
+        provider
+    }
+
+    #[test]
+    fn resolve_api_path_from_model_id_covers_family_matrix_and_aliases() {
+        let cases = [
+            ("claude-sonnet-4-20250514", CopilotApiPath::Messages),
+            ("anthropic/claude-sonnet-4", CopilotApiPath::Messages),
+            ("gpt-4o", CopilotApiPath::ChatCompletions),
+            ("copilot:gpt-4o", CopilotApiPath::ChatCompletions),
+            ("openai/gpt-4o", CopilotApiPath::ChatCompletions),
+            ("o1-mini", CopilotApiPath::Responses),
+            ("copilot:o3-mini", CopilotApiPath::Responses),
+            ("o4-mini", CopilotApiPath::Responses),
+            ("gemini-2.5-pro", CopilotApiPath::ChatCompletions),
+            ("google-gemini-2.5-pro", CopilotApiPath::ChatCompletions),
+            ("google/gemini-2.5-pro", CopilotApiPath::ChatCompletions),
+            (
+                crate::config::COPILOT_FALLBACK_MODEL_ID,
+                CopilotApiPath::ChatCompletions,
+            ),
+        ];
+
+        for (model_id, expected) in cases {
+            assert_eq!(
+                resolve_api_path_from_model_id(model_id),
+                Some(expected),
+                "model_id={model_id}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn discovery_metadata_overrides_only_for_unknown_model_ids() {
+        let cases = [
+            (
+                "custom-responses",
+                vec![discovery_model(
+                    "custom-responses",
+                    "Custom Responses",
+                    Some("OpenAI"),
+                    &["responses"],
+                )],
+                CopilotApiPath::Responses,
+            ),
+            (
+                "custom-messages",
+                vec![discovery_model(
+                    "custom-messages",
+                    "Custom Messages",
+                    Some("Anthropic"),
+                    &["messages"],
+                )],
+                CopilotApiPath::Messages,
+            ),
+            (
+                "custom-chat",
+                vec![discovery_model(
+                    "custom-chat",
+                    "Custom Chat",
+                    Some("OpenAI"),
+                    &["chat"],
+                )],
+                CopilotApiPath::ChatCompletions,
+            ),
+            (
+                "custom-anthropic",
+                vec![discovery_model(
+                    "custom-anthropic",
+                    "Claude-ish",
+                    Some("Anthropic"),
+                    &["chat"],
+                )],
+                CopilotApiPath::Messages,
+            ),
+        ];
+
+        for (model_id, models, expected) in cases {
+            let provider = provider_with_discovery(model_id, models).await;
+            assert!(matches!(provider.resolve_api_path().await, Ok(path) if path == expected));
+        }
+    }
+
+    #[tokio::test]
+    async fn misleading_discovery_metadata_does_not_override_family_routing() {
+        let cases = [
+            (
+                "gpt-4o",
+                discovery_model("gpt-4o", "GPT-4o", Some("Anthropic"), &["messages"]),
+                CopilotApiPath::ChatCompletions,
+            ),
+            (
+                "copilot:gpt-4o",
+                discovery_model(
+                    "copilot:gpt-4o",
+                    "GPT-4o",
+                    Some("Anthropic"),
+                    &["responses"],
+                ),
+                CopilotApiPath::ChatCompletions,
+            ),
+            (
+                "claude-sonnet-4-20250514",
+                discovery_model(
+                    "claude-sonnet-4-20250514",
+                    "Claude Sonnet 4",
+                    Some("OpenAI"),
+                    &["chat"],
+                ),
+                CopilotApiPath::Messages,
+            ),
+            (
+                "o3-mini",
+                discovery_model("o3-mini", "o3 Mini", Some("OpenAI"), &["chat"]),
+                CopilotApiPath::Responses,
+            ),
+            (
+                "gemini-2.5-pro",
+                discovery_model(
+                    "gemini-2.5-pro",
+                    "Gemini 2.5 Pro",
+                    Some("Anthropic"),
+                    &["messages"],
+                ),
+                CopilotApiPath::ChatCompletions,
+            ),
+            (
+                "google-gemini-2.5-pro",
+                discovery_model(
+                    "google-gemini-2.5-pro",
+                    "Gemini 2.5 Pro",
+                    Some("Anthropic"),
+                    &["messages"],
+                ),
+                CopilotApiPath::ChatCompletions,
+            ),
+        ];
+
+        for (model_id, model, expected) in cases {
+            let provider = provider_with_discovery(model_id, vec![model]).await;
+            assert!(matches!(provider.resolve_api_path().await, Ok(path) if path == expected));
+        }
+    }
+
+    #[tokio::test]
+    async fn fallback_model_id_keeps_chat_completions_even_with_misleading_discovery() {
+        let provider = provider_with_discovery(
+            crate::config::COPILOT_FALLBACK_MODEL_ID,
+            vec![discovery_model(
+                crate::config::COPILOT_FALLBACK_MODEL_ID,
+                "Fallback",
+                Some("Anthropic"),
+                &["messages"],
+            )],
+        )
+        .await;
+
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::ChatCompletions)
+        ));
+    }
+
+    #[tokio::test]
+    async fn gpt_model_function_calling_routes_via_responses_api() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let mock_server = wiremock::MockServer::start().await;
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/chat/completions"))
+            .and(wiremock::matchers::body_partial_json(json!({
+                "tools": [{
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read a file",
+                        "parameters": {"type": "object"}
+                    }
+                }],
+                "tool_choice": "auto"
+            })))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_test1",
+                            "type": "function",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": "{\"path\":\"/tmp/test.txt\"}"
+                            }
+                        }]
+                    }
+                }]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let provider = with_test_token(&mock_server.uri(), "test-bearer");
+        let result = provider
+            .send_chat_with_functions(
+                &sample_messages(),
+                &[json!({
+                    "name": "read_file",
+                    "description": "Read a file",
+                    "parameters": {"type": "object"}
+                })],
+            )
+            .await;
+
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        match result.unwrap() {
+            (
+                super::ProviderResponse::FunctionCall {
+                    name, arguments, ..
+                },
+                _usage,
+            ) => {
+                assert_eq!(name, "read_file");
+                let args: serde_json::Value = serde_json::from_str(&arguments).unwrap();
+                assert_eq!(args["path"], "/tmp/test.txt");
+            }
+            (other, _) => panic!("expected FunctionCall, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn discovery_metadata_overrides_static_family_guessing() {
+        let provider = with_test_token("https://example.invalid", "test-bearer");
+        {
+            let mut guard = provider.discovered_models.lock().await;
+            *guard = Some(DiscoveredModels {
+                models: vec![crate::models::ModelInfo {
+                    id: "custom-model".to_string(),
+                    name: "Custom".to_string(),
+                    vendor: Some("Anthropic".to_string()),
+                    supported_endpoints: vec!["messages".to_string()],
+                    ..Default::default()
+                }],
+                fetched_at: std::time::Instant::now(),
+            });
+        }
+
+        let mut provider = provider;
+        provider.model_id = "custom-model".to_string();
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::Messages)
+        ));
+    }
+
+    #[tokio::test]
+    async fn discovery_vendor_does_not_override_openai_family_model_id() {
+        let provider = with_test_token("https://example.invalid", "test-bearer");
+        {
+            let mut guard = provider.discovered_models.lock().await;
+            *guard = Some(DiscoveredModels {
+                models: vec![crate::models::ModelInfo {
+                    id: "gpt-4o".to_string(),
+                    name: "GPT-4o".to_string(),
+                    vendor: Some("Anthropic".to_string()),
+                    supported_endpoints: vec![],
+                    ..Default::default()
+                }],
+                fetched_at: std::time::Instant::now(),
+            });
+        }
+
+        let mut provider = provider;
+        provider.model_id = "gpt-4o".to_string();
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::ChatCompletions)
+        ));
+    }
+
+    #[tokio::test]
+    async fn discovery_chat_hint_does_not_override_responses_family_model_id() {
+        let provider = with_test_token("https://example.invalid", "test-bearer");
+        {
+            let mut guard = provider.discovered_models.lock().await;
+            *guard = Some(DiscoveredModels {
+                models: vec![crate::models::ModelInfo {
+                    id: "o3-mini".to_string(),
+                    name: "o3 Mini".to_string(),
+                    vendor: Some("OpenAI".to_string()),
+                    supported_endpoints: vec!["chat".to_string()],
+                    ..Default::default()
+                }],
+                fetched_at: std::time::Instant::now(),
+            });
+        }
+
+        let mut provider = provider;
+        provider.model_id = "o3-mini".to_string();
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::Responses)
+        ));
+    }
+
+    #[tokio::test]
+    async fn discovery_chat_hint_does_not_override_anthropic_vendor_metadata() {
+        let provider = with_test_token("https://example.invalid", "test-bearer");
+        {
+            let mut guard = provider.discovered_models.lock().await;
+            *guard = Some(DiscoveredModels {
+                models: vec![crate::models::ModelInfo {
+                    id: "sonnet-4".to_string(),
+                    name: "Sonnet 4".to_string(),
+                    vendor: Some("Anthropic".to_string()),
+                    supported_endpoints: vec!["chat".to_string()],
+                    ..Default::default()
+                }],
+                fetched_at: std::time::Instant::now(),
+            });
+        }
+
+        let mut provider = provider;
+        provider.model_id = "sonnet-4".to_string();
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::Messages)
+        ));
+    }
+
+    #[tokio::test]
+    async fn gemini_models_ignore_misleading_messages_discovery_metadata() {
+        let provider = with_test_token("https://example.invalid", "test-bearer");
+        {
+            let mut guard = provider.discovered_models.lock().await;
+            *guard = Some(DiscoveredModels {
+                models: vec![crate::models::ModelInfo {
+                    id: "gemini-2.5-pro".to_string(),
+                    name: "Gemini 2.5 Pro".to_string(),
+                    vendor: Some("Anthropic".to_string()),
+                    supported_endpoints: vec!["messages".to_string()],
+                    ..Default::default()
+                }],
+                fetched_at: std::time::Instant::now(),
+            });
+        }
+
+        let mut provider = provider;
+        provider.model_id = "gemini-2.5-pro".to_string();
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::ChatCompletions)
+        ));
+    }
+
+    #[tokio::test]
+    async fn prefixed_gemini_model_ids_still_use_chat_completions_api() {
+        let provider = with_test_token("https://example.invalid", "test-bearer");
+        {
+            let mut guard = provider.discovered_models.lock().await;
+            *guard = Some(DiscoveredModels {
+                models: vec![crate::models::ModelInfo {
+                    id: "google-gemini-2.5-pro".to_string(),
+                    name: "Gemini 2.5 Pro".to_string(),
+                    vendor: Some("Anthropic".to_string()),
+                    supported_endpoints: vec!["messages".to_string()],
+                    ..Default::default()
+                }],
+                fetched_at: std::time::Instant::now(),
+            });
+        }
+
+        let mut provider = provider;
+        provider.model_id = "google-gemini-2.5-pro".to_string();
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::ChatCompletions)
+        ));
+    }
+
+    #[tokio::test]
+    async fn prefixed_gemini_model_ids_route_to_chat_completions_without_discovery() {
+        let mut provider = with_test_token("https://example.invalid", "test-bearer");
+        provider.model_id = "google-gemini-2.5-pro".to_string();
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::ChatCompletions)
+        ));
+    }
+
+    #[tokio::test]
+    async fn function_calling_prefixed_gemini_model_ignores_misleading_anthropic_discovery() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let mock_server = wiremock::MockServer::start().await;
+
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/models"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "data": [{
+                    "id": "google-gemini-2.5-pro",
+                    "name": "Gemini 2.5 Pro",
+                    "vendor": "Anthropic",
+                    "supported_api_types": ["messages"],
+                    "capabilities": { "type": "chat" }
+                }]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/chat/completions"))
+            .and(wiremock::matchers::body_partial_json(json!({
+                "model": "google-gemini-2.5-pro",
+                "tools": [{
+                    "type": "function",
+                    "function": {
+                        "name": "read_file",
+                        "description": "Read a file",
+                        "parameters": { "type": "object" }
+                    }
+                }],
+                "tool_choice": "auto"
+            })))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "choices": [{
+                    "message": {
+                        "role": "assistant",
+                        "content": null,
+                        "tool_calls": [{
+                            "id": "call_test1",
+                            "type": "function",
+                            "function": {
+                                "name": "read_file",
+                                "arguments": "{\"path\":\"/tmp/test.txt\"}"
+                            }
+                        }]
+                    }
+                }]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let mut provider = with_test_token(&mock_server.uri(), "test-bearer");
+        provider.model_id = "google-gemini-2.5-pro".to_string();
+
+        let result = provider
+            .send_chat_with_functions(
+                &sample_messages(),
+                &[json!({
+                    "name": "read_file",
+                    "description": "Read a file",
+                    "parameters": {"type": "object"}
+                })],
+            )
+            .await;
+
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        match result.unwrap() {
+            (
+                super::ProviderResponse::FunctionCall {
+                    name, arguments, ..
+                },
+                _usage,
+            ) => {
+                assert_eq!(name, "read_file");
+                let args: serde_json::Value = serde_json::from_str(&arguments).unwrap();
+                assert_eq!(args["path"], "/tmp/test.txt");
+            }
+            (other, _) => panic!("expected FunctionCall, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn discovery_messages_hint_still_wins_for_claude_models() {
+        let provider = with_test_token("https://example.invalid", "test-bearer");
+        {
+            let mut guard = provider.discovered_models.lock().await;
+            *guard = Some(DiscoveredModels {
+                models: vec![crate::models::ModelInfo {
+                    id: "claude-sonnet-4-20250514".to_string(),
+                    name: "Claude Sonnet 4".to_string(),
+                    vendor: Some("Anthropic".to_string()),
+                    supported_endpoints: vec!["chat".to_string()],
+                    ..Default::default()
+                }],
+                fetched_at: std::time::Instant::now(),
+            });
+        }
+
+        let mut provider = provider;
+        provider.model_id = "claude-sonnet-4-20250514".to_string();
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::Messages)
+        ));
+    }
+
+    #[tokio::test]
+    async fn function_calling_primes_discovery_and_routes_claude_like_model_via_chat() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let mock_server = wiremock::MockServer::start().await;
+
+        wiremock::Mock::given(wiremock::matchers::method("GET"))
+            .and(wiremock::matchers::path("/models"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_json(json!({
+                "data": [{
+                    "id": "claude-sonnet-4-20250514",
+                    "name": "Claude Sonnet 4",
+                    "vendor": "Anthropic",
+                    "supported_api_types": ["chat"],
+                    "capabilities": { "type": "chat" }
+                }]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        wiremock::Mock::given(wiremock::matchers::method("POST"))
+            .and(wiremock::matchers::path("/v1/messages"))
+            .respond_with(wiremock::ResponseTemplate::new(200).set_body_string(
+                "data: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-4-20250514\",\"usage\":{\"input_tokens\":1}}}\n\n\
+data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\"}}\n\n\
+data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"ok\"}}\n\n\
+data: {\"type\":\"content_block_stop\",\"index\":0}\n\n\
+data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":1}}\n\n\
+data: [DONE]\n\n"
+            ))
+            .mount(&mock_server)
+            .await;
+
+        let mut provider = with_test_token(&mock_server.uri(), "test-bearer");
+        provider.model_id = "claude-sonnet-4-20250514".to_string();
+
+        let result = provider
+            .send_chat_with_functions(
+                &sample_messages(),
+                &[json!({
+                    "name": "read_file",
+                    "description": "Read a file",
+                    "parameters": {"type": "object"}
+                })],
+            )
+            .await;
+
+        assert!(result.is_ok(), "expected Ok, got: {result:?}");
+        assert!(matches!(
+            provider.resolve_api_path().await,
+            Ok(CopilotApiPath::Messages)
+        ));
     }
 
     // -------------------------------------------------------------------

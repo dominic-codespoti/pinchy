@@ -3,6 +3,7 @@ export { AgentCard } from './agent-card';
 export { AgentDetail } from './agent-detail';
 export { AgentsList } from './agents-list';
 export { AgentFilesTab } from './agent-files-tab';
+export { AgentHeaderOverrides } from './agent-header-overrides';
 export { AgentMemoryTab } from './agent-memory-tab';
 export { AgentOverviewTab } from './agent-overview-tab';
 export { AgentSessionsTab } from './agent-sessions-tab';

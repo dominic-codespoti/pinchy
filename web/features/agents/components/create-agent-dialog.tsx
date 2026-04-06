@@ -43,8 +43,6 @@ export function CreateAgentDialog({ open: controlledOpen, onOpenChange, onCreate
   const { data: models, isLoading: modelsLoading } = useAgentModels();
 
   const modelOptions = models || [];
-  const selection = normalizeAgentModelSelection(formData.provider, formData.model, modelOptions);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
@@ -61,10 +59,16 @@ export function CreateAgentDialog({ open: controlledOpen, onOpenChange, onCreate
 
     setIsCreating(true);
     try {
+      const saveSelection = normalizeAgentModelSelection(
+        formData.provider,
+        formData.model,
+        modelOptions,
+        'save'
+      );
       await onCreate?.({
         ...formData,
-        model: selection.model,
-        provider: selection.provider,
+        model: saveSelection.model,
+        provider: saveSelection.provider,
       });
       setOpen(false);
       setFormData({ id: '', model: '', provider: '' });

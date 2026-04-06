@@ -56,7 +56,7 @@ export async function fetchModels(): Promise<ModelInfo[]> {
 export const PROVIDERS = [
   { id: 'openai', name: 'OpenAI', requiresApiKey: true, requiresEndpoint: false },
   { id: 'azure', name: 'Azure OpenAI', requiresApiKey: true, requiresEndpoint: true },
-  { id: 'copilot', name: 'GitHub Copilot', requiresApiKey: false, requiresEndpoint: false, requiresOAuth: true },
+  { id: 'copilot', name: 'Copilot', requiresApiKey: false, requiresEndpoint: false, requiresOAuth: true },
   { id: 'anthropic', name: 'Anthropic', requiresApiKey: true, requiresEndpoint: false },
   { id: 'google', name: 'Google Gemini', requiresApiKey: true, requiresEndpoint: false },
   { id: 'bedrock', name: 'Amazon Bedrock', requiresApiKey: true, requiresEndpoint: false },

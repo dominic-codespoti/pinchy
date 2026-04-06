@@ -47,11 +47,14 @@ export function EditAgentSheet({ agent, open: controlledOpen, onOpenChange, onSa
   const { data: models, isLoading: modelsLoading } = useAgentModels();
 
   const modelOptions = models || [];
-  const selection = normalizeAgentModelSelection(formData.provider, formData.model, modelOptions);
-
   // Reset form when agent changes or sheet opens
   useEffect(() => {
     if (open) {
+      const selection = normalizeAgentModelSelection(
+        agent.config.provider,
+        agent.config.model,
+        modelOptions
+      );
       setFormData({
         model: selection.model,
         provider: selection.provider,
@@ -59,7 +62,7 @@ export function EditAgentSheet({ agent, open: controlledOpen, onOpenChange, onSa
       });
       setHasChanges(false);
     }
-  }, [agent, open, modelOptions, selection.model, selection.provider]);
+  }, [agent.config.model, agent.config.provider, agent.heartbeatInterval, open, modelOptions]);
 
   const handleChange = (field: string, value: string | number) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -71,12 +74,19 @@ export function EditAgentSheet({ agent, open: controlledOpen, onOpenChange, onSa
 
     setIsSaving(true);
     try {
+      const saveSelection = normalizeAgentModelSelection(
+        formData.provider,
+        formData.model,
+        modelOptions,
+        'save'
+      );
       await onSave?.(agent.id, {
         config: {
           ...agent.config,
-          model: selection.model,
-          provider: selection.provider,
+          model: saveSelection.model,
+          provider: saveSelection.provider,
         },
+        heartbeatEnabled: agent.heartbeatEnabled,
         heartbeatInterval: formData.heartbeatInterval,
       });
       setOpen(false);

@@ -1010,6 +1010,16 @@ async fn execute_update_agent_config(
                         data: None,
                     },
                 }
+
+                if let Some(handle) = crate::scheduler::scheduler_handle_ref() {
+                    handle
+                        .sync_agent_heartbeat(
+                            &agent_id,
+                            std::path::PathBuf::from(&ac.root),
+                            ac.heartbeat_secs,
+                        )
+                        .await;
+                }
             } else {
                 // Agent not in config - add it
                 let new_ac = crate::config::AgentConfig {
@@ -1044,6 +1054,7 @@ async fn execute_update_agent_config(
                         .get("reasoning_effort")
                         .and_then(|v| v.as_str())
                         .map(String::from),
+                    header_overrides: None,
                     heartbeat_secs: action.params.get("heartbeat_secs").and_then(|v| {
                         if v.is_null() {
                             None
@@ -1071,6 +1082,16 @@ async fn execute_update_agent_config(
                         error: Some(format!("Failed to save config: {}", e)),
                         data: None,
                     },
+                }
+
+                if let Some(handle) = crate::scheduler::scheduler_handle_ref() {
+                    handle
+                        .sync_agent_heartbeat(
+                            &agent_id,
+                            std::path::PathBuf::from(&new_ac.root),
+                            new_ac.heartbeat_secs,
+                        )
+                        .await;
                 }
             }
         }
@@ -1263,6 +1284,7 @@ async fn execute_create_agent(action: &ActionRequest, _scope: &AssistantScope) -
                 id: id.to_string(),
                 root: format!("agents/{}", id),
                 model,
+                header_overrides: None,
                 ..Default::default()
             });
             let _ = cfg.save(&config_path).await;

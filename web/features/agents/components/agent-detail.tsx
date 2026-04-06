@@ -12,7 +12,7 @@ import { Agent } from '../types';
 import { sendTestMessage as sendTestMessageApi } from '../api';
 import { AgentOverviewTab } from './agent-overview-tab';
 import { useAgentModels } from '@/features/settings';
-import { getAgentModelProviderLabel, getSelectedAgentModelLabel } from '../model-options';
+import { getSelectedAgentModelLabel, getSelectedAgentProviderLabel } from '../model-options';
 
 /**
  * Wrapper to adapt the API function to the component's expected interface
@@ -49,7 +49,7 @@ function getStatusVariant(status: string): 'default' | 'secondary' | 'destructiv
 function HeroSection({ agent }: { agent: Agent }) {
   const { data: models } = useAgentModels();
   const modelLabel = getSelectedAgentModelLabel(agent.config.model, models);
-  const providerLabel = getAgentModelProviderLabel(agent.config.model, models);
+  const providerLabel = getSelectedAgentProviderLabel(agent.config.provider, agent.config.model, models);
   return (
     <Card className="mb-6">
       <CardContent className="p-6">
@@ -203,6 +203,7 @@ export function AgentDetail({ id }: AgentDetailProps) {
                 history_messages: settings.historyMessages,
                 max_tool_iterations: settings.maxToolIterations,
                 reasoning_effort: settings.reasoningEffort,
+                header_overrides: settings.header_overrides,
               });
             }}
           />

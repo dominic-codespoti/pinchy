@@ -106,6 +106,7 @@ async fn register_pinchy_in_config() -> anyhow::Result<()> {
         timezone: None,
         watch_paths: Vec::new(),
         reasoning_effort: None,
+        header_overrides: None,
     });
 
     // Save updated config

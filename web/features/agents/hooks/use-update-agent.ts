@@ -23,6 +23,7 @@ async function updateAgent({ agentId, input }: UpdateAgentVariables): Promise<Ag
       model: input.model,
       provider: input.provider,
       heartbeat_secs: input.heartbeat_secs,
+      heartbeat_enabled: input.heartbeatEnabled,
       max_tool_iterations: input.max_tool_iterations,
       enabled_skills: input.enabled_skills,
       max_turns: input.max_turns,
@@ -30,6 +31,7 @@ async function updateAgent({ agentId, input }: UpdateAgentVariables): Promise<Ag
       history_messages: input.history_messages,
       reasoning_effort: input.reasoning_effort,
       enabled: input.enabled,
+      header_overrides: input.header_overrides,
     }),
   });
   return response;
@@ -80,6 +82,7 @@ export function useUpdateAgent(): UseUpdateAgentResult {
           maxToolIterations: input.max_tool_iterations ?? previousAgent.maxToolIterations,
           reasoningEffort: input.reasoning_effort ?? previousAgent.reasoningEffort,
           enabledSkills: input.enabled_skills ?? previousAgent.enabledSkills,
+          headerOverrides: input.header_overrides ?? previousAgent.headerOverrides,
         };
         queryClient.setQueryData(agentsKeys.detail(agentId), optimisticAgent);
       }

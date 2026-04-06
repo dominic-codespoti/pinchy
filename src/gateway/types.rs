@@ -1,6 +1,14 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+/// Row-shaped HTTP header override.
+#[derive(Serialize, Deserialize, Clone, TS)]
+#[ts(export)]
+pub(crate) struct AgentHeaderOverride {
+    pub header: String,
+    pub value: String,
+}
+
 /// Response wrapper for list of agents
 #[derive(Serialize, TS)]
 #[ts(export)]
@@ -21,6 +29,8 @@ pub(crate) struct AgentListItem {
     pub last_heartbeat_at: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub heartbeat_secs: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -75,6 +85,8 @@ pub(crate) struct AgentDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub header_overrides: Vec<AgentHeaderOverride>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub watch_paths: Vec<String>,
 }
 
@@ -95,6 +107,8 @@ pub(crate) struct AgentCloneResponse {
 pub(crate) struct AgentCreateResponse {
     pub id: String,
     pub created: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub header_overrides: Vec<AgentHeaderOverride>,
 }
 
 /// Response for agent update operation
@@ -103,6 +117,8 @@ pub(crate) struct AgentCreateResponse {
 pub(crate) struct AgentUpdateResponse {
     pub id: String,
     pub updated: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub header_overrides: Vec<AgentHeaderOverride>,
 }
 
 /// Response for agent delete operation
@@ -423,20 +439,13 @@ pub(crate) struct ModelInfo {
     pub modalities: Option<Vec<String>>,
 }
 
-/// Agent-selectable model option.
-///
-/// `config_model_id` is the internal reference persisted on the agent.
-/// `provider` + `model_id`/`model_name` are the real selectable/display values.
+/// Agent-selectable raw provider/model pair.
 #[derive(Serialize, TS)]
 #[ts(export)]
 pub(crate) struct AgentModelOption {
-    pub id: String,
     pub name: String,
     pub provider: String,
     pub model: String,
-    pub config_model_id: String,
-    pub model_id: String,
-    pub model_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 }

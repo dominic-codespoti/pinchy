@@ -24,7 +24,7 @@ use crate::gateway;
 /// handle cancels all heartbeat tasks (cron scheduler is Arc-ref-counted
 /// internally by `tokio_cron_scheduler`).
 pub struct SchedulerHandle {
-    _heartbeat_handles: Vec<JoinHandle<()>>,
+    heartbeat_handles: Arc<Mutex<HashMap<String, JoinHandle<()>>>>,
     _cron_scheduler: Option<JobScheduler>,
     /// Shared list of persisted cron job specs so `register_job` can
     /// append at runtime.
@@ -122,19 +122,93 @@ fn resolve_agent_timezone(config: &Config, agent_id: &str) -> chrono_tz::Tz {
     config.resolve_timezone(agent_id)
 }
 
-/// Read the heartbeat interval from `PINCHY_HEARTBEAT_SECS` env var,
-/// falling back to the per-agent config value, then to the provided
-/// `default`.
-fn resolve_heartbeat_secs(config_value: Option<u64>, default: u64) -> u64 {
-    if let Ok(val) = std::env::var("PINCHY_HEARTBEAT_SECS") {
-        if let Ok(s) = val.parse::<u64>() {
-            return s;
+/// Resolve the effective heartbeat interval.
+///
+/// The global `PINCHY_HEARTBEAT_SECS` override only applies when the agent
+/// has heartbeat enabled in config. Explicitly disabled agents stay disabled.
+fn resolve_heartbeat_secs(config_value: Option<u64>) -> Option<u64> {
+    resolve_heartbeat_secs_with_override(
+        config_value,
+        std::env::var("PINCHY_HEARTBEAT_SECS").ok().as_deref(),
+    )
+}
+
+fn resolve_heartbeat_secs_with_override(
+    config_value: Option<u64>,
+    env_override: Option<&str>,
+) -> Option<u64> {
+    let config_value = config_value?;
+
+    match env_override.and_then(|val| val.parse::<u64>().ok()) {
+        Some(secs) => Some(secs),
+        None => Some(config_value),
+    }
+}
+
+fn spawn_heartbeat_task(
+    agent_id: String,
+    agent_root: PathBuf,
+    interval_secs: u64,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        // Catch panics so one misbehaving heartbeat can't crash the whole scheduler.
+        let aid = agent_id.clone();
+        let ws = agent_root.clone();
+        let result = tokio::spawn(async move {
+            run_heartbeat(&aid, &ws, interval_secs).await;
+        });
+        match result.await {
+            Ok(()) => {}
+            Err(e) => {
+                error!(agent = %agent_id, error = %e, "heartbeat task panicked");
+            }
+        }
+    })
+}
+
+fn heartbeat_enabled_for_config(config: &Config, agent_id: &str) -> bool {
+    config
+        .agents
+        .iter()
+        .find(|agent| agent.id == agent_id)
+        .and_then(|agent| agent.heartbeat_secs)
+        .is_some()
+}
+
+async fn heartbeat_is_enabled_now(agent_id: &str) -> bool {
+    let config_path = crate::pinchy_home().join("config.yaml");
+
+    match Config::load(&config_path).await {
+        Ok(config) => heartbeat_enabled_for_config(&config, agent_id),
+        Err(e) => {
+            warn!(agent = %agent_id, error = %e, "heartbeat: unable to reload config; stopping task");
+            false
         }
     }
-    config_value.unwrap_or(default)
 }
 
 impl SchedulerHandle {
+    async fn replace_heartbeat_task(
+        &self,
+        agent_id: String,
+        agent_root: PathBuf,
+        interval_secs: u64,
+    ) {
+        self.disable_heartbeat(&agent_id).await;
+        let handle = spawn_heartbeat_task(agent_id.clone(), agent_root, interval_secs);
+        self.heartbeat_handles.lock().await.insert(agent_id, handle);
+    }
+
+    /// Stop a running heartbeat task for an agent, if one exists.
+    pub async fn disable_heartbeat(&self, agent_id: &str) {
+        let handle = self.heartbeat_handles.lock().await.remove(agent_id);
+        if let Some(handle) = handle {
+            handle.abort();
+            let _ = handle.await;
+            debug!(agent = %agent_id, "disabled heartbeat task");
+        }
+    }
+
     /// Register a new cron job at runtime.  The job is persisted and
     /// scheduled immediately.
     pub async fn register_job(&self, mut entry: PersistedCronJob) -> anyhow::Result<()> {
@@ -265,6 +339,22 @@ impl SchedulerHandle {
             jobs.retain(|j| !(j.name == name && j.agent_id == agent_id));
         }
     }
+
+    /// Sync an agent's heartbeat task with its configured interval.
+    pub async fn sync_agent_heartbeat(
+        &self,
+        agent_id: &str,
+        agent_root: PathBuf,
+        heartbeat_secs: Option<u64>,
+    ) {
+        match resolve_heartbeat_secs(heartbeat_secs) {
+            Some(interval_secs) => {
+                self.replace_heartbeat_task(agent_id.to_string(), agent_root, interval_secs)
+                    .await;
+            }
+            None => self.disable_heartbeat(agent_id).await,
+        }
+    }
 }
 
 /// Start the scheduler: spawns heartbeat tasks for every agent that has a
@@ -274,20 +364,13 @@ impl SchedulerHandle {
 pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
     info!("scheduler: initializing heartbeats and cron jobs");
 
-    let mut heartbeat_handles: Vec<JoinHandle<()>> = Vec::new();
+    let heartbeat_handle_map: Arc<Mutex<HashMap<String, JoinHandle<()>>>> =
+        Arc::new(Mutex::new(HashMap::new()));
 
     // --- Heartbeats ---
     for agent in &config.agents {
-        let secs = match agent.heartbeat_secs {
-            Some(s) => resolve_heartbeat_secs(Some(s), 300),
-            None => {
-                // Check env var even when config doesn't set heartbeat_secs.
-                if std::env::var("PINCHY_HEARTBEAT_SECS").is_ok() {
-                    resolve_heartbeat_secs(None, 300)
-                } else {
-                    continue;
-                }
-            }
+        let Some(secs) = resolve_heartbeat_secs(agent.heartbeat_secs) else {
+            continue;
         };
 
         let agent_id = agent.id.clone();
@@ -298,22 +381,8 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
         // yet — the heartbeat loop handles a missing file gracefully.
         debug!(agent = %agent_id, interval_secs = secs, "spawning heartbeat task");
 
-        let handle = tokio::spawn(async move {
-            // Catch panics so one misbehaving heartbeat can't crash the
-            // whole scheduler.
-            let aid = agent_id.clone();
-            let ws = agent_root.clone();
-            let result = tokio::spawn(async move {
-                run_heartbeat(&aid, &ws, secs).await;
-            });
-            match result.await {
-                Ok(()) => {}
-                Err(e) => {
-                    error!(agent = %agent_id, error = %e, "heartbeat task panicked");
-                }
-            }
-        });
-        heartbeat_handles.push(handle);
+        let handle = spawn_heartbeat_task(agent_id.clone(), agent_root, secs);
+        heartbeat_handle_map.lock().await.insert(agent_id, handle);
     }
 
     // --- Cron jobs (DB is the single source of truth) ---
@@ -411,7 +480,7 @@ pub async fn start(config: &Config) -> anyhow::Result<SchedulerHandle> {
 
     info!("scheduler: initialized");
     Ok(SchedulerHandle {
-        _heartbeat_handles: heartbeat_handles,
+        heartbeat_handles: heartbeat_handle_map,
         _cron_scheduler: cron_sched,
         cron_jobs: persisted_jobs_list,
         cron_scheduler: cron_sched_for_handle,
@@ -472,6 +541,11 @@ async fn run_heartbeat(agent_id: &str, workspace: &Path, interval_secs: u64) {
 
     loop {
         tick.tick().await;
+
+        if !heartbeat_is_enabled_now(agent_id).await {
+            debug!(agent = %agent_id, "heartbeat disabled; stopping task");
+            break;
+        }
 
         let heartbeat_path = workspace.join("HEARTBEAT.md");
         let content = match tokio::fs::read_to_string(&heartbeat_path).await {
@@ -1056,5 +1130,107 @@ pub fn normalize_cron_schedule(schedule: &str) -> String {
         format!("0 {schedule}")
     } else {
         schedule.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use tokio::sync::watch;
+
+    fn empty_handle() -> SchedulerHandle {
+        SchedulerHandle {
+            heartbeat_handles: Arc::new(Mutex::new(HashMap::new())),
+            _cron_scheduler: None,
+            cron_jobs: Arc::new(Mutex::new(Vec::new())),
+            cron_scheduler: None,
+            job_uuids: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+
+    #[test]
+    fn global_override_does_not_enable_disabled_heartbeat() {
+        assert_eq!(resolve_heartbeat_secs_with_override(None, Some("15")), None);
+        assert_eq!(
+            resolve_heartbeat_secs_with_override(Some(20), Some("15")),
+            Some(15)
+        );
+        assert_eq!(
+            resolve_heartbeat_secs_with_override(Some(20), Some("bad")),
+            Some(20)
+        );
+    }
+
+    #[tokio::test]
+    async fn disabling_a_heartbeat_aborts_the_running_task() {
+        let handle = empty_handle();
+        let count = Arc::new(AtomicUsize::new(0));
+        let task_count = count.clone();
+        let (tx, mut rx) = watch::channel(false);
+
+        let join = tokio::spawn(async move {
+            loop {
+                if rx.changed().await.is_err() {
+                    break;
+                }
+                task_count.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+
+        handle
+            .heartbeat_handles
+            .lock()
+            .await
+            .insert("agent-a".to_string(), join);
+
+        let _ = tx.send(true);
+        tokio::task::yield_now().await;
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+
+        handle.disable_heartbeat("agent-a").await;
+        let _ = tx.send(false);
+        tokio::task::yield_now().await;
+        assert_eq!(count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn disabled_agents_stay_disabled_even_if_others_are_enabled() {
+        let cfg = Config {
+            models: vec![],
+            channels: crate::config::ChannelsConfig {
+                discord: None,
+                default_channel: None,
+            },
+            agents: vec![
+                crate::config::AgentConfig {
+                    id: "enabled".into(),
+                    root: "agents/enabled".into(),
+                    heartbeat_secs: Some(30),
+                    ..Default::default()
+                },
+                crate::config::AgentConfig {
+                    id: "disabled".into(),
+                    root: "agents/disabled".into(),
+                    heartbeat_secs: None,
+                    ..Default::default()
+                },
+            ],
+            secrets: None,
+            routing: None,
+            skills: None,
+            timezone: None,
+            session_expiry_days: Some(30),
+            cron_session_expiry_days: Some(7),
+            cron_events_max_keep: Some(50),
+            chromium_path: None,
+            mcp_servers: HashMap::new(),
+            shared_memory: None,
+        };
+
+        assert!(heartbeat_enabled_for_config(&cfg, "enabled"));
+        assert!(!heartbeat_enabled_for_config(&cfg, "disabled"));
+        assert!(!heartbeat_enabled_for_config(&cfg, "missing"));
     }
 }

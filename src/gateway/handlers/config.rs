@@ -1,5 +1,4 @@
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
-use std::collections::HashSet;
 
 use super::super::types::*;
 use super::super::AppState;
@@ -43,31 +42,18 @@ pub(crate) async fn api_config_get(State(state): State<AppState>) -> impl IntoRe
 
 /// `GET /api/config/models`
 ///
-/// Returns only config-defined agent model options that map to concrete
-/// provider/model combinations.
+/// Legacy compatibility endpoint that now mirrors `/api/models`.
 pub(crate) async fn api_config_models_get(State(state): State<AppState>) -> impl IntoResponse {
     match crate::config::Config::load(&state.config_path).await {
         Ok(cfg) => {
-            let mut seen = HashSet::new();
-            let models: Vec<AgentModelOption> = cfg
-                .models
+            let models = crate::gateway::handlers::models::collect_model_inventory(&cfg).await;
+            let models: Vec<AgentModelOption> = models
                 .into_iter()
-                .filter_map(|m| {
-                    let model = m.model?;
-                    if model.is_empty() || m.provider.is_empty() || !seen.insert(model.clone()) {
-                        return None;
-                    }
-
-                    Some(AgentModelOption {
-                        id: model.clone(),
-                        name: model.clone(),
-                        model: model.clone(),
-                        config_model_id: m.id,
-                        provider: m.provider,
-                        model_id: model.clone(),
-                        model_name: model,
-                        description: None,
-                    })
+                .map(|m| AgentModelOption {
+                    name: m.name,
+                    provider: m.provider,
+                    model: m.id,
+                    description: m.description,
                 })
                 .collect();
 

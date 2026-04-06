@@ -11,6 +11,7 @@ import { TIMEOUTS } from '@/lib/config/timeouts';
 import { Agent } from '@/features/agents/types';
 import { Message, TurnReceipt } from '@/shared/types/common';
 import { useAgentSessions } from '../hooks';
+import { sessionsKeys } from '@/features/sessions/query-keys';
 import { Session, Mention } from '../types';
 
 export interface UseChatReturn {
@@ -200,7 +201,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
           toast.success('New session created');
         }
         // Invalidate and refetch sessions query to refresh sidebar immediately
-        queryClient.invalidateQueries({ queryKey: ['agents', agentId, 'sessions'] });
+        queryClient.invalidateQueries({ queryKey: sessionsKeys.byAgent(agentId) });
         continue;
       }
 

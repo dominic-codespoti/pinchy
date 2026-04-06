@@ -34,6 +34,7 @@ import { CloneAgentDialog } from './clone-agent-dialog';
 import { EditAgentSheet } from './edit-agent-sheet';
 import { updateAgent } from '../api/agents';
 import { toast } from 'sonner';
+import { getAgentProviderDisplayLabel } from '../model-options';
 
 interface AgentOverviewTabProps {
   agent: Agent;
@@ -225,6 +226,7 @@ function QuickActions({
     try {
       await updateAgent(agentId, {
         model: data.config?.model,
+        heartbeatEnabled: data.heartbeatEnabled,
         heartbeat_secs: data.heartbeatInterval,
       });
       toast.success('Agent updated successfully');
@@ -322,7 +324,7 @@ function AgentInfo({ agent }: { agent: Agent }) {
           </div>
           <div>
             <p className="text-sm font-medium text-muted-foreground">Provider</p>
-            <Badge variant="outline">{agent.config.provider}</Badge>
+            <Badge variant="outline">{getAgentProviderDisplayLabel(agent.config.provider)}</Badge>
           </div>
           <div>
             <p className="text-sm font-medium text-muted-foreground">Model</p>
@@ -498,7 +500,7 @@ export function AgentOverviewTab({ agent, isLoading, onSwitchTab }: AgentOvervie
         <StatCard
           icon={<Bot className="h-4 w-4 text-primary" />}
           label="Provider"
-          value={agent.config.provider || 'Not set'}
+          value={getAgentProviderDisplayLabel(agent.config.provider)}
           subtext={agent.config.model || FALLBACKS.MODEL}
         />
         <StatCard

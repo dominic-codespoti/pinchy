@@ -8,7 +8,6 @@ import { transformAgent, transformAgentDetail } from '../utils';
 import type {
   AgentListItem,
   AgentsListResponse,
-  AgentDetail,
   AgentCreateResponse,
   AgentUpdateResponse,
   AgentDeleteResponse,
@@ -16,6 +15,7 @@ import type {
 } from '@/src/lib/bindings';
 import type {
   Agent,
+  AgentDetailResponse,
   CreateAgentInput,
   UpdateAgentInput,
   CloneAgentResult,
@@ -46,7 +46,7 @@ export async function getAgents(): Promise<Agent[]> {
  * GET /api/agents/:id
  */
 export async function getAgent(id: string): Promise<Agent> {
-  const response = await fetchApi<AgentDetail>(`${API_BASE}/${encodeURIComponent(id)}`);
+  const response = await fetchApi<AgentDetailResponse>(`${API_BASE}/${encodeURIComponent(id)}`);
   return transformAgentDetail(response);
 }
 
@@ -60,11 +60,13 @@ export async function createAgent(input: CreateAgentInput): Promise<string> {
     body: JSON.stringify({
       id: input.id,
       model: input.model,
+      provider: input.provider,
       soul: input.soul,
       tools: input.tools,
       heartbeat: input.heartbeat,
       heartbeat_secs: input.heartbeat_secs,
       enabled_skills: input.enabled_skills,
+      header_overrides: input.header_overrides,
     }),
   });
   return response.id;
@@ -93,6 +95,7 @@ export async function updateAgent(
     body.compact_keep_recent_turns = data.compact_keep_recent_turns;
   if (data.history_messages !== undefined) body.history_messages = data.history_messages;
   if (data.reasoning_effort !== undefined) body.reasoning_effort = data.reasoning_effort;
+  if (data.header_overrides !== undefined) body.header_overrides = data.header_overrides;
   if (data.enabled !== undefined) {
     // Handle enabled logic (may map to heartbeat_secs being null)
     if (!data.enabled) {

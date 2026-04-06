@@ -508,6 +508,7 @@ pub(crate) async fn api_provider_test(
                 m.api_key.as_deref(),
                 m.headers.as_ref(),
                 None,
+                None,
             )
         }
         None => {

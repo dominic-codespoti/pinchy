@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -10,13 +10,14 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Settings, Save, Heart, Wrench, Bot, Clock, AlertTriangle } from 'lucide-react';
-import { Agent } from '../types';
+import { Agent, AgentHeaderOverride } from '../types';
 import { useAgentModels } from '@/features/settings';
 import type { AgentModelOption } from '@/features/settings';
 import { LIMITS } from '@/lib/config/timeouts';
 import { FALLBACKS } from '@/lib/constants/fallbacks';
 import { AgentModelPicker } from './agent-model-picker';
 import { normalizeAgentModelSelection } from '../model-options';
+import { AgentHeaderOverrides, normalizeHeaderOverrides } from './agent-header-overrides';
 
 // Types
 interface AgentSettingsData {
@@ -24,12 +25,13 @@ interface AgentSettingsData {
   model?: string;
   provider?: string;
   heartbeatEnabled?: boolean;
-  heartbeatInterval?: number;
+  heartbeatInterval?: number | null;
   maxTurns?: number;
   historyMessages?: number;
   maxToolIterations?: number;
   reasoningEffort?: string;
   timezone?: string;
+  header_overrides?: AgentHeaderOverride[];
 }
 
 interface AgentSettingsTabProps {
@@ -97,7 +99,7 @@ function ModelProviderSection({
   modelsLoading,
   onChange,
 }: ModelProviderSectionProps) {
-  const modelOptions = models ?? [];
+  const modelOptions = models;
 
   return (
     <div className="space-y-4">
@@ -325,12 +327,13 @@ function AgentSettingsSkeleton() {
 // Main component
 export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabProps) {
   const { data: models, isLoading: modelsLoading } = useAgentModels();
-  const modelOptions = models ?? [];
+  const modelOptions = models;
   const selection = normalizeAgentModelSelection(agent.config.provider, agent.config.model, modelOptions);
+  const initialHeaderOverrides = useMemo(() => agent.headerOverrides ?? [], [agent.headerOverrides]);
   const [formData, setFormData] = useState<FormData>({
     model: selection.model,
     provider: selection.provider || agent.config.provider,
-    heartbeatEnabled: agent.hasHeartbeat ?? false,
+    heartbeatEnabled: agent.heartbeatEnabled ?? agent.hasHeartbeat ?? false,
     heartbeatInterval: agent.heartbeatInterval || 60,
     maxTurns: agent.maxTurns || 10,
     historyMessages: agent.historyMessages || 5,
@@ -338,17 +341,21 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
     reasoningEffort: agent.reasoningEffort || 'medium',
     timezone: agent.timezone || FALLBACKS.TIMEZONE,
   });
+  const [headerOverrides, setHeaderOverrides] = useState<AgentHeaderOverride[]>(initialHeaderOverrides);
 
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  const handleHeaderOverridesChange = (next: AgentHeaderOverride[]) => {
+    setHeaderOverrides(next.length ? next : [{ header: '', value: '' }]);
+    setHasChanges(true);
+  };
 
-  // Sync from agent config once the canonical model options are available.
   useEffect(() => {
     if (!models?.length) return;
     setFormData({
       model: selection.model,
       provider: selection.provider || agent.config.provider,
-      heartbeatEnabled: agent.hasHeartbeat ?? false,
+      heartbeatEnabled: agent.heartbeatEnabled ?? agent.hasHeartbeat ?? false,
       heartbeatInterval: agent.heartbeatInterval || 60,
       maxTurns: agent.maxTurns || 10,
       historyMessages: agent.historyMessages || 5,
@@ -356,8 +363,9 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
       reasoningEffort: agent.reasoningEffort || 'medium',
       timezone: agent.timezone || FALLBACKS.TIMEZONE,
     });
+    setHeaderOverrides(initialHeaderOverrides);
     setHasChanges(false);
-  }, [models, agent, selection.model, selection.provider]);
+  }, [models, agent.id, agent.config.provider, agent.config.model, agent.heartbeatEnabled, agent.hasHeartbeat, agent.heartbeatInterval, agent.maxTurns, agent.historyMessages, agent.maxToolIterations, agent.reasoningEffort, agent.timezone, initialHeaderOverrides]);
 
   const handleChange = (field: string, value: string | number | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -365,7 +373,8 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
   };
 
   const handleSave = async () => {
-    const selection = normalizeAgentModelSelection(formData.provider, formData.model, modelOptions);
+    const selection = normalizeAgentModelSelection(formData.provider, formData.model, modelOptions, 'save');
+    const normalizedHeaderOverrides = normalizeHeaderOverrides(headerOverrides);
     setIsSaving(true);
     try {
       await onSave?.({
@@ -378,12 +387,13 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
         model: selection.model,
         provider: selection.provider || agent.config.provider,
         heartbeatEnabled: formData.heartbeatEnabled,
-        heartbeatInterval: formData.heartbeatEnabled ? formData.heartbeatInterval : undefined,
+        heartbeatInterval: formData.heartbeatEnabled ? formData.heartbeatInterval : null,
         maxTurns: formData.maxTurns,
         historyMessages: formData.historyMessages,
         maxToolIterations: formData.maxToolIterations,
         reasoningEffort: formData.reasoningEffort,
         timezone: formData.timezone,
+        header_overrides: normalizedHeaderOverrides,
       });
       setHasChanges(false);
     } catch (err) {
@@ -425,6 +435,8 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
           modelsLoading={modelsLoading}
           onChange={handleChange}
         />
+
+        <AgentHeaderOverrides value={headerOverrides} onChange={handleHeaderOverridesChange} disabled={isSaving} />
 
         <Separator />
 

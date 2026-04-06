@@ -39,4 +39,5 @@ stop_existing_next
 echo "🧹 Resetting Next dev cache..."
 rm -rf "$WEB_DIR/.next/dev"
 
-exec npx next dev --port 3000 --hostname 127.0.0.1
+cd "$WEB_DIR"
+exec node --no-addons ./node_modules/.bin/next dev --port 3000 --hostname 127.0.0.1

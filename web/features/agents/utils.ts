@@ -3,7 +3,7 @@
  * Transforms raw API responses to frontend Agent types
  */
 
-import { Agent, AgentListItem, AgentDetail } from './types';
+import { Agent, AgentListItem, AgentDetailResponse } from './types';
 
 /**
  * Transform a AgentListItem from the list endpoint to a frontend Agent
@@ -16,7 +16,7 @@ export function transformAgent(raw: AgentListItem): Agent {
     status: raw.has_heartbeat ? 'active' : 'inactive',
     config: {
       model: raw.model ?? undefined,
-      provider: undefined,
+      provider: raw.provider ?? undefined,
       systemPrompt: '', // Will be populated from SOUL.md
       toolsEnabled: raw.has_tools ? ['read_file', 'write_file', 'exec_shell'] : [],
     },
@@ -40,7 +40,7 @@ export function transformAgent(raw: AgentListItem): Agent {
  * Transform a AgentDetail from the detail endpoint to a full frontend Agent
  * The detail endpoint provides additional fields like soul, tools, heartbeat
  */
-export function transformAgentDetail(raw: AgentDetail, id?: string): Agent {
+export function transformAgentDetail(raw: AgentDetailResponse, id?: string): Agent {
   const base = transformAgent({
     ...raw,
     has_soul: raw.soul !== null,
@@ -70,5 +70,6 @@ export function transformAgentDetail(raw: AgentDetail, id?: string): Agent {
       // Don't split tools by comma - we'll parse the markdown properly in the component
       toolsEnabled: raw.tools ? [] : base.config.toolsEnabled,
     },
+    headerOverrides: raw.header_overrides ?? [],
   };
 }

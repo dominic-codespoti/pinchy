@@ -1,10 +1,9 @@
 'use client';
 
-import { Plus, Loader2 } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Session } from '../types';
-import { SessionItem } from './session-item';
+import { SessionList } from './session-list';
 
 interface SessionsSidebarProps {
   sessions?: Session[];
@@ -37,42 +36,5 @@ export function SessionsSidebar({
         isCreating={isCreating}
       />
     </div>
-  );
-}
-
-interface SessionListProps {
-  sessions?: Session[];
-  selectedId: string | null;
-  onSessionClick: (sessionId: string) => void;
-}
-
-function SessionList({ sessions, selectedId, onSessionClick, isCreating = false }: SessionListProps & { isCreating?: boolean }) {
-  if (!sessions?.length && !isCreating) {
-    return (
-      <div className="p-8 text-center text-sm text-muted-foreground">
-        No sessions yet.
-      </div>
-    );
-  }
-
-  return (
-    <ScrollArea className="flex-1">
-      <div className="flex flex-col gap-1 p-2">
-        {isCreating && (
-          <div className="w-full flex items-center gap-2 px-2 py-2 rounded-md bg-accent/50 text-accent-foreground">
-            <Loader2 className="size-4 animate-spin" />
-            <span className="text-sm font-medium">Creating new session...</span>
-          </div>
-        )}
-        {sessions?.map((session) => (
-          <SessionItem
-            key={session.id}
-            session={session}
-            isSelected={selectedId === session.id}
-            onClick={() => onSessionClick(session.id)}
-          />
-        ))}
-      </div>
-    </ScrollArea>
   );
 }

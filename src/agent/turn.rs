@@ -233,6 +233,7 @@ impl Agent {
             timezone: None,
             watch_paths: Vec::new(),
             reasoning_effort: self.reasoning_effort.clone(),
+            header_overrides: None,
         };
         match cfg {
             Some(c) => crate::models::build_provider_manager_from_config(&agent_cfg, c),

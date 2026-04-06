@@ -203,18 +203,14 @@ impl Agent {
     pub fn new_from_config(agent_cfg: &crate::config::AgentConfig, cfg: &Config) -> Self {
         let agent_root = PathBuf::from(&agent_cfg.root);
         let workspace = agent_root.join("workspace");
-        let (provider, model_id) = agent_cfg
-            .model
-            .as_ref()
-            .and_then(|model_ref| {
-                cfg.models.iter().find(|m| m.id == *model_ref).map(|mc| {
-                    (
-                        mc.provider.clone(),
-                        mc.model.clone().unwrap_or_else(|| mc.id.clone()),
-                    )
-                })
-            })
-            .unwrap_or_else(|| (DEFAULT_PROVIDER.to_string(), DEFAULT_MODEL_ID.to_string()));
+        let (provider, model_id) = if let (Some(provider), Some(model)) =
+            (agent_cfg.provider.as_ref(), agent_cfg.model.as_ref())
+        {
+            (provider.clone(), model.clone())
+        } else {
+            cfg.resolve_agent_model_pair(agent_cfg)
+                .unwrap_or_else(|| (DEFAULT_PROVIDER.to_string(), DEFAULT_MODEL_ID.to_string()))
+        };
         let db = crate::store::global_db().cloned();
         let current_session = db
             .as_ref()

@@ -856,7 +856,34 @@ pub async fn send_chat_messages(messages: &[ChatMessage]) -> anyhow::Result<Stri
 ///   `OPENAI_API_KEY` is set, otherwise [`FallbackProvider`].
 /// * Anything else → [`FallbackProvider`] (auto-selects best available).
 pub fn build_provider(provider_id: &str, model_id: &str) -> Box<dyn ModelProvider> {
-    build_provider_with_config_fields(provider_id, model_id, None, None, None, None, None, None)
+    build_provider_with_config_fields(
+        provider_id,
+        model_id,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+        None,
+    )
+}
+
+fn merge_header_overrides(
+    model_headers: Option<&std::collections::HashMap<String, String>>,
+    agent_headers: Option<&std::collections::HashMap<String, String>>,
+) -> Option<std::collections::HashMap<String, String>> {
+    let mut merged = model_headers.cloned().unwrap_or_default();
+    if let Some(overrides) = agent_headers {
+        for (k, v) in overrides {
+            merged.insert(k.clone(), v.clone());
+        }
+    }
+    if merged.is_empty() {
+        None
+    } else {
+        Some(merged)
+    }
 }
 
 /// Build a provider with optional config fields.
@@ -869,12 +896,14 @@ pub fn build_provider_with_config_fields(
     embedding_deployment: Option<&str>,
     api_key: Option<&str>,
     headers: Option<&std::collections::HashMap<String, String>>,
+    agent_header_overrides: Option<&std::collections::HashMap<String, String>>,
     reasoning_effort: Option<&str>,
 ) -> Box<dyn ModelProvider> {
+    let merged_headers = merge_header_overrides(headers, agent_header_overrides);
     if provider_id.contains("copilot") {
         Box::new(CopilotProvider::with_model_headers_and_effort(
             model_id,
-            headers.cloned(),
+            merged_headers,
             reasoning_effort.map(String::from),
         ))
     } else if matches!(provider_id, "azure-openai" | "azure_openai" | "azure") {
@@ -900,7 +929,7 @@ pub fn build_provider_with_config_fields(
     } else if provider_id.contains("anthropic") {
         Box::new(AnthropicProvider::with_model_and_headers(
             model_id,
-            headers.cloned(),
+            merged_headers,
         ))
     } else if provider_id.contains("bedrock") {
         match bedrock::AwsCredentials::from_env() {
@@ -948,7 +977,7 @@ pub fn build_provider_with_config_fields(
             ep,
             key,
             model_id.to_string(),
-            headers.cloned(),
+            merged_headers,
         ))
     } else if provider_id.contains("openai") {
         let key = resolve_config_key(api_key, "openai");
@@ -993,6 +1022,44 @@ pub fn build_provider_manager(provider_id: &str, model_id: &str) -> ProviderMana
 /// Build a [`ProviderManager`] for an agent using its config and the
 /// top-level model definitions.  Chains primary + `fallback_models` in
 /// order, with a final [`FallbackProvider`] safety net.
+pub(crate) fn resolve_agent_provider_model<'a>(
+    agent_cfg: &'a crate::config::AgentConfig,
+    cfg: &'a crate::config::Config,
+) -> Option<(String, String, Option<&'a crate::config::ModelConfig>)> {
+    match (agent_cfg.provider.as_deref(), agent_cfg.model.as_deref()) {
+        (Some(provider), Some(model_name)) if !provider.is_empty() && !model_name.is_empty() => {
+            if let Some(mc) = cfg
+                .find_model_by_provider_and_name(provider, model_name)
+                .or_else(|| cfg.find_model_by_id(model_name))
+            {
+                let resolved_model = mc.model.as_deref().unwrap_or(&mc.id).to_string();
+                Some((mc.provider.clone(), resolved_model, Some(mc)))
+            } else {
+                Some((provider.to_string(), model_name.to_string(), None))
+            }
+        }
+        (Some(provider), _) if !provider.is_empty() => {
+            cfg.find_model_by_provider(provider).map(|mc| {
+                (
+                    mc.provider.clone(),
+                    mc.model.as_deref().unwrap_or(&mc.id).to_string(),
+                    Some(mc),
+                )
+            })
+        }
+        (None, Some(model_id)) if !model_id.is_empty() => {
+            cfg.find_model_by_id(model_id).map(|mc| {
+                (
+                    mc.provider.clone(),
+                    mc.model.as_deref().unwrap_or(&mc.id).to_string(),
+                    Some(mc),
+                )
+            })
+        }
+        _ => None,
+    }
+}
+
 pub fn build_provider_manager_from_config(
     agent_cfg: &crate::config::AgentConfig,
     cfg: &crate::config::Config,
@@ -1001,31 +1068,46 @@ pub fn build_provider_manager_from_config(
     let mut any_supports_functions = false;
 
     // Resolve primary model.
-    let primary_ref = agent_cfg.model.as_deref().unwrap_or("");
-    if let Some(mc) = cfg.models.iter().find(|m| m.id == primary_ref) {
-        let model_name = mc.model.as_deref().unwrap_or(&mc.id);
-        let p = build_provider_with_config_fields(
-            &mc.provider,
-            model_name,
-            mc.endpoint.as_deref(),
-            mc.api_version.as_deref(),
-            mc.embedding_deployment.as_deref(),
-            mc.api_key.as_deref(),
-            mc.headers.as_ref(),
-            agent_cfg.reasoning_effort.as_deref(),
-        );
-        if mc.provider.contains("openai")
-            || mc.provider.contains("copilot")
-            || mc.provider.contains("azure")
-            || mc.provider.contains("compat")
-            || mc.provider.contains("anthropic")
-            || mc.provider.contains("bedrock")
-        {
-            any_supports_functions = true;
+    if let Some((provider, model_name, model_cfg)) = resolve_agent_provider_model(agent_cfg, cfg) {
+        if let Some(mc) = model_cfg {
+            let p = build_provider_with_config_fields(
+                &mc.provider,
+                &model_name,
+                mc.endpoint.as_deref(),
+                mc.api_version.as_deref(),
+                mc.embedding_deployment.as_deref(),
+                mc.api_key.as_deref(),
+                mc.headers.as_ref(),
+                agent_cfg.header_overrides.as_ref(),
+                agent_cfg.reasoning_effort.as_deref(),
+            );
+            if mc.provider.contains("openai")
+                || mc.provider.contains("copilot")
+                || mc.provider.contains("azure")
+                || mc.provider.contains("compat")
+                || mc.provider.contains("anthropic")
+                || mc.provider.contains("bedrock")
+            {
+                any_supports_functions = true;
+            }
+            providers.push(p);
+        } else {
+            if provider.contains("openai")
+                || provider.contains("copilot")
+                || provider.contains("azure")
+                || provider.contains("compat")
+                || provider.contains("anthropic")
+                || provider.contains("bedrock")
+            {
+                any_supports_functions = true;
+            }
+            providers.push(build_provider(&provider, &model_name));
         }
-        providers.push(p);
-    } else if !primary_ref.is_empty() {
-        providers.push(build_provider("", primary_ref));
+    } else {
+        let primary_ref = agent_cfg.model.as_deref().unwrap_or("");
+        if !primary_ref.is_empty() {
+            providers.push(build_provider("", primary_ref));
+        }
     }
 
     // Append fallback models in order.
@@ -1040,6 +1122,7 @@ pub fn build_provider_manager_from_config(
                 mc.embedding_deployment.as_deref(),
                 mc.api_key.as_deref(),
                 mc.headers.as_ref(),
+                agent_cfg.header_overrides.as_ref(),
                 agent_cfg.reasoning_effort.as_deref(),
             );
             if mc.provider.contains("openai")
@@ -1250,6 +1333,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert!(p.as_any().downcast_ref::<FallbackProvider>().is_some());
     }
@@ -1260,6 +1344,7 @@ mod tests {
             "openai-compat",
             "llama3",
             Some("http://localhost:11434/v1/chat/completions"),
+            None,
             None,
             None,
             None,
@@ -1295,6 +1380,7 @@ mod tests {
                 None,
                 None,
                 None,
+                None,
             );
             assert!(
                 p.as_any().downcast_ref::<OpenAICompatProvider>().is_some(),
@@ -1309,5 +1395,50 @@ mod tests {
         let pm = build_provider_manager("copilot", "gpt-4o");
         // Should have at least 2 providers (primary + fallback).
         assert!(pm.provider_count() >= 2);
+    }
+
+    #[test]
+    fn explicit_copilot_agent_model_is_preserved_when_no_exact_model_config_exists() {
+        let cfg = crate::config::Config {
+            models: vec![crate::config::ModelConfig {
+                id: "copilot-default".into(),
+                provider: "copilot".into(),
+                model: Some("claude-opus-4.6".into()),
+                api_key: None,
+                endpoint: None,
+                api_version: None,
+                embedding_deployment: None,
+                embedding_model: None,
+                headers: None,
+            }],
+            channels: crate::config::ChannelsConfig {
+                discord: None,
+                default_channel: None,
+            },
+            agents: vec![],
+            secrets: None,
+            routing: None,
+            skills: None,
+            timezone: None,
+            session_expiry_days: Some(30),
+            cron_session_expiry_days: Some(7),
+            cron_events_max_keep: Some(50),
+            chromium_path: None,
+            mcp_servers: std::collections::HashMap::new(),
+            shared_memory: None,
+        };
+
+        let agent_cfg = crate::config::AgentConfig {
+            id: "coder".into(),
+            root: "agents/coder".into(),
+            provider: Some("copilot".into()),
+            model: Some("gemini-3.1-pro-preview".into()),
+            ..Default::default()
+        };
+
+        let resolved = resolve_agent_provider_model(&agent_cfg, &cfg).unwrap();
+        assert_eq!(resolved.0, "copilot");
+        assert_eq!(resolved.1, "gemini-3.1-pro-preview");
+        assert!(resolved.2.is_none());
     }
 }

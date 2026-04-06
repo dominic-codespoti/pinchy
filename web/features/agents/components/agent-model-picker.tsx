@@ -5,8 +5,11 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { AgentModelOption } from '@/features/settings';
 import {
+  ensureCopilotFallbackModelOption,
   getAgentModelLabel,
+  getAgentProviderDisplayLabel,
   getAgentModelOptionsForProvider,
+  getAgentModelOptionKey,
   normalizeAgentModelSelection,
 } from '../model-options';
 
@@ -33,17 +36,21 @@ export function AgentModelPicker({
   modelPlaceholder = 'Select model',
   onChange,
 }: AgentModelPickerProps) {
-  const selection = normalizeAgentModelSelection(provider, model, modelOptions);
-  const providerValue = selection.provider;
-  const providerChoices = React.useMemo(
-    () => Array.from(new Set((modelOptions || []).map((option) => option.provider))).sort(),
+  const normalizedOptions = React.useMemo(
+    () => ensureCopilotFallbackModelOption(modelOptions),
     [modelOptions]
   );
-  const filteredModels = React.useMemo(
-    () => (providerValue ? getAgentModelOptionsForProvider(providerValue, modelOptions) : (modelOptions || [])),
-    [modelOptions, providerValue]
+  const selection = normalizeAgentModelSelection(provider, model, normalizedOptions);
+  const providerValue = selection.provider;
+  const providerChoices = React.useMemo(
+    () => Array.from(new Set(normalizedOptions.map((option) => option.provider))).sort(),
+    [normalizedOptions]
   );
-  const selectedModel = filteredModels.find((option) => option.config_model_id === selection.model);
+  const filteredModels = React.useMemo(
+    () => (providerValue ? getAgentModelOptionsForProvider(providerValue, normalizedOptions) : normalizedOptions),
+    [normalizedOptions, providerValue]
+  );
+  const selectedModel = filteredModels.find((option) => getAgentModelOptionKey(option) === selection.model);
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
@@ -55,7 +62,7 @@ export function AgentModelPicker({
             const nextModel = getAgentModelOptionsForProvider(nextProvider, modelOptions)[0];
             onChange({
               provider: nextProvider,
-              model: nextModel?.config_model_id || '',
+              model: nextModel ? getAgentModelOptionKey(nextModel) : '',
             });
           }}
           disabled={disabled}
@@ -71,7 +78,7 @@ export function AgentModelPicker({
             ) : (
               providerChoices.map((option) => (
                 <SelectItem key={option} value={option}>
-                  {option}
+                  {getAgentProviderDisplayLabel(option)}
                 </SelectItem>
               ))
             )}
@@ -82,11 +89,11 @@ export function AgentModelPicker({
       <div className="space-y-2">
         <Label>{modelLabel}</Label>
         <Select
-          value={selectedModel?.config_model_id || ''}
+          value={selectedModel ? getAgentModelOptionKey(selectedModel) : ''}
           onValueChange={(nextModelId) => {
-            const nextModel = (filteredModels || []).find((option) => option.config_model_id === nextModelId);
+            const nextModel = (filteredModels || []).find((option) => getAgentModelOptionKey(option) === nextModelId);
             if (!nextModel) return;
-            onChange({ provider: nextModel.provider, model: nextModel.config_model_id });
+            onChange({ provider: nextModel.provider, model: getAgentModelOptionKey(nextModel) });
           }}
           disabled={disabled || filteredModels.length === 0}
         >
@@ -99,12 +106,17 @@ export function AgentModelPicker({
                 No models available
               </SelectItem>
             ) : (
-              filteredModels.map((option) => (
-                <SelectItem key={option.config_model_id} value={option.config_model_id}>
-                  {getAgentModelLabel(option)}
-                </SelectItem>
-              ))
-            )}
+                filteredModels.map((option) => (
+                  <SelectItem key={getAgentModelOptionKey(option)} value={getAgentModelOptionKey(option)}>
+                    <div className="flex flex-col">
+                      <span>{getAgentModelLabel(option)}</span>
+                      {option.description ? (
+                        <span className="text-xs text-muted-foreground">{option.description}</span>
+                      ) : null}
+                    </div>
+                  </SelectItem>
+                ))
+              )}
           </SelectContent>
         </Select>
       </div>

@@ -1,5 +1,8 @@
 import type { NextConfig } from 'next';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const isProd = process.env.NODE_ENV === 'production';
 
@@ -15,13 +18,13 @@ const prodConfig: NextConfig = {
   webpack: (config, { isServer }) => {
     config.resolve = config.resolve || {};
     config.resolve.alias = config.resolve.alias || {};
-    
+
     // In production, redirect all mocks imports to the noop module
     // This ensures mock code and MSW dependency are not bundled
-    config.resolve.alias['@/mocks/browser'] = path.resolve(__dirname, 'mocks/noop.ts');
-    config.resolve.alias['@/mocks/server'] = path.resolve(__dirname, 'mocks/noop.ts');
-    config.resolve.alias['@/mocks/handlers'] = path.resolve(__dirname, 'mocks/noop.ts');
-    
+    config.resolve.alias['@/mocks/browser'] = path.resolve(projectRoot, 'mocks/noop.ts');
+    config.resolve.alias['@/mocks/server'] = path.resolve(projectRoot, 'mocks/noop.ts');
+    config.resolve.alias['@/mocks/handlers'] = path.resolve(projectRoot, 'mocks/noop.ts');
+
     return config;
   },
 };

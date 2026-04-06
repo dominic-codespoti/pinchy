@@ -312,7 +312,7 @@ const defaultTheme: ProviderTheme = {
 const providerModels: Record<string, string[]> = {
   openai: ['GPT-4o', 'GPT-4o Mini', 'GPT-4 Turbo', 'o3-mini'],
   'azure-openai': ['GPT-4', 'GPT-4o', 'GPT-3.5 Turbo'],
-  copilot: ['Copilot GPT-4', 'Copilot Claude'],
+   copilot: [],
   anthropic: ['Claude 3.5 Sonnet', 'Claude 3 Opus', 'Claude 3 Haiku'],
   google: ['Gemini Pro', 'Gemini Ultra'],
   bedrock: ['Claude 3', 'Llama 3', 'Titan'],
@@ -344,8 +344,8 @@ const wellKnownNames: Record<string, string> = {
   'google-gemini': 'Google Gemini',
   bedrock: 'AWS Bedrock',
   'amazon-bedrock': 'AWS Bedrock',
-  copilot: 'GitHub Copilot',
-  'github-copilot': 'GitHub Copilot',
+  copilot: 'Copilot',
+  'github-copilot': 'Copilot',
   // Popular AI providers
   cohere: 'Cohere',
   ai21: 'AI21 Labs',
@@ -421,7 +421,7 @@ const wellKnownNames: Record<string, string> = {
 export const PROVIDERS: ProviderMetadata[] = [
   { id: 'openai', name: 'OpenAI', requiresApiKey: true, requiresEndpoint: false },
   { id: 'azure-openai', name: 'Azure OpenAI', requiresApiKey: true, requiresEndpoint: true },
-  { id: 'copilot', name: 'GitHub Copilot', requiresApiKey: false, requiresEndpoint: false, requiresOAuth: true },
+  { id: 'copilot', name: 'Copilot', requiresApiKey: false, requiresEndpoint: false, requiresOAuth: true },
   { id: 'anthropic', name: 'Anthropic', requiresApiKey: true, requiresEndpoint: false },
   { id: 'google', name: 'Google AI', requiresApiKey: true, requiresEndpoint: false },
   { id: 'bedrock', name: 'AWS Bedrock', requiresApiKey: true, requiresEndpoint: false },

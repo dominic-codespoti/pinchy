@@ -284,7 +284,7 @@ function buildChildNodes(node: TreeNode, expanded: Set<string>): TreeNode[] {
   }
 
   if (value.type === 'object') {
-    value.keys.forEach((key, index) => {
+    value.keys.forEach((key) => {
       const childValue = parseJsonValue(value.value[key]);
       const childPath = `${path}.${key}`;
       children.push({
@@ -477,7 +477,7 @@ export function JsonViewer({
       <ScrollArea className={cn('w-full', `max-h-[${maxHeight}px]`)}>
         <div className="p-3">
           <div className="flex flex-col gap-0.5">
-            {visibleRows.map((node, index) => {
+            {visibleRows.map((node) => {
               // Check if this is a closing bracket row
               if (
                 node.path.endsWith('.closing') &&

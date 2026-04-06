@@ -12,6 +12,7 @@ export {
   AgentCard,
   AgentDetail,
   AgentsList,
+  AgentHeaderOverrides,
 } from './components';
 
 // ============================================================================

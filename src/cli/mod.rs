@@ -356,6 +356,7 @@ pub fn interactive_onboard_tui(
                             timezone: None,
                             watch_paths: Vec::new(),
                             reasoning_effort: None,
+                            header_overrides: None,
                         });
                     }
 
