@@ -11,6 +11,7 @@ import { TIMEOUTS } from '@/lib/config/timeouts';
 import { Agent } from '@/features/agents/types';
 import { Message, TurnReceipt } from '@/shared/types/common';
 import { useAgentSessions } from '../hooks';
+import { useAllSessions } from '@/features/sessions/hooks';
 import { sessionsKeys } from '@/features/sessions/query-keys';
 import { Session, Mention } from '../types';
 
@@ -152,20 +153,52 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
   const { send, lastMessages, status } = useWebSocket();
   const queryClient = useQueryClient();
 
+  const { data: allSessions, isLoading: allSessionsLoading } = useAllSessions(agents);
   const { data: sessions, isLoading: sessionsLoading } = useAgentSessions(selectedAgentId);
 
   const isWsConnected = status === 'connected';
 
-  // Set initial agent from URL or first agent
+  // Set initial agent/session from URL, or derive the most recent session on first open.
   useEffect(() => {
-    if (agents.length > 0) {
-      if (agentIdFromUrl && agents.find(a => a.id === agentIdFromUrl)) {
-        setSelectedAgentId(agentIdFromUrl);
-      } else if (!selectedAgentId) {
-        setSelectedAgentId(agents[0].id);
-      }
+    if (agents.length === 0) {
+      return;
     }
-  }, [agents, agentIdFromUrl, selectedAgentId]);
+
+    if (agentIdFromUrl && agents.find((agent) => agent.id === agentIdFromUrl)) {
+      setSelectedAgentId(agentIdFromUrl);
+      return;
+    }
+
+    if (allSessionsLoading) {
+      return;
+    }
+
+    if (sessionIdFromUrl) {
+      const sessionFromUrl = allSessions?.find((session) => session.id === sessionIdFromUrl);
+
+      if (sessionFromUrl && agents.find((agent) => agent.id === sessionFromUrl.agentId)) {
+        setSelectedAgentId(sessionFromUrl.agentId);
+
+        if (!agentIdFromUrl) {
+          updateChatUrl(sessionFromUrl.agentId, sessionFromUrl.id, 'replace');
+        }
+      }
+
+      return;
+    }
+
+    const latestSession = allSessions?.[0];
+
+    if (latestSession && agents.find((agent) => agent.id === latestSession.agentId)) {
+      setSelectedAgentId(latestSession.agentId);
+      updateChatUrl(latestSession.agentId, latestSession.id, 'replace');
+      return;
+    }
+
+    if (!selectedAgentId) {
+      setSelectedAgentId(agents[0].id);
+    }
+  }, [agents, agentIdFromUrl, allSessions, allSessionsLoading, selectedAgentId, sessionIdFromUrl, updateChatUrl]);
 
   // Get current session from URL
   const currentSession = useMemo(() => {
