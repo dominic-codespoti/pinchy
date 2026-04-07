@@ -19,13 +19,10 @@ import {
   SheetTrigger,
 } from '@/components/ui/sheet';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/shared/lib/utils';
 import { ThemeSwitcher } from '@/features/theme-editor/components/theme-switcher';
 import { ConnectionStatus } from '@/shared/components/connection-status';
-import { SearchTrigger } from '@/shared/components/search/trigger';
-import { NotificationCenter } from '@/features/notifications/components/notification-center';
 import {
   LayoutDashboard,
   Bot,
@@ -37,6 +34,7 @@ import {
   Cpu,
   MessageSquare,
   Brain,
+  ChevronRight,
 } from 'lucide-react';
 
 const navItems = [
@@ -66,19 +64,24 @@ function NavLinks({ onNavigate }: NavLinksProps) {
 
   return (
     <Tabs value={currentTab} orientation="vertical" className="w-full">
-      <TabsList className="flex h-auto w-full flex-col items-stretch justify-start gap-1 bg-transparent p-0">
+      <TabsList className="flex h-auto w-full flex-col items-stretch justify-start gap-1.5 bg-transparent p-0">
         {navItems.map((item) => (
           <TabsTrigger
             key={item.value}
             value={item.value}
             asChild
             className={cn(
-              'w-full justify-start gap-2 px-3 py-2 data-[state=active]:bg-secondary data-[state=active]:shadow-none'
+              'group h-12 w-full rounded-xl border border-transparent px-3 data-[state=active]:border-border/70 data-[state=active]:bg-secondary/90 data-[state=active]:shadow-none'
             )}
           >
             <Link href={item.href} prefetch={true} onClick={onNavigate}>
-              <item.icon data-icon="inline-start" />
-              {item.label}
+              <span className="flex min-w-0 flex-1 items-center gap-3">
+                <span className="flex size-8 items-center justify-center rounded-lg border border-transparent bg-transparent text-muted-foreground transition-colors group-data-[state=active]:border-border/60 group-data-[state=active]:bg-background/80 group-data-[state=active]:text-foreground">
+                  <item.icon className="size-4" />
+                </span>
+                <span className="truncate">{item.label}</span>
+              </span>
+              <ChevronRight className="size-4 text-muted-foreground/0 transition-all group-hover:text-muted-foreground/60 group-data-[state=active]:text-muted-foreground/80" />
             </Link>
           </TabsTrigger>
         ))}
@@ -89,11 +92,10 @@ function NavLinks({ onNavigate }: NavLinksProps) {
 
 function SidebarHeaderContent() {
   return (
-    <CardHeader className="flex h-14 flex-row items-center justify-between border-b px-4 py-0">
-      <CardTitle className="text-base font-semibold">Pinchy</CardTitle>
-      <div className="flex items-center gap-1">
-        <NotificationCenter />
-        <SearchTrigger size="icon" showText={false} showShortcut={false} />
+    <CardHeader className="border-b px-4 py-5">
+      <div className="space-y-1.5">
+        <CardTitle className="text-lg font-semibold tracking-tight">Pinchy</CardTitle>
+        <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Operations Console</p>
       </div>
     </CardHeader>
   );
@@ -101,18 +103,23 @@ function SidebarHeaderContent() {
 
 function SidebarFooterContent() {
   return (
-    <CardFooter className="flex flex-col items-stretch gap-4 p-4">
-      <Separator />
-      <div className="flex items-center gap-2">
-        <ConnectionStatus showLabel pulse />
-      </div>
-      <div className="flex items-center justify-center">
-        <ThemeSwitcher />
-      </div>
-      <p className="text-center text-xs text-muted-foreground">
-        Pinchy v0.1.19
-      </p>
+    <CardFooter className="border-t bg-background/95 p-4 pt-4">
+      <SidebarUtilityBar />
     </CardFooter>
+  );
+}
+
+function SidebarUtilityBar() {
+  return (
+    <div className="flex w-full items-center justify-between gap-3">
+      <ConnectionStatus showLabel pulse showTooltip={false} />
+      <ThemeSwitcher
+        variant="ghost"
+        size="sm"
+        showLabel
+        className="min-w-0 h-8 rounded-full px-2.5 text-muted-foreground hover:text-foreground"
+      />
+    </div>
   );
 }
 
@@ -127,47 +134,38 @@ export function Sidebar() {
           <Button
             variant="ghost"
             size="icon"
-            className="fixed left-4 top-4 z-40 lg:hidden"
+            className="fixed right-4 top-4 z-40 rounded-full border border-border/70 bg-background/90 shadow-sm backdrop-blur lg:hidden"
             aria-label="Open navigation menu"
           >
             <Menu data-icon="default" aria-hidden="true" />
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="w-64 p-0">
-          <SheetHeader className="flex h-14 flex-row items-center justify-between border-b px-4">
-            <SheetTitle className="text-base font-semibold">Pinchy</SheetTitle>
-            <div className="flex items-center gap-1">
-              <NotificationCenter />
-              <SearchTrigger size="icon" showText={false} showShortcut={false} />
+        <SheetContent side="left" className="flex w-72 flex-col p-0">
+          <SheetHeader className="border-b px-4 py-5 text-left">
+            <div className="space-y-1.5 pr-10">
+              <SheetTitle className="text-lg font-semibold tracking-tight">Pinchy</SheetTitle>
+              <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Operations Console</p>
             </div>
           </SheetHeader>
-          <ScrollArea className="h-[calc(100vh-7rem-1px)]">
-            <div className="p-4">
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="p-4 pb-6">
               <NavLinks onNavigate={() => setOpen(false)} />
             </div>
           </ScrollArea>
-          <div className="border-t">
-            <div className="flex flex-col gap-4 p-4">
-              <div className="flex items-center gap-2">
-                <ConnectionStatus showLabel pulse />
-              </div>
-              <div className="flex items-center justify-center">
-                <ThemeSwitcher />
-              </div>
-              <p className="text-center text-xs text-muted-foreground">
-                Pinchy v0.1.19
-              </p>
-            </div>
+          <div className="border-t p-4">
+            <SidebarUtilityBar />
           </div>
         </SheetContent>
       </Sheet>
 
       {/* Desktop Sidebar */}
-      <Card className="hidden lg:flex h-screen w-64 flex-col sticky top-0 rounded-none border-r border-y-0 border-l-0 shadow-none">
+      <Card className="sticky top-0 hidden h-screen w-72 flex-col rounded-none border-y-0 border-l-0 border-r border-border/70 bg-gradient-to-b from-background via-background to-muted/20 shadow-none lg:flex">
         <SidebarHeaderContent />
         <CardContent className="flex-1 overflow-hidden p-0">
-          <ScrollArea className="h-full p-4">
-            <NavLinks />
+          <ScrollArea className="h-full">
+            <div className="p-4">
+              <NavLinks />
+            </div>
           </ScrollArea>
         </CardContent>
         <SidebarFooterContent />

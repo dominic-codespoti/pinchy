@@ -1,28 +1,33 @@
 'use client';
 
-import { Button } from '@/components/ui/button';
+import { Button, type ButtonProps } from '@/components/ui/button';
 import { Search } from 'lucide-react';
 import { useCommandPalette } from '@/shared/hooks/use-search';
+import { cn } from '@/shared/lib/utils';
 
 interface SearchTriggerProps {
-  size?: 'default' | 'sm' | 'lg' | 'icon';
+  size?: ButtonProps['size'];
+  variant?: ButtonProps['variant'];
   showText?: boolean;
   showShortcut?: boolean;
+  className?: string;
 }
 
 export function SearchTrigger({ 
   size = 'default', 
+  variant = 'ghost',
   showText = true,
-  showShortcut = true 
+  showShortcut = true,
+  className,
 }: SearchTriggerProps) {
   const { open } = useCommandPalette();
 
   return (
     <Button
-      variant="ghost"
+      variant={variant}
       size={size}
       onClick={open}
-      className="gap-2"
+      className={cn('gap-2', className)}
     >
       <Search className="h-4 w-4" />
       {showText && <span>Search</span>}

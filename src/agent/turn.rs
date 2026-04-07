@@ -145,11 +145,10 @@ impl Agent {
                 session = ?session_override,
                 "using session override for this turn"
             );
-            crate::gateway::publish_event_json(&serde_json::json!({
-                "type": "session_created",
-                "agent": self.id,
-                "session": session_override,
-            }));
+            // Do not emit `session_created` here. Session overrides are commonly
+            // used when the UI is resuming an existing session, so broadcasting
+            // a creation event causes the frontend to treat ordinary replies as
+            // brand-new chats.
             Some(prev)
         } else {
             // Reload current session from db (or file fallback).

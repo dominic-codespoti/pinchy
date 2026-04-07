@@ -218,13 +218,19 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
       const msgType = msg.type as string;
 
       if (msgType === 'session_created') {
-        const sessionId = msg.session as string;
+        const sessionId = typeof msg.session === 'string' ? msg.session : null;
         const agentId = msg.agent as string;
+        const isForSelectedAgent = agentId === selectedAgentId;
+        const isCurrentSession = Boolean(sessionId && sessionId === currentSessionIdRef.current);
         
-        // Always clear the creating session flag first - this stops the spinner
-        setIsCreatingSession(false);
-        
-        if (agentId === selectedAgentId) {
+        if (isForSelectedAgent) {
+          setIsCreatingSession(false);
+
+          if (!sessionId || isCurrentSession) {
+            queryClient.invalidateQueries({ queryKey: sessionsKeys.byAgent(agentId) });
+            continue;
+          }
+
           // Update ref IMMEDIATELY before async navigation to prevent race condition
           currentSessionIdRef.current = sessionId;
           setPendingSessionId(sessionId);
