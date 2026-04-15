@@ -429,7 +429,7 @@ pub fn needs_pruning(messages: &[ChatMessage], token_limit: usize) -> bool {
 }
 
 pub fn prune_if_needed(
-    messages: &mut Vec<ChatMessage>,
+    messages: &mut [ChatMessage],
     threshold: usize,
     token_limit: usize,
     keep_recent: usize,

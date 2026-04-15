@@ -1,11 +1,18 @@
 use axum::{response::IntoResponse, Json};
 use std::sync::OnceLock;
 
+use super::super::types::HealthResponse;
+
 pub(crate) static STARTUP_TIME: OnceLock<std::time::Instant> = OnceLock::new();
 
 /// `GET /api/status`
 pub(crate) async fn status_handler() -> impl IntoResponse {
-    Json(serde_json::json!({ "status": "ok" }))
+    Json(HealthResponse {
+        status: "ok".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        uptime_secs: 0,
+        agents: 0,
+    })
 }
 
 /// `GET /api/health`
@@ -25,10 +32,10 @@ pub(crate) async fn api_health() -> impl IntoResponse {
         })
         .unwrap_or(0);
 
-    Json(serde_json::json!({
-        "status": "ok",
-        "version": env!("CARGO_PKG_VERSION"),
-        "uptime_secs": uptime_secs,
-        "agents": agent_count,
-    }))
+    Json(HealthResponse {
+        status: "ok".to_string(),
+        version: env!("CARGO_PKG_VERSION").to_string(),
+        uptime_secs,
+        agents: agent_count,
+    })
 }

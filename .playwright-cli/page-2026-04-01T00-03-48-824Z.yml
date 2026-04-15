@@ -1,0 +1,83 @@
+- generic [active] [ref=e1]:
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]:
+    - img [ref=e8]
+  - alert [ref=e11]
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]: Pinchy
+        - generic [ref=e16]:
+          - button "Notifications" [ref=e17] [cursor=pointer]:
+            - img
+          - button [ref=e18] [cursor=pointer]:
+            - img
+      - tablist [ref=e24]:
+        - tab "Dashboard" [selected] [ref=e25] [cursor=pointer]:
+          - img [ref=e26]
+          - text: Dashboard
+        - tab "Chat" [ref=e31] [cursor=pointer]:
+          - img [ref=e32]
+          - text: Chat
+        - tab "Agents" [ref=e34] [cursor=pointer]:
+          - img [ref=e35]
+          - text: Agents
+        - tab "Memories" [ref=e38] [cursor=pointer]:
+          - img [ref=e39]
+          - text: Memories
+        - tab "Cron" [ref=e47] [cursor=pointer]:
+          - img [ref=e48]
+          - text: Cron
+        - tab "Skills" [ref=e50] [cursor=pointer]:
+          - img [ref=e51]
+          - text: Skills
+        - tab "Logs" [ref=e53] [cursor=pointer]:
+          - img [ref=e54]
+          - text: Logs
+        - tab "Models" [ref=e57] [cursor=pointer]:
+          - img [ref=e58]
+          - text: Models
+        - tab "Settings" [ref=e61] [cursor=pointer]:
+          - img [ref=e62]
+          - text: Settings
+      - generic [ref=e65]:
+        - generic [ref=e71]: Connecting
+        - button "Toggle theme" [ref=e73] [cursor=pointer]:
+          - img
+          - generic [ref=e74]: Toggle theme
+        - paragraph [ref=e75]: Pinchy v0.1.19
+    - main [ref=e76]:
+      - generic [ref=e79]:
+        - generic [ref=e80]:
+          - generic [ref=e81]: Welcome to Pinchy
+          - generic [ref=e82]: Sign in to manage your agents
+        - generic [ref=e83]:
+          - generic [ref=e84]:
+            - tablist [ref=e85]:
+              - tab "OAuth" [selected] [ref=e86] [cursor=pointer]
+              - tab "API Key" [ref=e87] [cursor=pointer]
+            - tabpanel "OAuth" [ref=e88]:
+              - generic [ref=e89]:
+                - button "OpenAI Sign in with OpenAI" [ref=e90] [cursor=pointer]:
+                  - img [ref=e92]
+                  - generic [ref=e94]:
+                    - paragraph [ref=e95]: OpenAI
+                    - paragraph [ref=e96]: Sign in with OpenAI
+                - button "GitHub Sign in with GitHub" [ref=e97] [cursor=pointer]:
+                  - img [ref=e99]
+                  - generic [ref=e101]:
+                    - paragraph [ref=e102]: GitHub
+                    - paragraph [ref=e103]: Sign in with GitHub
+                - button "Anthropic Sign in with Anthropic" [ref=e104] [cursor=pointer]:
+                  - img [ref=e106]
+                  - generic [ref=e108]:
+                    - paragraph [ref=e109]: Anthropic
+                    - paragraph [ref=e110]: Sign in with Anthropic
+          - paragraph [ref=e111]:
+            - text: By authenticating, you agree to our
+            - link "Terms of Service" [ref=e112] [cursor=pointer]:
+              - /url: "#"
+            - text: and
+            - link "Privacy Policy" [ref=e113] [cursor=pointer]:
+              - /url: "#"
+            - text: .
+  - region "Notifications alt+T"

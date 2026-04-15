@@ -5,9 +5,12 @@ use std::time::SystemTime;
 
 use anyhow::Context;
 use chrono_tz::{Tz, UTC};
+use http::header::{HeaderName, HeaderValue};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
+
+pub mod shared_memory;
 
 static CONFIG_LOCK: Mutex<()> = Mutex::const_new(());
 
@@ -93,6 +96,57 @@ fn default_true() -> bool {
     true
 }
 
+fn normalize_http_headers(
+    headers: &mut Option<std::collections::HashMap<String, String>>,
+    owner: &str,
+) -> anyhow::Result<()> {
+    let Some(map) = headers.take() else {
+        return Ok(());
+    };
+
+    let mut normalized = std::collections::HashMap::new();
+    for (name, value) in map {
+        let header_name = HeaderName::from_bytes(name.as_bytes())
+            .with_context(|| format!("config: {owner} has invalid header name '{name}'"))?;
+        HeaderValue::from_str(&value)
+            .with_context(|| format!("config: {owner} has invalid value for header '{name}'"))?;
+
+        let key = header_name.as_str().to_string();
+        if normalized.insert(key.clone(), value).is_some() {
+            anyhow::bail!("config: {owner} has duplicate header '{key}'");
+        }
+    }
+
+    if !normalized.is_empty() {
+        *headers = Some(normalized);
+    }
+
+    Ok(())
+}
+
+fn validate_http_headers(
+    headers: &Option<std::collections::HashMap<String, String>>,
+    owner: &str,
+) -> anyhow::Result<()> {
+    if let Some(map) = headers {
+        let mut seen = std::collections::HashSet::new();
+        for (name, value) in map {
+            let header_name = HeaderName::from_bytes(name.as_bytes())
+                .with_context(|| format!("config: {owner} has invalid header name '{name}'"))?;
+            HeaderValue::from_str(value).with_context(|| {
+                format!("config: {owner} has invalid value for header '{name}'")
+            })?;
+
+            let canonical = header_name.as_str().to_ascii_lowercase();
+            if !seen.insert(canonical.clone()) {
+                anyhow::bail!("config: {owner} has duplicate header '{canonical}'");
+            }
+        }
+    }
+
+    Ok(())
+}
+
 /// Top-level configuration loaded from `config.yaml`.
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -141,6 +195,12 @@ pub struct Config {
     pub cron_events_max_keep: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chromium_path: Option<String>,
+    /// MCP server definitions.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub mcp_servers: std::collections::HashMap<String, crate::mcp::McpServerConfig>,
+    /// Shared memory configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_memory: Option<shared_memory::SharedMemoryConfig>,
 }
 
 fn default_session_expiry_days() -> Option<u64> {
@@ -154,6 +214,10 @@ fn default_cron_session_expiry_days() -> Option<u64> {
 fn default_cron_events_max_keep() -> Option<usize> {
     Some(50)
 }
+
+/// Stable fallback Copilot model used when an agent only specifies the provider.
+pub const COPILOT_FALLBACK_MODEL_ID: &str = "copilot-default";
+pub const COPILOT_FALLBACK_MODEL_NAME: &str = "Copilot default";
 
 /// Channel routing rules.
 #[derive(Debug, Clone, Deserialize, Serialize, Default, JsonSchema)]
@@ -307,7 +371,7 @@ pub struct DiscordConfig {
 }
 
 /// Per-agent configuration.
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AgentConfig {
     /// Unique agent identifier.
@@ -317,6 +381,10 @@ pub struct AgentConfig {
     /// Model id to use for inference.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// Provider kind: "openai", "anthropic", "copilot", etc.
+    /// If unset, the provider is derived from the model configuration.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
     /// Seconds between heartbeat pings (0 = disabled).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub heartbeat_secs: Option<u64>,
@@ -361,6 +429,9 @@ pub struct AgentConfig {
     /// Controls extended thinking budget for Claude and reasoning effort for OpenAI.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    /// Per-agent HTTP header overrides merged on top of model headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub header_overrides: Option<std::collections::HashMap<String, String>>,
 }
 
 /// A cron job definition attached to an agent.
@@ -377,6 +448,72 @@ pub struct CronJobConfig {
 }
 
 impl Config {
+    /// Return the first config entry for a provider/model pair.
+    pub fn find_model_by_provider_and_name(
+        &self,
+        provider: &str,
+        model: &str,
+    ) -> Option<&ModelConfig> {
+        self.models
+            .iter()
+            .find(|m| m.provider == provider && m.model.as_deref().unwrap_or(&m.id) == model)
+    }
+
+    /// Return the first config entry for a provider.
+    pub fn find_model_by_provider(&self, provider: &str) -> Option<&ModelConfig> {
+        self.models.iter().find(|m| m.provider == provider)
+    }
+
+    /// Return the config entry matching a legacy model ID reference.
+    pub fn find_model_by_id(&self, model_id: &str) -> Option<&ModelConfig> {
+        self.models.iter().find(|m| m.id == model_id)
+    }
+
+    /// Resolve an agent's effective provider/model pair.
+    pub fn resolve_agent_model_pair(&self, agent: &AgentConfig) -> Option<(String, String)> {
+        match (agent.provider.as_deref(), agent.model.as_deref()) {
+            (Some(provider), Some(model)) if !provider.is_empty() && !model.is_empty() => {
+                Some((provider.to_string(), model.to_string()))
+            }
+            (Some("copilot"), _) => {
+                Some(("copilot".to_string(), COPILOT_FALLBACK_MODEL_ID.to_string()))
+            }
+            (Some(provider), None) if !provider.is_empty() => {
+                self.find_model_by_provider(provider).map(|mc| {
+                    (
+                        mc.provider.clone(),
+                        mc.model.clone().unwrap_or_else(|| mc.id.clone()),
+                    )
+                })
+            }
+            (None, Some(model_id)) if !model_id.is_empty() => {
+                self.find_model_by_id(model_id).map(|mc| {
+                    (
+                        mc.provider.clone(),
+                        mc.model.clone().unwrap_or_else(|| mc.id.clone()),
+                    )
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// Normalize legacy agent model references in-place.
+    fn normalize_agent_models(&mut self) {
+        let resolved_pairs: Vec<Option<(String, String)>> = self
+            .agents
+            .iter()
+            .map(|agent| self.resolve_agent_model_pair(agent))
+            .collect();
+
+        for (agent, resolved) in self.agents.iter_mut().zip(resolved_pairs) {
+            if let Some((provider, model)) = resolved {
+                agent.provider = Some(provider);
+                agent.model = Some(model);
+            }
+        }
+    }
+
     /// Resolve the effective timezone for an agent.
     ///
     /// Priority: agent-level → global config → system local → UTC.
@@ -437,6 +574,7 @@ impl Config {
     /// Inner load — reads from disk, parses, validates.
     async fn load_inner(path: &Path) -> anyhow::Result<Config> {
         let mut config = Self::load_raw(path).await?;
+        config.normalize_agent_models();
         config.validate()?;
 
         // Resolve relative agent root paths against pinchy_home.
@@ -465,6 +603,7 @@ impl Config {
     /// before calling [`save`], which validates before writing.
     pub async fn load_unvalidated(path: &Path) -> anyhow::Result<Config> {
         let mut config = Self::load_raw(path).await?;
+        config.normalize_agent_models();
 
         // Resolve relative agent root paths against pinchy_home.
         let home = crate::pinchy_home();
@@ -561,6 +700,8 @@ impl Config {
         use std::collections::HashSet;
 
         const KNOWN_PROVIDERS: &[&str] = &[
+            "anthropic",
+            "bedrock",
             "openai",
             "azure-openai",
             "azure_openai",
@@ -590,6 +731,7 @@ impl Config {
 
         // Validate provider names
         for model in &self.models {
+            validate_http_headers(&model.headers, &format!("model '{}'", model.id))?;
             if !KNOWN_PROVIDERS.contains(&model.provider.as_str()) {
                 tracing::warn!(
                     provider = %model.provider,
@@ -617,16 +759,21 @@ impl Config {
                 anyhow::bail!("config: duplicate agent ID: {}", agent.id);
             }
 
-            // Validate model reference
-            if let Some(ref model) = agent.model {
-                if !model_ids.contains(model.as_str()) {
+            // Validate raw provider/model pairing shape.
+            match (
+                agent.provider.as_deref().filter(|v| !v.is_empty()),
+                agent.model.as_deref().filter(|v| !v.is_empty()),
+            ) {
+                (Some(_), Some(_)) | (None, None) | (Some("copilot"), None) => {}
+                _ => {
                     anyhow::bail!(
-                        "config: agent '{}' references unknown model '{}'",
-                        agent.id,
-                        model
+                        "config: agent '{}' must set provider and model together",
+                        agent.id
                     );
                 }
             }
+
+            validate_http_headers(&agent.header_overrides, &format!("agent '{}'", agent.id))?;
 
             // Validate fallback model references
             for fb in &agent.fallback_models {
@@ -691,7 +838,8 @@ impl Config {
 
         // Check for agents with no model assigned.
         for agent in &self.agents {
-            if agent.model.is_none() {
+            let is_copilot = agent.provider.as_deref() == Some("copilot");
+            if !is_copilot && agent.model.as_deref().map(str::is_empty).unwrap_or(true) {
                 warnings.push(format!(
                     "agent '{}' has no model assigned — will use first available",
                     agent.id
@@ -703,7 +851,7 @@ impl Config {
         for model in &self.models {
             let needs_key = !matches!(
                 model.provider.as_str(),
-                "copilot" | "ollama" | "lmstudio" | "vllm"
+                "copilot" | "ollama" | "lmstudio" | "vllm" | "anthropic"
             );
             if needs_key && model.api_key.is_none() {
                 warnings.push(format!(
@@ -737,8 +885,21 @@ impl Config {
 
     /// Serialize and write the configuration back to a YAML file.
     pub async fn save(&self, path: &Path) -> anyhow::Result<()> {
-        self.validate().context("refusing to save invalid config")?;
-        let contents = serde_yaml_ng::to_string(self).context("serialize config YAML")?;
+        let mut normalized = self.clone();
+        normalized.normalize_agent_models();
+        for model in &mut normalized.models {
+            normalize_http_headers(&mut model.headers, &format!("model '{}'", model.id))?;
+        }
+        for agent in &mut normalized.agents {
+            normalize_http_headers(
+                &mut agent.header_overrides,
+                &format!("agent '{}'", agent.id),
+            )?;
+        }
+        normalized
+            .validate()
+            .context("refusing to save invalid config")?;
+        let contents = serde_yaml_ng::to_string(&normalized).context("serialize config YAML")?;
         tokio::fs::write(path, &contents)
             .await
             .with_context(|| format!("failed to write config file: {}", path.display()))?;
@@ -749,5 +910,108 @@ impl Config {
 
     pub fn json_schema() -> schemars::Schema {
         schemars::schema_for!(Config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn empty_channels() -> ChannelsConfig {
+        ChannelsConfig {
+            discord: None,
+            default_channel: None,
+        }
+    }
+
+    #[test]
+    fn copilot_provider_with_empty_model_resolves_to_stable_fallback() {
+        let cfg = Config {
+            models: vec![],
+            channels: empty_channels(),
+            agents: vec![AgentConfig {
+                id: "agent-a".into(),
+                root: "agents/agent-a".into(),
+                model: None,
+                provider: Some("copilot".into()),
+                ..Default::default()
+            }],
+            secrets: None,
+            routing: None,
+            skills: None,
+            timezone: None,
+            session_expiry_days: Some(30),
+            cron_session_expiry_days: Some(7),
+            cron_events_max_keep: Some(50),
+            chromium_path: None,
+            mcp_servers: std::collections::HashMap::new(),
+            shared_memory: None,
+        };
+
+        let resolved = cfg.resolve_agent_model_pair(&cfg.agents[0]);
+        assert_eq!(
+            resolved,
+            Some(("copilot".to_string(), COPILOT_FALLBACK_MODEL_ID.to_string()))
+        );
+    }
+
+    #[test]
+    fn normalize_agent_models_fills_copilot_fallback() {
+        let mut cfg = Config {
+            models: vec![],
+            channels: empty_channels(),
+            agents: vec![AgentConfig {
+                id: "agent-a".into(),
+                root: "agents/agent-a".into(),
+                model: None,
+                provider: Some("copilot".into()),
+                ..Default::default()
+            }],
+            secrets: None,
+            routing: None,
+            skills: None,
+            timezone: None,
+            session_expiry_days: Some(30),
+            cron_session_expiry_days: Some(7),
+            cron_events_max_keep: Some(50),
+            chromium_path: None,
+            mcp_servers: std::collections::HashMap::new(),
+            shared_memory: None,
+        };
+
+        cfg.normalize_agent_models();
+
+        assert_eq!(cfg.agents[0].provider.as_deref(), Some("copilot"));
+        assert_eq!(
+            cfg.agents[0].model.as_deref(),
+            Some(COPILOT_FALLBACK_MODEL_ID)
+        );
+    }
+
+    #[test]
+    fn validate_allows_copilot_without_explicit_model() {
+        let cfg = Config {
+            models: vec![],
+            channels: empty_channels(),
+            agents: vec![AgentConfig {
+                id: "agent-a".into(),
+                root: "agents/agent-a".into(),
+                model: None,
+                provider: Some("copilot".into()),
+                ..Default::default()
+            }],
+            secrets: None,
+            routing: None,
+            skills: None,
+            timezone: None,
+            session_expiry_days: Some(30),
+            cron_session_expiry_days: Some(7),
+            cron_events_max_keep: Some(50),
+            chromium_path: None,
+            mcp_servers: std::collections::HashMap::new(),
+            shared_memory: None,
+        };
+
+        assert!(cfg.validate().is_ok());
     }
 }

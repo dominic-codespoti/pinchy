@@ -1,0 +1,30 @@
+{
+  "agents": {
+    "default": {
+      "file": "AGENTS.md"
+    },
+    "backend": {
+      "file": ".kilo/agent/backend.md"
+    },
+    "frontend": {
+      "file": ".kilo/agent/frontend.md"
+    },
+    "skills": {
+      "file": ".kilo/agent/skills.md"
+    }
+  },
+  "commands": {
+    "dev": {
+      "file": ".kilo/command/dev.md"
+    },
+    "lint": {
+      "file": ".kilo/command/lint.md"
+    },
+    "test": {
+      "file": ".kilo/command/test.md"
+    }
+  },
+  "mcp": {
+    "servers": []
+  }
+}

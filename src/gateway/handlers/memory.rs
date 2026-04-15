@@ -8,6 +8,7 @@ use serde::Deserialize;
 use std::sync::Arc;
 
 use super::super::auth::validate_path_segment;
+use super::super::types::{ErrorResponse, MemoryDeleteResponse, MemoryItem, MemoryListResponse};
 
 #[derive(Deserialize)]
 pub(crate) struct MemoryQuery {
@@ -33,7 +34,13 @@ pub(crate) async fn api_memory_list(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("memory open: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("memory open: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -50,15 +57,42 @@ pub(crate) async fn api_memory_list(
     })
     .await
     {
-        Ok(Ok(entries)) => Json(serde_json::json!({ "entries": entries })).into_response(),
+        Ok(Ok(entries)) => {
+            let memory_items: Vec<MemoryItem> = entries
+                .into_iter()
+                .map(|e| MemoryItem {
+                    key: e.key,
+                    value: e.value,
+                    tags: e.tags,
+                    timestamp: e.timestamp,
+                    score: e.score,
+                })
+                .collect();
+            Json(MemoryListResponse {
+                entries: memory_items,
+            })
+            .into_response()
+        }
         Ok(Err(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("memory search: {e}") })),
+            Json(ErrorResponse {
+                error: format!("memory search: {e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("task join: {e}") })),
+            Json(ErrorResponse {
+                error: format!("task join: {e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }
@@ -78,27 +112,56 @@ pub(crate) async fn api_memory_delete(
         Err(e) => {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("memory open: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("memory open: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
     };
 
-    match tokio::task::spawn_blocking(move || store.forget(&key)).await {
-        Ok(Ok(true)) => Json(serde_json::json!({ "deleted": true })).into_response(),
+    let key_for_forget = key.clone();
+    match tokio::task::spawn_blocking(move || store.forget(&key_for_forget)).await {
+        Ok(Ok(true)) => Json(MemoryDeleteResponse {
+            deleted: true,
+            key: Some(key),
+        })
+        .into_response(),
         Ok(Ok(false)) => (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "key not found" })),
+            Json(ErrorResponse {
+                error: "key not found".to_string(),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
         Ok(Err(e)) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("memory forget: {e}") })),
+            Json(ErrorResponse {
+                error: format!("memory forget: {e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("task join: {e}") })),
+            Json(ErrorResponse {
+                error: format!("task join: {e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }

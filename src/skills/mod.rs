@@ -400,7 +400,7 @@ mod tests {
     fn validate_skill_name_valid() {
         assert!(validate_skill_name("browser").is_ok());
         assert!(validate_skill_name("mcp").is_ok());
-        assert!(validate_skill_name("custom-skill_123").is_ok());
+        assert!(validate_skill_name("custom-skill-123").is_ok());
         assert!(validate_skill_name("data-analysis").is_ok());
         assert!(validate_skill_name("code-review").is_ok());
         assert!(validate_skill_name("a").is_ok());

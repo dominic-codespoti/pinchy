@@ -1,0 +1,797 @@
+{
+  "designDocument": {
+    "version": "1.0.0",
+    "title": "Pinchy Agents Interface Architecture",
+    "description": "Complete design specification for the new modern agents management interface",
+    "createdAt": "2026-04-03",
+    "author": "Architect Agent"
+  },
+  "overview": {
+    "purpose": "Modern, comprehensive agents management interface replacing the legacy system",
+    "corePhilosophy": "Tab-based single-page experience with clear separation of concerns",
+    "userFlows": [
+      "Browse agents → Quick actions from grid",
+      "Create agent → Wizard or template-based",
+      "Edit agent → Tabbed interface for different aspects",
+      "Test agent → Integrated chat within detail page",
+      "Manage memory → Search, add, delete memories",
+      "View sessions → Session history and metrics"
+    ]
+  },
+  "routes": {
+    "list": {
+      "path": "/agents",
+      "file": "web/app/agents/page.tsx",
+      "responsibilities": [
+        "Server component rendering the agents list",
+        "Prefetch agents data via React Query",
+        "Render AgentsList component with Suspense"
+      ]
+    },
+    "detail": {
+      "path": "/agents/[id]",
+      "file": "web/app/agents/[id]/page.tsx",
+      "responsibilities": [
+        "Server component for agent detail view",
+        "Extract agent ID from params",
+        "Prefetch agent data and related resources",
+        "Render AgentDetail with tab-based interface"
+      ],
+      "searchParams": {
+        "tab": "overview | files | memory | sessions | test | settings",
+        "file": "SOUL.md | TOOLS.md | HEARTBEAT.md (for deep-linking to specific file)"
+      }
+    },
+    "errorBoundaries": {
+      "list": "web/app/agents/error.tsx",
+      "detail": "web/app/agents/[id]/error.tsx",
+      "global": "web/app/global-error.tsx (existing)"
+    }
+  },
+  "apiIntegration": {
+    "agents": {
+      "list": {
+        "endpoint": "GET /api/agents",
+        "response": "{ agents: RawAgent[] }",
+        "tanstackKey": ["agents"],
+        "cacheTime": 30000
+      },
+      "get": {
+        "endpoint": "GET /api/agents/:id",
+        "response": "RawAgent with soul, tools, heartbeat content",
+        "tanstackKey": ["agents", id],
+        "cacheTime": 10000
+      },
+      "create": {
+        "endpoint": "POST /api/agents",
+        "body": "{ id, soul?, tools?, heartbeat?, model?, heartbeat_secs? }",
+        "tanstackKey": ["agents"],
+        "invalidates": [["agents"]]
+      },
+      "update": {
+        "endpoint": "PUT /api/agents/:id",
+        "body": "UpdateAgentRequest - partial updates supported",
+        "tanstackKey": ["agents", id],
+        "invalidates": [["agents"], ["agents", id]]
+      },
+      "delete": {
+        "endpoint": "DELETE /api/agents/:id",
+        "tanstackKey": ["agents", id],
+        "invalidates": [["agents"]]
+      },
+      "clone": {
+        "endpoint": "POST /api/agents/:id/clone",
+        "body": "{ new_id: string }",
+        "tanstackKey": ["agents", id, "clone"],
+        "invalidates": [["agents"]]
+      }
+    },
+    "files": {
+      "get": {
+        "endpoint": "GET /api/agents/:id/files/:filename",
+        "allowedFiles": ["SOUL.md", "TOOLS.md", "HEARTBEAT.md"],
+        "tanstackKey": ["agents", id, "files", filename]
+      },
+      "put": {
+        "endpoint": "PUT /api/agents/:id/files/:filename",
+        "body": "{ content: string }",
+        "tanstackKey": ["agents", id, "files", filename],
+        "invalidates": [["agents", id], ["agents", id, "files", filename]]
+      }
+    },
+    "memory": {
+      "list": {
+        "endpoint": "GET /api/agents/:id/memory?q=&tag=&limit=&mode=",
+        "queryParams": {
+          "q": "Search query string",
+          "tag": "Filter by tag",
+          "limit": "Number of results (default 100)",
+          "mode": "keyword | semantic | hybrid"
+        },
+        "tanstackKey": ["agents", id, "memory"],
+        "cacheTime": 5000
+      },
+      "delete": {
+        "endpoint": "DELETE /api/agents/:id/memory/:key",
+        "tanstackKey": ["agents", id, "memory"],
+        "invalidates": [["agents", id, "memory"]]
+      }
+    },
+    "sessions": {
+      "list": {
+        "endpoint": "GET /api/agents/:id/sessions",
+        "response": "{ sessions: { file, session_id, created_at, modified, title, message_count }[] }",
+        "tanstackKey": ["agents", id, "sessions"],
+        "cacheTime": 10000
+      }
+    },
+    "test": {
+      "note": "Test functionality uses WebSocket connection to /ws",
+      "implementation": "Re-use existing chat WebSocket infrastructure",
+      "messageFormat": "Same as existing chat system with agent context"
+    }
+  },
+  "fileStructure": {
+    "routes": [
+      {
+        "path": "web/app/agents/page.tsx",
+        "type": "server-component",
+        "description": "Agents list route - server component with prefetching"
+      },
+      {
+        "path": "web/app/agents/error.tsx",
+        "type": "error-boundary",
+        "description": "Error boundary for agents list"
+      },
+      {
+        "path": "web/app/agents/[id]/page.tsx",
+        "type": "server-component",
+        "description": "Agent detail route with tab routing"
+      },
+      {
+        "path": "web/app/agents/[id]/error.tsx",
+        "type": "error-boundary",
+        "description": "Error boundary for agent detail"
+      }
+    ],
+    "features": {
+      "basePath": "web/features/agents",
+      "components": {
+        "description": "React components for agents UI",
+        "files": [
+          {
+            "name": "agents-list.tsx",
+            "responsibilities": [
+              "Main list view with grid/card layout",
+              "Search and filter integration",
+              "Empty state handling",
+              "Quick action buttons per card"
+            ],
+            "props": {
+              "initialData?": "Agent[] - for SSR hydration",
+              "onAgentClick?": "(id: string) => void"
+            }
+          },
+          {
+            "name": "agent-card.tsx",
+            "responsibilities": [
+              "Individual agent card display",
+              "Status indicators (online/offline/heartbeat)",
+              "Quick stats (sessions, memory count)",
+              "Action dropdown menu"
+            ],
+            "props": {
+              "agent": "Agent",
+              "onEdit?": "() => void",
+              "onDelete?": "() => void",
+              "onClone?": "() => void",
+              "onTest?": "() => void"
+            }
+          },
+          {
+            "name": "agent-detail.tsx",
+            "responsibilities": [
+              "Main detail page shell",
+              "Hero section with agent identity",
+              "Tab navigation with URL sync",
+              "Suspense boundaries for each tab"
+            ],
+            "props": {
+              "agentId": "string",
+              "initialData?": "Agent"
+            }
+          },
+          {
+            "name": "agent-overview-tab.tsx",
+            "responsibilities": [
+              "Agent statistics display",
+              "Recent activity feed",
+              "Quick action grid",
+              "Status overview"
+            ],
+            "props": {
+              "agentId": "string"
+            }
+          },
+          {
+            "name": "agent-files-tab.tsx",
+            "responsibilities": [
+              "File editor for SOUL.md, TOOLS.md, HEARTBEAT.md",
+              "Monaco editor integration (or textarea fallback)",
+              "File switcher tabs",
+              "Save/cancel actions",
+              "Unsaved changes warning"
+            ],
+            "props": {
+              "agentId": "string",
+              "initialFile?": "string"
+            }
+          },
+          {
+            "name": "agent-memory-tab.tsx",
+            "responsibilities": [
+              "Memory search interface",
+              "Results list with delete action",
+              "Add memory dialog",
+              "Tag filtering"
+            ],
+            "props": {
+              "agentId": "string"
+            }
+          },
+          {
+            "name": "agent-sessions-tab.tsx",
+            "responsibilities": [
+              "Session history list",
+              "Session metrics display",
+              "Link to full session view",
+              "Delete session action"
+            ],
+            "props": {
+              "agentId": "string"
+            }
+          },
+          {
+            "name": "agent-test-tab.tsx",
+            "responsibilities": [
+              "Embedded chat interface",
+              "WebSocket message handling",
+              "Message history display",
+              "Input area with send button"
+            ],
+            "props": {
+              "agentId": "string"
+            }
+          },
+          {
+            "name": "agent-settings-tab.tsx",
+            "responsibilities": [
+              "All agent configuration in one form",
+              "Model selection",
+              "Heartbeat settings",
+              "Skill enablement",
+              "Context window settings"
+            ],
+            "props": {
+              "agentId": "string"
+            }
+          }
+        ],
+        "dialogs": [
+          {
+            "name": "create-agent-dialog.tsx",
+            "responsibilities": [
+              "Multi-step agent creation wizard",
+              "ID validation",
+              "Template selection",
+              "Initial configuration"
+            ]
+          },
+          {
+            "name": "delete-agent-dialog.tsx",
+            "responsibilities": [
+              "Confirmation dialog",
+              "Type agent name to confirm",
+              "Cascade delete warning"
+            ]
+          },
+          {
+            "name": "clone-agent-dialog.tsx",
+            "responsibilities": [
+              "Clone configuration options",
+              "New ID input with validation",
+              "Select what to clone (settings, files, memories)"
+            ]
+          }
+        ],
+        "sheets": [
+          {
+            "name": "edit-agent-sheet.tsx",
+            "responsibilities": [
+              "Quick edit slide-over",
+              "Basic fields editing",
+              "Fast access without full page"
+            ]
+          }
+        ]
+      },
+      "hooks": {
+        "description": "TanStack Query hooks for agents API",
+        "files": [
+          {
+            "name": "use-agents.ts",
+            "exports": ["useAgents"],
+            "queryKey": ["agents"],
+            "features": ["staleTime 30s", "refetchOnWindowFocus false"]
+          },
+          {
+            "name": "use-agent.ts",
+            "exports": ["useAgent"],
+            "queryKey": ["agents", id],
+            "features": ["staleTime 10s"]
+          },
+          {
+            "name": "use-create-agent.ts",
+            "exports": ["useCreateAgent"],
+            "mutation": "POST /api/agents",
+            "invalidates": [["agents"]]
+          },
+          {
+            "name": "use-update-agent.ts",
+            "exports": ["useUpdateAgent"],
+            "mutation": "PUT /api/agents/:id",
+            "invalidates": [["agents"], ["agents", id]],
+            "features": ["optimistic update support"]
+          },
+          {
+            "name": "use-delete-agent.ts",
+            "exports": ["useDeleteAgent"],
+            "mutation": "DELETE /api/agents/:id",
+            "invalidates": [["agents"]]
+          },
+          {
+            "name": "use-clone-agent.ts",
+            "exports": ["useCloneAgent"],
+            "mutation": "POST /api/agents/:id/clone",
+            "invalidates": [["agents"]]
+          },
+          {
+            "name": "use-agent-file.ts",
+            "exports": ["useAgentFile", "useUpdateAgentFile"],
+            "queryKey": ["agents", id, "files", filename],
+            "features": ["manual refetch for latest content"]
+          },
+          {
+            "name": "use-agent-memory.ts",
+            "exports": ["useAgentMemory", "useDeleteMemory"],
+            "queryKey": ["agents", id, "memory"]
+          },
+          {
+            "name": "use-agent-sessions.ts",
+            "exports": ["useAgentSessions"],
+            "queryKey": ["agents", id, "sessions"]
+          },
+          {
+            "name": "use-test-agent.ts",
+            "exports": ["useTestAgent"],
+            "implementation": "WebSocket hook for testing",
+            "features": ["message sending", "response streaming", "connection status"]
+          }
+        ]
+      },
+      "store": {
+        "description": "Zustand store for UI state",
+        "file": "agent-store.ts",
+        "state": {
+          "selectedTab": "string - current active tab",
+          "searchQuery": "string - agents list search",
+          "filters": "AgentFilters - status, skills, etc.",
+          "sortBy": "string - sort option",
+          "viewMode": "'grid' | 'list'",
+          "expandedGroups": "string[] - for grouped view",
+          "fileEditorState": "{ unsavedChanges: boolean, currentFile: string }"
+        },
+        "actions": {
+          "setSelectedTab": "(tab: string) => void",
+          "setSearchQuery": "(query: string) => void",
+          "setFilters": "(filters: Partial<AgentFilters>) => void",
+          "setSortBy": "(sort: string) => void",
+          "setViewMode": "(mode: 'grid' | 'list') => void",
+          "toggleGroup": "(groupId: string) => void",
+          "setFileUnsaved": "(unsaved: boolean) => void",
+          "reset": "() => void"
+        }
+      },
+      "api": {
+        "description": "API client functions",
+        "file": "api.ts",
+        "exports": [
+          "getAgents",
+          "getAgent",
+          "createAgent",
+          "updateAgent",
+          "deleteAgent",
+          "cloneAgent",
+          "getAgentFile",
+          "updateAgentFile",
+          "getAgentMemory",
+          "deleteMemory",
+          "getAgentSessions"
+        ]
+      },
+      "types": {
+        "description": "TypeScript types (existing file)",
+        "file": "types.ts",
+        "notes": "Extend existing types - Agent, RawAgent, CreateAgentInput, etc. already defined"
+      },
+      "index": {
+        "description": "Barrel exports",
+        "file": "index.ts",
+        "exports": [
+          "All components",
+          "All hooks",
+          "Store hook",
+          "Types",
+          "API functions"
+        ]
+      }
+    }
+  },
+  "componentHierarchy": {
+    "listPage": {
+      "AgentsPage (server)": {
+        "description": "Server component for /agents route",
+        "children": {
+          "Suspense": {
+            "fallback": "Skeleton grid",
+            "children": {
+              "AgentsList (client)": {
+                "description": "Main list container",
+                "children": {
+                  "SearchBar": {
+                    "shadcn": ["Input", "Button"],
+                    "icons": ["Search", "X"]
+                  },
+                  "FilterBar": {
+                    "shadcn": ["Select", "Badge"],
+                    "filters": ["Status", "Skills", "Model"]
+                  },
+                  "ViewToggle": {
+                    "shadcn": ["ToggleGroup"],
+                    "options": ["Grid", "List"]
+                  },
+                  "CreateButton": {
+                    "shadcn": ["Button"],
+                    "opens": "CreateAgentDialog"
+                  },
+                  "AgentsGrid": {
+                    "children": {
+                      "AgentCard": {
+                        "repeat": "for each agent",
+                        "shadcn": ["Card", "CardHeader", "CardContent", "CardFooter", "Badge", "Avatar", "DropdownMenu"],
+                        "children": {
+                          "StatusIndicator": "Online/offline dot",
+                          "HeartbeatBadge": "Last heartbeat time",
+                          "QuickStats": "Session/memory counts",
+                          "ActionMenu": "Edit/Delete/Clone/Test"
+                        }
+                      }
+                    }
+                  },
+                  "EmptyState": {
+                    "shadcn": ["Card", "Button"],
+                    "shown": "When no agents exist"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "detailPage": {
+      "AgentDetailPage (server)": {
+        "description": "Server component for /agents/[id] route",
+        "children": {
+          "Suspense": {
+            "fallback": "Detail skeleton",
+            "children": {
+              "AgentDetail (client)": {
+                "description": "Main detail container with tabs",
+                "children": {
+                  "HeroSection": {
+                    "shadcn": ["Card", "Avatar", "Badge", "Button"],
+                    "children": {
+                      "AgentIdentity": "Name, ID, description",
+                      "StatusBadge": "Active/inactive/error",
+                      "QuickActions": "Edit/Clone/Delete/Test buttons",
+                      "StatsRow": "Sessions, memories, last active"
+                    }
+                  },
+                  "TabNavigation": {
+                    "shadcn": ["Tabs", "TabsList", "TabsTrigger"],
+                    "tabs": [
+                      {
+                        "value": "overview",
+                        "label": "Overview",
+                        "icon": "LayoutDashboard",
+                        "content": "AgentOverviewTab"
+                      },
+                      {
+                        "value": "files",
+                        "label": "Files",
+                        "icon": "FileText",
+                        "content": "AgentFilesTab"
+                      },
+                      {
+                        "value": "memory",
+                        "label": "Memory",
+                        "icon": "Brain",
+                        "content": "AgentMemoryTab"
+                      },
+                      {
+                        "value": "sessions",
+                        "label": "Sessions",
+                        "icon": "MessageSquare",
+                        "content": "AgentSessionsTab"
+                      },
+                      {
+                        "value": "test",
+                        "label": "Test",
+                        "icon": "Play",
+                        "content": "AgentTestTab"
+                      },
+                      {
+                        "value": "settings",
+                        "label": "Settings",
+                        "icon": "Settings",
+                        "content": "AgentSettingsTab"
+                    }
+                    ]
+                  },
+                  "TabContents": {
+                    "AgentOverviewTab": {
+                      "children": {
+                        "StatsCards": "Grid of metric cards",
+                        "RecentActivity": "Activity feed",
+                        "QuickActions": "Common operations"
+                      }
+                    },
+                    "AgentFilesTab": {
+                      "children": {
+                        "FileTabs": ["SOUL.md", "TOOLS.md", "HEARTBEAT.md"],
+                        "Editor": "Monaco or textarea",
+                        "Toolbar": "Save, Reset, Format"
+                      }
+                    },
+                    "AgentMemoryTab": {
+                      "children": {
+                        "SearchBar": "Memory search input",
+                        "ModeSelector": "keyword/semantic/hybrid",
+                        "ResultsList": "Memory entries",
+                        "AddButton": "Opens add memory dialog"
+                      }
+                    },
+                    "AgentSessionsTab": {
+                      "children": {
+                        "SessionsList": "Session cards",
+                        "Metrics": "Session statistics",
+                        "NewSessionButton": "Create new session"
+                      }
+                    },
+                    "AgentTestTab": {
+                      "children": {
+                        "ChatInterface": "Re-use existing chat components",
+                        "MessageList": "Test conversation history",
+                        "InputArea": "Message input with send"
+                      }
+                    },
+                    "AgentSettingsTab": {
+                      "children": {
+                        "SettingsForm": "All agent configuration",
+                        "ModelSelect": "Model provider selection",
+                        "HeartbeatSettings": "Interval and toggle",
+                        "SkillCheckboxes": "Enabled skills",
+                        "ContextSettings": "Window management"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "stateManagement": {
+    "serverState": {
+      "tool": "TanStack Query (React Query)",
+      "patterns": [
+        "Prefetch on server components",
+        "Stale-while-revalidate for lists",
+        "Optimistic updates for mutations",
+        "Query invalidation on mutations"
+      ]
+    },
+    "clientState": {
+      "tool": "Zustand",
+      "store": "agent-store.ts",
+      "scope": "UI-only state",
+      "patterns": [
+        "Tab selection synced to URL",
+        "Search/filter state for list",
+        "View mode preference",
+        "Unsaved changes tracking"
+      ]
+    },
+    "urlState": {
+      "purpose": "Deep-linking support",
+      "implementation": "next/navigation useSearchParams",
+      "sync": "Two-way sync between URL and Zustand store",
+      "params": {
+        "tab": "Active tab on detail page",
+        "file": "Selected file in files tab",
+        "q": "Search query on list",
+        "filter": "Active filters"
+      }
+    }
+  },
+  "dataFlow": {
+    "listPage": [
+      "Server: AgentsPage calls prefetchQuery for agents list",
+      "Hydration: QueryClient dehydrates state to client",
+      "Client: AgentsList renders with cached data",
+      "Client: User interactions trigger mutations",
+      "Client: On mutation success, invalidate agents query"
+    ],
+    "detailPage": [
+      "Server: AgentDetailPage extracts ID from params",
+      "Server: Prefetches agent data, sessions, memory",
+      "Client: AgentDetail renders with cached data",
+      "Client: Tab switching is instant (client-side)",
+      "Client: Tab content fetches own data if needed",
+      "Client: File edits tracked locally, saved on demand"
+    ],
+    "mutations": [
+      "Optimistic update: Show change immediately",
+      "Background request: Send to API",
+      "Success: Confirm, invalidate related queries",
+      "Error: Rollback optimistic update, show toast"
+    ]
+  },
+  "uiSpecifications": {
+    "layout": {
+      "maxWidth": "max-w-7xl container",
+      "padding": "px-4 py-6 sm:px-6 lg:px-8",
+      "spacing": "gap-6 between sections"
+    },
+    "typography": {
+      "pageTitle": "text-3xl font-bold tracking-tight",
+      "sectionTitle": "text-xl font-semibold",
+      "cardTitle": "text-lg font-medium",
+      "body": "text-sm text-muted-foreground"
+    },
+    "colors": {
+      "status": {
+        "active": "bg-green-500",
+        "inactive": "bg-gray-400",
+        "error": "bg-red-500"
+      },
+      "priority": {
+        "high": "text-red-600",
+        "medium": "text-yellow-600",
+        "low": "text-blue-600"
+      }
+    },
+    "responsive": {
+      "mobile": {
+        "list": "1 column grid",
+        "detail": "Stacked layout, collapsible hero"
+      },
+      "tablet": {
+        "list": "2 column grid",
+        "detail": "Side-by-side where applicable"
+      },
+      "desktop": {
+        "list": "3-4 column grid",
+        "detail": "Full tab interface with sidebar"
+      }
+    }
+  },
+  "accessibility": {
+    "requirements": [
+      "All interactive elements have aria-labels",
+      "Tab navigation is keyboard accessible",
+      "Focus management on modal open/close",
+      "Loading states announced to screen readers",
+      "Error messages associated with inputs"
+    ],
+    "keyboardShortcuts": [
+      { "key": "/", "action": "Focus search" },
+      { "key": "n", "action": "New agent" },
+      { "key": "e", "action": "Edit current agent" },
+      { "key": "t", "action": "Test current agent" },
+      { "key": "1-6", "action": "Switch to tab N" }
+    ]
+  },
+  "errorHandling": {
+    "strategies": [
+      {
+        "level": "Route",
+        "component": "error.tsx",
+        "handles": ["Fetch errors", "Agent not found", "Server errors"]
+      },
+      {
+        "level": "Component",
+        "component": "ErrorBoundary",
+        "handles": ["React errors", "Component crashes"]
+      },
+      {
+        "level": "Query",
+        "tool": "TanStack Query",
+        "handles": ["API errors", "Retry logic", "Error states"]
+      }
+    ],
+    "userFeedback": {
+      "toast": "Success/error notifications via sonner",
+      "inline": "Field-level validation errors",
+      "fallback": "Error boundary UI with retry"
+    }
+  },
+  "shadcnComponents": {
+    "core": [
+      "Card, CardHeader, CardTitle, CardContent, CardFooter",
+      "Button (variants: default, outline, ghost, destructive)",
+      "Badge (variants: default, secondary, outline, destructive)",
+      "Tabs, TabsList, TabsTrigger, TabsContent",
+      "Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter",
+      "Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter",
+      "Input, Textarea",
+      "Select, SelectContent, SelectItem, SelectTrigger, SelectValue",
+      "DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger",
+      "Skeleton",
+      "ScrollArea",
+      "Separator",
+      "Tooltip",
+      "Avatar, AvatarFallback",
+      "Switch",
+      "Checkbox"
+    ],
+    "customWrappers": [
+      "StatusPill - Agent status display",
+      "HeartbeatBadge - Last heartbeat time",
+      "FormLabel - Consistent form labeling"
+    ]
+  },
+  "dependencies": {
+    "required": [
+      "@tanstack/react-query - Server state management",
+      "zustand - Client state management",
+      "lucide-react - Icons",
+      "@radix-ui/* - shadcn primitives",
+      "@monaco-editor/react - File editor (optional)",
+      "sonner - Toast notifications"
+    ],
+    "optional": [
+      "date-fns - Date formatting",
+      "zod - Form validation",
+      "react-hook-form - Form management"
+    ]
+  },
+  "implementationNotes": {
+    "phase1": "Set up file structure, types, and API layer",
+    "phase2": "Build list page with agents grid",
+    "phase3": "Build detail shell with tab navigation",
+    "phase4": "Implement each tab (overview, files, memory, sessions, test, settings)",
+    "phase5": "Add dialogs (create, delete, clone)",
+    "phase6": "Polish, accessibility, testing",
+    "criticalPaths": [
+      "File editor needs unsaved changes warning",
+      "Test tab reuses existing WebSocket infrastructure",
+      "Memory search supports keyword/semantic/hybrid modes",
+      "All mutations have proper error handling"
+    ]
+  }
+}
+</content>

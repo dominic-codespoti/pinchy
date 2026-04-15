@@ -1,75 +1,122 @@
 ---
 name: mcp
-description: "Connect to and use MCP (Model Context Protocol) servers to access external tools, data sources, and services. Uses the mcptools CLI (mcp/mcpt) for ergonomic server interaction. Requires mcptools (go install github.com/f/mcptools/cmd/mcptools@latest) or Node.js (npx) for stdio servers."
-compatibility: "Requires mcptools CLI (recommended) or Node.js (npx) for stdio-based servers. Network access required for HTTP servers."
-allowed-tools: exec_shell read_file write_file
+description: "Connect to and use MCP (Model Context Protocol) servers to access external tools, data sources, and services. Use native MCP tools for configured servers or mcptools CLI for ad-hoc servers. Servers are configured in config.yaml under mcp_servers."
+compatibility: "Requires mcp_servers configured in config.yaml for native tools. For ad-hoc servers, requires mcptools CLI (go install github.com/f/mcptools/cmd/mcptools@latest) or Node.js (npx)."
+allowed-tools: mcp_list_servers mcp_list_tools mcp_call_tool exec_shell read_file write_file
 metadata:
   author: pinchy
-  version: "2.0"
+  version: "3.0"
 ---
 # MCP (Model Context Protocol) Integration
 
-Use `exec_shell` to interact with MCP servers via the **mcptools** CLI (`mcp` or `mcpt`).
+Pinchy has **native MCP support** with three built-in tools. Configure servers once in `config.yaml`, then use the tools directly.
 
-## Install mcptools
+## Native MCP Tools
 
-```bash
-# macOS (Homebrew)
-brew tap f/mcptools && brew install mcp
+### mcp_list_servers
 
-# Linux / Windows (Go)
-go install github.com/f/mcptools/cmd/mcptools@latest
-# binary installs as 'mcptools', alias to 'mcp' or 'mcpt'
+List all configured MCP servers.
+
+```json
+{}
 ```
 
-## Quick start
+Returns list of server names and count.
+
+### mcp_list_tools
+
+List tools available on a specific MCP server.
+
+```json
+{
+  "server": "filesystem"
+}
+```
+
+### mcp_call_tool
+
+Call a tool on an MCP server.
+
+```json
+{
+  "server": "github",
+  "tool": "search_repositories",
+  "arguments": {
+    "query": "repo:rust-lang/rust is:public",
+    "per_page": 5
+  }
+}
+```
+
+## Configuring MCP Servers
+
+Add to your `config.yaml`:
+
+```yaml
+mcp_servers:
+  filesystem:
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+    
+  github:
+    transport: http
+    url: "https://api.github.com/mcp"
+    auth:
+      type: "bearer"
+      token: "${GITHUB_TOKEN}"
+    
+  postgres:
+    transport: stdio
+    command: "npx"
+    args: ["-y", "@modelcontextprotocol/server-postgres", "postgresql://localhost/mydb"]
+```
+
+### Transport Types
+
+| Transport | Config | Use Case |
+|-----------|--------|----------|
+| `stdio` | `command` + `args` | Local subprocess servers (npx, python -m) |
+| `http` | `url` + `auth` | HTTP endpoints with authentication |
+
+### Authentication
+
+```yaml
+# Bearer token
+auth:
+  type: "bearer"
+  token: "${GITHUB_TOKEN}"  # Supports env var substitution
+
+# OAuth 2.1 PKCE (for servers requiring OAuth)
+auth:
+  type: "oauth"
+  client_id: "your-client-id"
+  auth_url: "https://auth.example.com/authorize"
+  token_url: "https://auth.example.com/token"
+  scopes: "read write"
+```
+
+## Using mcptools CLI (Ad-hoc Servers)
+
+For servers not configured in `config.yaml`, use the mcptools CLI:
 
 ```bash
+# Install mcptools
+brew tap f/mcptools && brew install mcp  # macOS
+go install github.com/f/mcptools/cmd/mcptools@latest  # Linux/Windows
+
 # List tools from a filesystem server
 mcp tools npx -y @modelcontextprotocol/server-filesystem /tmp
 
 # Call a tool
-mcp call read_file --params '{"path":"/tmp/example.txt"}' npx -y @modelcontextprotocol/server-filesystem /tmp
-
-# List tools from an HTTP server
-mcp tools http://localhost:3000
-
-# Pretty JSON output
-mcp tools --format pretty npx -y @modelcontextprotocol/server-filesystem /tmp
+mcp call read_file --params '{"path":"/tmp/example.txt"}' \
+  npx -y @modelcontextprotocol/server-filesystem /tmp
 ```
 
-## Core commands
-
-| Command | Description |
-|---|---|
-| `mcp tools <server…>` | List all tools the server exposes |
-| `mcp call <tool> --params '{…}' <server…>` | Call a specific tool |
-| `mcp resources <server…>` | List available resources |
-| `mcp read-resource <uri> <server…>` | Read a specific resource |
-| `mcp prompts <server…>` | List available prompts |
-| `mcp get-prompt <name> <server…>` | Get a specific prompt |
-| `mcp shell <server…>` | Interactive shell session |
-
-## Transport types
-
-| Transport | Example |
-|---|---|
-| **stdio** | `mcp tools npx -y @modelcontextprotocol/server-filesystem /tmp` |
-| **SSE** | `mcp tools http://localhost:3000/sse` |
-| **Streamable HTTP** | `mcp tools http://localhost:3000` |
-
-## Output formats
-
-```bash
-mcp tools <server…>                  # table format (default, colorized)
-mcp tools --format json <server…>    # compact JSON
-mcp tools --format pretty <server…>  # indented JSON
-```
-
-## Common MCP servers
+## Common MCP Servers
 
 | Server | Package | Purpose |
-|---|---|---|
+|--------|---------|---------|
 | Filesystem | `@modelcontextprotocol/server-filesystem` | Read/write files, search, manage directories |
 | GitHub | `@modelcontextprotocol/server-github` | Repos, issues, PRs, code search |
 | PostgreSQL | `@modelcontextprotocol/server-postgres` | Query databases, inspect schemas |
@@ -78,33 +125,16 @@ mcp tools --format pretty <server…>  # indented JSON
 | Fetch | `@modelcontextprotocol/server-fetch` | HTTP requests and web content |
 | SQLite | `@modelcontextprotocol/server-sqlite` | SQLite database operations |
 
-### Running servers
+## Workflow
 
-```bash
-# Filesystem — give it directories to expose
-npx -y @modelcontextprotocol/server-filesystem /path/to/dir
-
-# GitHub — requires GITHUB_TOKEN
-GITHUB_TOKEN=ghp_xxx npx -y @modelcontextprotocol/server-github
-
-# PostgreSQL — pass connection string
-npx -y @modelcontextprotocol/server-postgres "postgresql://user:pass@localhost/db"
-```
+1. **Configure servers once** in `config.yaml` under `mcp_servers`
+2. **List available tools** with `mcp_list_tools` for each server
+3. **Call tools** with `mcp_call_tool` specifying server, tool name, and arguments
+4. **Parse results** from the returned JSON
 
 ## Tips
 
-* Use `mcp tools` first to discover what's available before calling tools.
-* Use `--format json` and pipe to `jq` for scripting: `mcp call tool --params '{}' server | jq .`
-* For repeated use, create an alias: `mcp alias add myfs npx -y @modelcontextprotocol/server-filesystem ~/`
-* If `mcptools` is not installed, fall back to raw JSON-RPC — see `references/protocol.md`.
-* Use `--server-logs` flag to see server-side logs for debugging.
-
-## Reference files
-
-This skill includes additional reference material:
-
-- **references/protocol.md** — JSON-RPC protocol details and raw stdio interaction.
-- **references/servers.md** — Extended MCP server catalog with install commands.
-- **scripts/mcp-call.sh** — Helper script for raw JSON-RPC tool calls without mcptools.
-
-Use `read_file` to load these when you need the detailed reference.
+- Use `mcp_list_servers` to see which servers are configured
+- Use `mcp_list_tools` with a server name to discover available tools
+- Arguments format depends on the tool's input schema (usually JSON object)
+- For repeated use, configure servers in `config.yaml` to avoid CLI overhead

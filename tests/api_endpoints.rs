@@ -275,6 +275,68 @@ agents: []
     gw.handle.abort();
 }
 
+#[tokio::test]
+async fn agent_update_can_disable_heartbeat_persistently() {
+    let _lock = ENV_LOCK.lock().unwrap();
+    let tmp = tempfile::tempdir().unwrap();
+    let config_path = tmp.path().join("config.yaml");
+    let agents_dir = tmp.path().join("agents");
+    let agent_dir = agents_dir.join("heartbeat-agent");
+    tokio::fs::create_dir_all(&agent_dir).await.unwrap();
+
+    let yaml = r#"
+models: []
+channels: {}
+agents:
+  - id: heartbeat-agent
+    root: ./agents/heartbeat-agent
+    heartbeat_secs: 30
+"#;
+    tokio::fs::write(&config_path, yaml).await.unwrap();
+
+    let _guard = ChdirGuard::new(tmp.path());
+    unsafe {
+        std::env::set_var("PINCHY_HOME", tmp.path());
+    }
+
+    let addr = free_addr().await;
+    let gw = mini_claw::gateway::start_gateway_with_config(addr, config_path.clone())
+        .await
+        .unwrap();
+
+    let client = reqwest::Client::new();
+
+    let resp = client
+        .put(format!("http://{}/api/agents/heartbeat-agent", gw.addr))
+        .json(&serde_json::json!({
+            "heartbeat_enabled": false
+        }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+
+    let saved = mini_claw::config::Config::load(&config_path).await.unwrap();
+    let agent = saved
+        .agents
+        .iter()
+        .find(|a| a.id == "heartbeat-agent")
+        .unwrap();
+    assert_eq!(agent.heartbeat_secs, None);
+
+    let resp = client
+        .get(format!("http://{}/api/agents/heartbeat-agent", gw.addr))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 200);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(body["heartbeat_enabled"], false);
+    assert!(body["heartbeat_secs"].is_null());
+
+    gw.handle.abort();
+}
+
 // ─── Cron list endpoint ──────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -320,6 +382,7 @@ agents: []
         condition: None,
         retry_count: 0,
         last_status: None,
+        enabled: true,
     })
     .unwrap();
     db.upsert_cron_job(&PersistedCronJob {
@@ -334,6 +397,7 @@ agents: []
         condition: None,
         retry_count: 0,
         last_status: None,
+        enabled: true,
     })
     .unwrap();
 

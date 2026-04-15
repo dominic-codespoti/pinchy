@@ -202,9 +202,11 @@ pub fn register_builtin_commands(registry: &Registry) {
         Arc::new(|ctx, _args| {
             Box::pin(async move {
                 let session_id = crate::session::index::new_session_id();
+                tracing::info!(agent = %ctx.agent_id, "processing /new command");
 
                 // Persist to PinchyDb if available.
                 if let Some(db) = crate::store::global_db() {
+                    tracing::debug!(agent = %ctx.agent_id, "database available, creating session");
                     // Summarize existing session before rotating
                     if let Some(prev) = db.current_session(&ctx.agent_id).ok().flatten() {
                         let agent_id = ctx.agent_id.clone();
@@ -232,12 +234,22 @@ pub fn register_builtin_commands(registry: &Registry) {
                         created_at: crate::agent::types::epoch_millis(),
                         title: None,
                     };
+                    tracing::debug!(agent = %ctx.agent_id, session = %session_id, "inserting session to database");
                     db.insert_session(&entry)
                         .map_err(|e| SlashError::Handler(format!("insert session: {e}")))?;
+                    tracing::debug!(agent = %ctx.agent_id, session = %session_id, "setting current session");
                     db.set_current_session(&ctx.agent_id, &session_id)
                         .map_err(|e| SlashError::Handler(format!("set current session: {e}")))?;
+
+                    // Emit session_created event so the UI can navigate to the new session
+                    tracing::info!(agent = %ctx.agent_id, session = %session_id, "emitting session_created event");
+                    crate::gateway::publish_event_json(&serde_json::json!({
+                        "type": "session_created",
+                        "agent": ctx.agent_id,
+                        "session": session_id,
+                    }));
                 } else {
-                    tracing::warn!("no database available — skipping /new session creation");
+                    tracing::warn!(agent = %ctx.agent_id, "no database available — skipping /new session creation");
                 }
 
                 debug!(session_id = %session_id, "new session started via /new");
@@ -649,6 +661,7 @@ pub fn register_builtin_commands(registry: &Registry) {
                             condition: None,
                             retry_count: 0,
                             last_status: None,
+                            enabled: true,
                         };
 
                         match handle.register_job(entry).await {

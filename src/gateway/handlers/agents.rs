@@ -1,6 +1,8 @@
 use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
+use http::header::{HeaderName, HeaderValue};
 
-use super::super::auth::validate_path_segment;
+use super::super::types::*;
+use super::super::utils::{conflict_response, not_found_response, validate_or_return};
 
 use serde::Deserialize;
 
@@ -16,92 +18,135 @@ where
     Ok(Some(Option::<T>::deserialize(deserializer)?))
 }
 
+fn header_rows_to_map(
+    rows: &[AgentHeaderOverride],
+    owner: &str,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let mut headers = std::collections::HashMap::new();
+    for row in rows {
+        let name = row.header.trim();
+        if name.is_empty() {
+            return Err(format!("{owner} has an empty header name"));
+        }
+
+        let header_name = HeaderName::from_bytes(name.as_bytes())
+            .map_err(|_| format!("{owner} has invalid header name '{name}'"))?;
+        HeaderValue::from_str(&row.value)
+            .map_err(|_| format!("{owner} has invalid value for header '{name}'"))?;
+
+        let canonical = header_name.as_str().to_string();
+        if headers
+            .insert(canonical.clone(), row.value.clone())
+            .is_some()
+        {
+            return Err(format!("{owner} has duplicate header '{canonical}'"));
+        }
+    }
+
+    Ok(headers)
+}
+
+fn map_to_header_rows(
+    headers: Option<&std::collections::HashMap<String, String>>,
+) -> Vec<AgentHeaderOverride> {
+    let mut rows = headers
+        .into_iter()
+        .flat_map(|map| {
+            map.iter().map(|(header, value)| AgentHeaderOverride {
+                header: header.clone(),
+                value: value.clone(),
+            })
+        })
+        .collect::<Vec<_>>();
+    rows.sort_by(|a, b| a.header.cmp(&b.header));
+    rows
+}
+
+async fn validate_provider_model_selection(
+    cfg: &crate::config::Config,
+    provider: &str,
+    model: &str,
+) -> bool {
+    if provider == "copilot"
+        && (model.is_empty() || model == crate::config::COPILOT_FALLBACK_MODEL_ID)
+    {
+        return true;
+    }
+
+    crate::gateway::handlers::models::collect_model_inventory(cfg)
+        .await
+        .into_iter()
+        .any(|m| m.provider == provider && m.id == model)
+}
+
 /// `GET /api/agents` — list all agent directories.
 pub(crate) async fn api_agents_list() -> impl IntoResponse {
-    let agents_dir = crate::utils::agents_dir();
     let mut agents = Vec::new();
 
     // Load config to merge agent-level settings.
     let config_path = crate::pinchy_home().join("config.yaml");
     let cfg = crate::config::Config::load(&config_path).await.ok();
 
-    if let Ok(mut rd) = tokio::fs::read_dir(agents_dir).await {
-        while let Ok(Some(entry)) = rd.next_entry().await {
-            let is_dir = entry
-                .file_type()
-                .await
-                .map(|ft| ft.is_dir())
-                .unwrap_or(false);
-            if !is_dir {
-                continue;
+    // Use shared helper to iterate agent directories
+    let agent_entries = crate::gateway::utils::iter_agents_dir().await;
+    for entry in agent_entries {
+        let base = entry.path;
+        let has_soul = base.join("SOUL.md").exists();
+        let has_tools = base.join("TOOLS.md").exists();
+        let has_heartbeat = base.join("HEARTBEAT.md").exists();
+
+        let mut item = AgentListItem {
+            id: entry.agent_id.clone(),
+            has_soul,
+            has_tools,
+            has_heartbeat,
+            heartbeat_enabled: false,
+            last_heartbeat_at: None,
+            model: None,
+            provider: None,
+            heartbeat_secs: None,
+            max_tool_iterations: None,
+            enabled_skills: None,
+            cron_jobs_count: None,
+            history_messages: None,
+            max_turns: None,
+            compact_keep_recent_turns: None,
+            timezone: None,
+            reasoning_effort: None,
+        };
+
+        // Merge config fields if available.
+        if let Some(ref cfg) = cfg {
+            if let Some(ac) = cfg.agents.iter().find(|a| a.id == item.id) {
+                item.model = ac.model.clone();
+                item.provider = ac.provider.clone();
+                item.heartbeat_secs = ac.heartbeat_secs;
+                item.heartbeat_enabled = ac.heartbeat_secs.is_some();
+                item.max_tool_iterations = ac.max_tool_iterations;
+                item.enabled_skills = ac.enabled_skills.clone();
+                item.cron_jobs_count = crate::store::global_db()
+                    .and_then(|db| db.list_cron_jobs(&item.id).ok())
+                    .map(|j| j.len());
+                item.history_messages = ac.history_messages;
+                item.max_turns = ac.max_turns;
+                item.compact_keep_recent_turns = ac.compact_keep_recent_turns;
+                item.timezone = Some(cfg.resolve_timezone(&item.id).to_string());
+                item.reasoning_effort = ac.reasoning_effort.clone();
             }
-            let id = entry.file_name().to_string_lossy().to_string();
-            let base = entry.path();
-            let has_soul = base.join("SOUL.md").exists();
-            let has_tools = base.join("TOOLS.md").exists();
-            let has_heartbeat = base.join("HEARTBEAT.md").exists();
-
-            let mut entry_json = serde_json::json!({
-                "id": id,
-                "has_soul": has_soul,
-                "has_tools": has_tools,
-                "has_heartbeat": has_heartbeat,
-            });
-
-            // Merge config fields if available.
-            if let Some(ref cfg) = cfg {
-                if let Some(ac) = cfg.agents.iter().find(|a| a.id == id) {
-                    let m = entry_json.as_object_mut().unwrap();
-                    m.insert("model".into(), serde_json::json!(ac.model));
-                    m.insert(
-                        "heartbeat_secs".into(),
-                        serde_json::json!(ac.heartbeat_secs),
-                    );
-                    m.insert(
-                        "max_tool_iterations".into(),
-                        serde_json::json!(ac.max_tool_iterations),
-                    );
-                    m.insert(
-                        "enabled_skills".into(),
-                        serde_json::json!(ac.enabled_skills),
-                    );
-                    m.insert(
-                        "cron_jobs_count".into(),
-                        serde_json::json!(crate::store::global_db()
-                            .and_then(|db| db.list_cron_jobs(&id).ok())
-                            .map(|j| j.len())
-                            .unwrap_or(0)),
-                    );
-                    m.insert(
-                        "history_messages".into(),
-                        serde_json::json!(ac.history_messages),
-                    );
-                    m.insert("max_turns".into(), serde_json::json!(ac.max_turns));
-                    m.insert(
-                        "compact_keep_recent_turns".into(),
-                        serde_json::json!(ac.compact_keep_recent_turns),
-                    );
-                    m.insert(
-                        "timezone".into(),
-                        serde_json::json!(cfg.resolve_timezone(&id).to_string()),
-                    );
-                    m.insert(
-                        "reasoning_effort".into(),
-                        serde_json::json!(ac.reasoning_effort),
-                    );
-                }
-            }
-
-            agents.push(entry_json);
         }
+
+        // Load real heartbeat timestamp from scheduler status
+        if item.has_heartbeat {
+            if let Some(status) = crate::scheduler::load_heartbeat_status(&item.id).await {
+                item.last_heartbeat_at = status.last_tick;
+            }
+        }
+
+        agents.push(item);
     }
 
-    agents.sort_by(|a, b| {
-        a.get("id")
-            .and_then(|v| v.as_str())
-            .cmp(&b.get("id").and_then(|v| v.as_str()))
-    });
-    Json(serde_json::json!({ "agents": agents }))
+    agents.sort_by(|a, b| a.id.cmp(&b.id));
+    Json(AgentsListResponse { agents })
 }
 
 #[derive(serde::Deserialize)]
@@ -114,36 +159,33 @@ pub(crate) async fn api_agent_clone(
     Path(agent_id): Path<String>,
     Json(body): Json<CloneAgentRequest>,
 ) -> impl IntoResponse {
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
-    if let Err(e) = validate_path_segment(&body.new_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
+    validate_or_return!(&body.new_id);
 
     let src_base = crate::utils::agent_root(&agent_id);
     let dst_base = crate::utils::agent_root(&body.new_id);
 
     if !src_base.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "source agent not found" })),
-        )
-            .into_response();
+        return not_found_response(agent_id);
     }
     if dst_base.exists() {
-        return (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": "target agent already exists" })),
-        )
-            .into_response();
+        return conflict_response("target agent already exists", body.new_id);
     }
+
+    let mut files_cloned = 0i64;
+    let mut errors = Vec::new();
 
     // 1. Create directory structure (fresh workspace, no sessions)
     if let Err(e) = tokio::fs::create_dir_all(dst_base.join("workspace").join("sessions")).await {
+        errors.push(format!("create dirs: {e}"));
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("create dirs: {e}") })),
+            Json(AgentCloneResponse {
+                id: body.new_id.clone(),
+                created: false,
+                files_cloned,
+                errors,
+            }),
         )
             .into_response();
     }
@@ -153,13 +195,31 @@ pub(crate) async fn api_agent_clone(
         let src = src_base.join(name);
         if src.exists() {
             if let Err(e) = tokio::fs::copy(&src, dst_base.join(name)).await {
-                return (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": format!("copy {name}: {e}") })),
-                )
-                    .into_response();
+                errors.push(format!("copy {name}: {e}"));
+            } else {
+                files_cloned += 1i64;
             }
         }
+    }
+
+    // Return 500 if critical file copies failed (at least one required file failed)
+    let critical_files = ["SOUL.md", "TOOLS.md"];
+    let has_critical_error = critical_files.iter().any(|name| {
+        let src = src_base.join(name);
+        src.exists() && errors.iter().any(|e| e.contains(&format!("copy {name}:")))
+    });
+
+    if has_critical_error && !errors.is_empty() {
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(AgentCloneResponse {
+                id: body.new_id.clone(),
+                created: false,
+                files_cloned,
+                errors,
+            }),
+        )
+            .into_response();
     }
 
     // 3. Clone config entry
@@ -177,39 +237,48 @@ pub(crate) async fn api_agent_clone(
 
                     cfg.agents.push(new_ac);
                     if let Err(e) = cfg.save(&config_path).await {
+                        errors.push(format!("save config: {e}"));
                         return (
                             StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(serde_json::json!({ "error": format!("save config: {e}") })),
+                            Json(AgentCloneResponse {
+                                id: body.new_id.clone(),
+                                created: false,
+                                files_cloned,
+                                errors,
+                            }),
                         )
                             .into_response();
                     }
                 }
             }
             Err(e) => {
+                let err_msg = format!("failed to load config for agent creation: {e}");
                 tracing::warn!(error = %e, "failed to load config for agent creation");
+                errors.push(err_msg);
+                // Don't fail for config load errors, just warn
             }
         }
     }
 
     (
         StatusCode::CREATED,
-        Json(serde_json::json!({ "id": body.new_id })),
+        Json(AgentCloneResponse {
+            id: body.new_id,
+            created: true,
+            files_cloned,
+            errors,
+        }),
     )
         .into_response()
 }
 
 /// `GET /api/agents/:id` — return agent metadata and file contents.
 pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResponse {
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
+
     let base = crate::utils::agent_root(&agent_id);
     if !base.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "agent not found", "id": agent_id })),
-        )
-            .into_response();
+        return not_found_response(agent_id);
     }
 
     let soul = tokio::fs::read_to_string(base.join("SOUL.md")).await.ok();
@@ -223,56 +292,48 @@ pub(crate) async fn api_agent_get(Path(agent_id): Path<String>) -> impl IntoResp
         .and_then(|db| db.session_count_for_agent(&agent_id).ok())
         .unwrap_or(0);
 
-    let mut result = serde_json::json!({
-        "id": agent_id,
-        "soul": soul,
-        "tools": tools,
-        "heartbeat": heartbeat,
-        "session_count": session_count,
-    });
+    let mut detail = AgentDetail {
+        id: agent_id.clone(),
+        soul,
+        tools,
+        heartbeat,
+        session_count,
+        model: None,
+        provider: None,
+        heartbeat_enabled: false,
+        heartbeat_secs: None,
+        max_tool_iterations: None,
+        enabled_skills: None,
+        history_messages: None,
+        max_turns: None,
+        compact_keep_recent_turns: None,
+        timezone: None,
+        reasoning_effort: None,
+        header_overrides: Vec::new(),
+        watch_paths: Vec::new(),
+    };
 
     // Merge config fields if available.
     let config_path = crate::pinchy_home().join("config.yaml");
     if let Ok(cfg) = crate::config::Config::load(&config_path).await {
         if let Some(ac) = cfg.agents.iter().find(|a| a.id == agent_id) {
-            let m = result.as_object_mut().unwrap();
-            m.insert("model".into(), serde_json::json!(ac.model));
-            m.insert(
-                "heartbeat_secs".into(),
-                serde_json::json!(ac.heartbeat_secs),
-            );
-            m.insert(
-                "max_tool_iterations".into(),
-                serde_json::json!(ac.max_tool_iterations),
-            );
-            m.insert(
-                "enabled_skills".into(),
-                serde_json::json!(ac.enabled_skills),
-            );
-            m.insert(
-                "history_messages".into(),
-                serde_json::json!(ac.history_messages),
-            );
-            m.insert("max_turns".into(), serde_json::json!(ac.max_turns));
-            m.insert(
-                "compact_keep_recent_turns".into(),
-                serde_json::json!(ac.compact_keep_recent_turns),
-            );
-            m.insert(
-                "timezone".into(),
-                serde_json::json!(cfg.resolve_timezone(&agent_id).to_string()),
-            );
-            m.insert(
-                "reasoning_effort".into(),
-                serde_json::json!(ac.reasoning_effort),
-            );
-            if !ac.watch_paths.is_empty() {
-                m.insert("watch_paths".into(), serde_json::json!(ac.watch_paths));
-            }
+            detail.model = ac.model.clone();
+            detail.provider = ac.provider.clone();
+            detail.heartbeat_secs = ac.heartbeat_secs;
+            detail.heartbeat_enabled = ac.heartbeat_secs.is_some();
+            detail.max_tool_iterations = ac.max_tool_iterations;
+            detail.enabled_skills = ac.enabled_skills.clone();
+            detail.history_messages = ac.history_messages;
+            detail.max_turns = ac.max_turns;
+            detail.compact_keep_recent_turns = ac.compact_keep_recent_turns;
+            detail.timezone = Some(cfg.resolve_timezone(&agent_id).to_string());
+            detail.reasoning_effort = ac.reasoning_effort.clone();
+            detail.header_overrides = map_to_header_rows(ac.header_overrides.as_ref());
+            detail.watch_paths = ac.watch_paths.clone();
         }
     }
 
-    (StatusCode::OK, Json(result)).into_response()
+    (StatusCode::OK, Json(detail)).into_response()
 }
 
 /// Request body for POST /api/agents
@@ -286,32 +347,49 @@ pub(crate) struct CreateAgentRequest {
     #[serde(default)]
     heartbeat: Option<String>,
     #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
     model: Option<String>,
     #[serde(default)]
     heartbeat_secs: Option<u64>,
+    #[serde(default)]
+    header_overrides: Option<Vec<AgentHeaderOverride>>,
 }
 
 /// `POST /api/agents` — create a new agent workspace skeleton.
 pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> impl IntoResponse {
+    let agent_id = body.id.clone();
+    let header_override_rows = body.header_overrides.clone().unwrap_or_default();
     // Validate id: alphanumeric, hyphens, underscores only
-    if body.id.is_empty()
-        || !body
-            .id
+    if agent_id.is_empty()
+        || !agent_id
             .chars()
             .all(|c| c.is_alphanumeric() || c == '-' || c == '_')
     {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({ "error": "invalid agent id: must be alphanumeric/hyphen/underscore" })),
+            Json(ErrorResponse {
+                error: "invalid agent id: must be alphanumeric/hyphen/underscore".to_string(),
+                id: Some(agent_id),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
 
-    let base = crate::utils::agent_root(&body.id);
+    let base = crate::utils::agent_root(&agent_id);
     if base.exists() {
         return (
             StatusCode::CONFLICT,
-            Json(serde_json::json!({ "error": "agent already exists", "id": body.id })),
+            Json(ErrorResponse {
+                error: "agent already exists".to_string(),
+                id: Some(agent_id.clone()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -320,7 +398,13 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
     if let Err(e) = tokio::fs::create_dir_all(base.join("workspace").join("sessions")).await {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("create dirs: {e}") })),
+            Json(ErrorResponse {
+                error: format!("create dirs: {e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response();
     }
@@ -340,6 +424,27 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
         "# Heartbeat\n\nInstructions the agent executes on each heartbeat tick.\n".to_string()
     });
 
+    let header_overrides = if header_override_rows.is_empty() {
+        None
+    } else {
+        match header_rows_to_map(&header_override_rows, &format!("agent '{}'", agent_id)) {
+            Ok(headers) => Some(headers),
+            Err(error) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error,
+                        id: Some(agent_id.clone()),
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    };
+
     for (name, content) in [
         ("SOUL.md", &soul),
         ("TOOLS.md", &tools),
@@ -348,7 +453,13 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
         if let Err(e) = tokio::fs::write(base.join(name), content).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("write {name}: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("write {name}: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -360,11 +471,71 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
         let _guard = crate::config::config_lock().await;
         match crate::config::Config::load_unvalidated(&config_path).await {
             Ok(mut cfg) => {
+                let selection = match (body.provider.clone(), body.model.clone()) {
+                    (None, None) => None,
+                    (Some(provider), model) if provider == "copilot" => {
+                        let model = model.filter(|m| !m.is_empty()).unwrap_or_else(|| {
+                            crate::config::COPILOT_FALLBACK_MODEL_ID.to_string()
+                        });
+
+                        if validate_provider_model_selection(&cfg, &provider, &model).await {
+                            Some((provider, model))
+                        } else {
+                            return (
+                                StatusCode::BAD_REQUEST,
+                                Json(ErrorResponse {
+                                    error: format!(
+                                        "unknown provider/model pair '{provider}/{model}'"
+                                    ),
+                                    id: Some(agent_id.clone()),
+                                    agent_id: None,
+                                    filename: None,
+                                    allowed: None,
+                                }),
+                            )
+                                .into_response();
+                        }
+                    }
+                    (Some(provider), Some(model)) => {
+                        if validate_provider_model_selection(&cfg, &provider, &model).await {
+                            Some((provider, model))
+                        } else {
+                            return (
+                                StatusCode::BAD_REQUEST,
+                                Json(ErrorResponse {
+                                    error: format!(
+                                        "unknown provider/model pair '{provider}/{model}'"
+                                    ),
+                                    id: Some(agent_id.clone()),
+                                    agent_id: None,
+                                    filename: None,
+                                    allowed: None,
+                                }),
+                            )
+                                .into_response();
+                        }
+                    }
+                    _ => {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(ErrorResponse {
+                                error: "provider and model must be set together".to_string(),
+                                id: Some(body.id.clone()),
+                                agent_id: None,
+                                filename: None,
+                                allowed: None,
+                            }),
+                        )
+                            .into_response();
+                    }
+                };
+
                 if !cfg.agents.iter().any(|a| a.id == body.id) {
                     cfg.agents.push(crate::config::AgentConfig {
                         id: body.id.clone(),
                         root: format!("agents/{}", body.id),
-                        model: body.model,
+                        model: selection.as_ref().map(|(_, model)| model.clone()),
+                        provider: selection.as_ref().map(|(provider, _)| provider.clone()),
                         heartbeat_secs: body.heartbeat_secs,
                         cron_jobs: Vec::new(),
                         max_tool_iterations: None,
@@ -378,6 +549,7 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
                         timezone: None,
                         watch_paths: Vec::new(),
                         reasoning_effort: None,
+                        header_overrides: header_overrides.clone(),
                     });
                     if let Err(e) = cfg.save(&config_path).await {
                         tracing::warn!(error = %e, "failed to save config after agent creation");
@@ -391,13 +563,17 @@ pub(crate) async fn api_agent_create(Json(body): Json<CreateAgentRequest>) -> im
     }
 
     // Seed built-in skills into the new agent's skills folder.
-    if let Err(e) = crate::skills::defaults::seed_defaults(&body.id) {
-        tracing::warn!(agent = %body.id, error = %e, "failed to seed default skills for new agent");
+    if let Err(e) = crate::skills::defaults::seed_defaults(&agent_id) {
+        tracing::warn!(agent = %agent_id, error = %e, "failed to seed default skills for new agent");
     }
 
     (
         StatusCode::CREATED,
-        Json(serde_json::json!({ "id": body.id, "created": true })),
+        Json(AgentCreateResponse {
+            id: agent_id,
+            created: true,
+            header_overrides: map_to_header_rows(header_overrides.as_ref()),
+        }),
     )
         .into_response()
 }
@@ -412,10 +588,16 @@ pub(crate) struct UpdateAgentRequest {
     #[serde(default)]
     heartbeat: Option<String>,
     #[serde(default)]
+    provider: Option<String>,
+    #[serde(default)]
     model: Option<String>,
     /// `null` → disable heartbeat (set to None), missing → don't update, number → update interval.
     #[serde(default, deserialize_with = "deserialize_optional_nullable")]
     heartbeat_secs: Option<Option<u64>>,
+    /// When Some(false), disables heartbeat (sets heartbeat_secs to None).
+    /// When Some(true) and heartbeat_secs is provided, enables heartbeat.
+    #[serde(default)]
+    heartbeat_enabled: Option<bool>,
     #[serde(default)]
     max_tool_iterations: Option<usize>,
     #[serde(default)]
@@ -428,6 +610,8 @@ pub(crate) struct UpdateAgentRequest {
     history_messages: Option<usize>,
     #[serde(default)]
     reasoning_effort: Option<String>,
+    #[serde(default)]
+    header_overrides: Option<Vec<AgentHeaderOverride>>,
 }
 
 /// `PUT /api/agents/:id` — update agent workspace files.
@@ -435,16 +619,11 @@ pub(crate) async fn api_agent_update(
     Path(agent_id): Path<String>,
     Json(body): Json<UpdateAgentRequest>,
 ) -> impl IntoResponse {
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
+
     let base = crate::utils::agent_root(&agent_id);
     if !base.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "agent not found", "id": agent_id })),
-        )
-            .into_response();
+        return not_found_response(agent_id);
     }
 
     // Validate enabled_skills against the unified tool registry.
@@ -458,9 +637,103 @@ pub(crate) async fn api_agent_update(
             if !unknown.is_empty() {
                 return (
                     StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "error": format!("unknown skill IDs: {}", unknown.join(", ")),
-                    })),
+                    Json(ErrorResponse {
+                        error: format!("unknown skill IDs: {}", unknown.join(", ")),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    }
+
+    let header_override_rows = body.header_overrides.clone().unwrap_or_default();
+
+    let header_overrides = if header_override_rows.is_empty() {
+        None
+    } else {
+        match header_rows_to_map(&header_override_rows, &format!("agent '{}'", agent_id)) {
+            Ok(headers) => Some(headers),
+            Err(error) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error,
+                        id: None,
+                        agent_id: Some(agent_id),
+                        filename: None,
+                        allowed: None,
+                    }),
+                )
+                    .into_response();
+            }
+        }
+    };
+
+    if body.provider.is_some() || body.model.is_some() {
+        let config_path = crate::pinchy_home().join("config.yaml");
+        match crate::config::Config::load(&config_path).await {
+            Ok(cfg) => match (body.provider.as_deref(), body.model.as_deref()) {
+                (Some(provider), model) if provider == "copilot" => {
+                    let model = model
+                        .filter(|m| !m.is_empty())
+                        .unwrap_or(crate::config::COPILOT_FALLBACK_MODEL_ID);
+                    if !validate_provider_model_selection(&cfg, provider, model).await {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(ErrorResponse {
+                                error: format!("unknown provider/model pair '{provider}/{model}'"),
+                                id: None,
+                                agent_id: Some(agent_id.clone()),
+                                filename: None,
+                                allowed: None,
+                            }),
+                        )
+                            .into_response();
+                    }
+                }
+                (Some(provider), Some(model)) => {
+                    if !validate_provider_model_selection(&cfg, provider, model).await {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(ErrorResponse {
+                                error: format!("unknown provider/model pair '{provider}/{model}'"),
+                                id: None,
+                                agent_id: Some(agent_id.clone()),
+                                filename: None,
+                                allowed: None,
+                            }),
+                        )
+                            .into_response();
+                    }
+                }
+                _ => {
+                    return (
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse {
+                            error: "provider and model must be set together".to_string(),
+                            id: None,
+                            agent_id: Some(agent_id.clone()),
+                            filename: None,
+                            allowed: None,
+                        }),
+                    )
+                        .into_response();
+                }
+            },
+            Err(e) => {
+                return (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(ErrorResponse {
+                        error: format!("load config: {e}"),
+                        id: None,
+                        agent_id: Some(agent_id.clone()),
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -473,100 +746,175 @@ pub(crate) async fn api_agent_update(
         if let Err(e) = tokio::fs::write(base.join("SOUL.md"), soul).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("write SOUL.md: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("write SOUL.md: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
-        updated.push("SOUL.md");
+        updated.push("SOUL.md".to_string());
     }
 
     if let Some(tools) = &body.tools {
         if let Err(e) = tokio::fs::write(base.join("TOOLS.md"), tools).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("write TOOLS.md: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("write TOOLS.md: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
-        updated.push("TOOLS.md");
+        updated.push("TOOLS.md".to_string());
     }
 
     if let Some(heartbeat) = &body.heartbeat {
         if let Err(e) = tokio::fs::write(base.join("HEARTBEAT.md"), heartbeat).await {
             return (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("write HEARTBEAT.md: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("write HEARTBEAT.md: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
-        updated.push("HEARTBEAT.md");
+        updated.push("HEARTBEAT.md".to_string());
     }
 
     // Update config fields if any were provided.
     if body.model.is_some()
+        || body.provider.is_some()
         || body.heartbeat_secs.is_some()
+        || body.heartbeat_enabled.is_some()
         || body.max_tool_iterations.is_some()
         || body.enabled_skills.is_some()
         || body.max_turns.is_some()
         || body.compact_keep_recent_turns.is_some()
         || body.history_messages.is_some()
         || body.reasoning_effort.is_some()
+        || body.header_overrides.is_some()
     {
         let config_path = crate::pinchy_home().join("config.yaml");
         let _guard = crate::config::config_lock().await;
         match crate::config::Config::load_unvalidated(&config_path).await {
             Ok(mut cfg) => {
-                if let Some(ac) = cfg.agents.iter_mut().find(|a| a.id == agent_id) {
-                    if let Some(model) = body.model {
-                        ac.model = Some(model);
-                        updated.push("model");
-                    }
-                    if let Some(hs_opt) = body.heartbeat_secs {
-                        // Some(Some(n)) → set interval, Some(None) → disable heartbeat
-                        ac.heartbeat_secs = hs_opt;
-                        updated.push("heartbeat_secs");
-                    }
-                    if let Some(mti) = body.max_tool_iterations {
-                        ac.max_tool_iterations = Some(mti);
-                        updated.push("max_tool_iterations");
-                    }
-                    if let Some(skills) = body.enabled_skills {
-                        ac.enabled_skills = if skills.is_empty() {
-                            None
-                        } else {
-                            Some(skills)
-                        };
-                        updated.push("enabled_skills");
-                    }
-                    if let Some(mt) = body.max_turns {
-                        ac.max_turns = Some(mt);
-                        updated.push("max_turns");
-                    }
-                    if let Some(ckrt) = body.compact_keep_recent_turns {
-                        ac.compact_keep_recent_turns = Some(ckrt);
-                        updated.push("compact_keep_recent_turns");
-                    }
-                    if let Some(hm) = body.history_messages {
-                        ac.history_messages = Some(hm);
-                        updated.push("history_messages");
-                    }
-                    if let Some(re) = body.reasoning_effort {
-                        ac.reasoning_effort = if re.is_empty() { None } else { Some(re) };
-                        updated.push("reasoning_effort");
-                    }
-                    if let Err(e) = cfg.save(&config_path).await {
-                        return (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            Json(serde_json::json!({ "error": format!("save config: {e}") })),
-                        )
-                            .into_response();
+                let heartbeat_sync =
+                    if let Some(ac) = cfg.agents.iter_mut().find(|a| a.id == agent_id) {
+                        if let (Some(provider), Some(model)) =
+                            (body.provider.clone(), body.model.clone())
+                        {
+                            let model = if provider == "copilot" && model.is_empty() {
+                                crate::config::COPILOT_FALLBACK_MODEL_ID.to_string()
+                            } else {
+                                model
+                            };
+
+                            ac.model = Some(model);
+                            ac.provider = Some(provider);
+                            updated.push("model".to_string());
+                            updated.push("provider".to_string());
+                        }
+                        if let Some(hs_opt) = body.heartbeat_secs {
+                            // Some(Some(n)) → set interval, Some(None) → disable heartbeat
+                            ac.heartbeat_secs = hs_opt;
+                            updated.push("heartbeat_secs".to_string());
+                        }
+                        // Handle heartbeat_enabled: when false, disable heartbeat
+                        if let Some(enabled) = body.heartbeat_enabled {
+                            if !enabled {
+                                // Disable heartbeat by setting heartbeat_secs to None
+                                ac.heartbeat_secs = None;
+                            }
+                            // Note: when enabled=true, heartbeat_secs must also be provided
+                            // The frontend should send both heartbeat_enabled=true and heartbeat_secs=N
+                            updated.push("heartbeat_enabled".to_string());
+                        }
+                        if let Some(mti) = body.max_tool_iterations {
+                            ac.max_tool_iterations = Some(mti);
+                            updated.push("max_tool_iterations".to_string());
+                        }
+                        if let Some(skills) = body.enabled_skills {
+                            ac.enabled_skills = if skills.is_empty() {
+                                None
+                            } else {
+                                Some(skills)
+                            };
+                            updated.push("enabled_skills".to_string());
+                        }
+                        if let Some(mt) = body.max_turns {
+                            ac.max_turns = Some(mt);
+                            updated.push("max_turns".to_string());
+                        }
+                        if let Some(ckrt) = body.compact_keep_recent_turns {
+                            ac.compact_keep_recent_turns = Some(ckrt);
+                            updated.push("compact_keep_recent_turns".to_string());
+                        }
+                        if let Some(hm) = body.history_messages {
+                            ac.history_messages = Some(hm);
+                            updated.push("history_messages".to_string());
+                        }
+                        if let Some(re) = body.reasoning_effort {
+                            ac.reasoning_effort = if re.is_empty() { None } else { Some(re) };
+                            updated.push("reasoning_effort".to_string());
+                        }
+                        if let Some(ref headers) = header_overrides {
+                            ac.header_overrides = if headers.is_empty() {
+                                None
+                            } else {
+                                Some(headers.clone())
+                            };
+                            updated.push("header_overrides".to_string());
+                        }
+
+                        Some((std::path::PathBuf::from(&ac.root), ac.heartbeat_secs))
+                    } else {
+                        None
+                    };
+
+                if let Err(e) = cfg.save(&config_path).await {
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: format!("save config: {e}"),
+                            id: None,
+                            agent_id: None,
+                            filename: None,
+                            allowed: None,
+                        }),
+                    )
+                        .into_response();
+                }
+
+                if let Some((agent_root, heartbeat_secs)) = heartbeat_sync {
+                    if let Some(handle) = crate::scheduler::scheduler_handle_ref() {
+                        handle
+                            .sync_agent_heartbeat(&agent_id, agent_root, heartbeat_secs)
+                            .await;
                     }
                 }
             }
             Err(e) => {
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({ "error": format!("load config: {e}") })),
+                    Json(ErrorResponse {
+                        error: format!("load config: {e}"),
+                        id: None,
+                        agent_id: None,
+                        filename: None,
+                        allowed: None,
+                    }),
                 )
                     .into_response();
             }
@@ -575,23 +923,22 @@ pub(crate) async fn api_agent_update(
 
     (
         StatusCode::OK,
-        Json(serde_json::json!({ "id": agent_id, "updated": updated })),
+        Json(AgentUpdateResponse {
+            id: agent_id,
+            updated,
+            header_overrides: map_to_header_rows(header_overrides.as_ref()),
+        }),
     )
         .into_response()
 }
 
 /// `DELETE /api/agents/:id` — delete an agent workspace.
 pub(crate) async fn api_agent_delete(Path(agent_id): Path<String>) -> impl IntoResponse {
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
+
     let base = crate::utils::agent_root(&agent_id);
     if !base.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "agent not found", "id": agent_id })),
-        )
-            .into_response();
+        return not_found_response(agent_id.clone());
     }
 
     match tokio::fs::remove_dir_all(&base).await {
@@ -607,13 +954,22 @@ pub(crate) async fn api_agent_delete(Path(agent_id): Path<String>) -> impl IntoR
 
             (
                 StatusCode::OK,
-                Json(serde_json::json!({ "id": agent_id, "deleted": true })),
+                Json(AgentDeleteResponse {
+                    id: agent_id,
+                    deleted: true,
+                }),
             )
                 .into_response()
         }
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("delete: {e}") })),
+            Json(ErrorResponse {
+                error: format!("delete: {e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }
@@ -630,15 +986,17 @@ const ALLOWED_AGENT_FILES: &[&str] = &["SOUL.md", "TOOLS.md", "HEARTBEAT.md"];
 pub(crate) async fn api_agent_file_get(
     Path((agent_id, filename)): Path<(String, String)>,
 ) -> impl IntoResponse {
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
     if !ALLOWED_AGENT_FILES.contains(&filename.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(
-                serde_json::json!({ "error": "file not allowed", "allowed": ALLOWED_AGENT_FILES }),
-            ),
+            Json(ErrorResponse {
+                error: "file not allowed".to_string(),
+                id: None,
+                agent_id: None,
+                filename: Some(filename),
+                allowed: Some(ALLOWED_AGENT_FILES.iter().map(|s| s.to_string()).collect()),
+            }),
         )
             .into_response();
     }
@@ -647,17 +1005,32 @@ pub(crate) async fn api_agent_file_get(
     match tokio::fs::read_to_string(&path).await {
         Ok(content) => (
             StatusCode::OK,
-            Json(serde_json::json!({ "filename": filename, "content": content })),
+            Json(AgentFileGetResponse {
+                filename: filename.clone(),
+                content,
+            }),
         )
             .into_response(),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "file not found", "filename": filename })),
+            Json(ErrorResponse {
+                error: "file not found".to_string(),
+                id: None,
+                agent_id: None,
+                filename: Some(filename),
+                allowed: None,
+            }),
         )
             .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("{e}") })),
+            Json(ErrorResponse {
+                error: format!("{e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }
@@ -674,58 +1047,159 @@ pub(crate) async fn api_agent_file_put(
     Path((agent_id, filename)): Path<(String, String)>,
     Json(body): Json<SaveAgentFileRequest>,
 ) -> impl IntoResponse {
-    if let Err(e) = validate_path_segment(&agent_id) {
-        return e.into_response();
-    }
+    validate_or_return!(&agent_id);
+
     if !ALLOWED_AGENT_FILES.contains(&filename.as_str()) {
         return (
             StatusCode::BAD_REQUEST,
-            Json(
-                serde_json::json!({ "error": "file not allowed", "allowed": ALLOWED_AGENT_FILES }),
-            ),
+            Json(ErrorResponse {
+                error: "file not allowed".to_string(),
+                id: None,
+                agent_id: None,
+                filename: Some(filename),
+                allowed: Some(ALLOWED_AGENT_FILES.iter().map(|s| s.to_string()).collect()),
+            }),
         )
             .into_response();
     }
 
     let base = crate::utils::agent_root(&agent_id);
     if !base.exists() {
-        return (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({ "error": "agent not found", "id": agent_id })),
-        )
-            .into_response();
+        return not_found_response(agent_id);
     }
 
     let path = base.join(&filename);
     match tokio::fs::write(&path, &body.content).await {
         Ok(()) => (
             StatusCode::OK,
-            Json(serde_json::json!({ "filename": filename, "saved": true })),
+            Json(AgentFilePutResponse {
+                filename: filename.clone(),
+                saved: true,
+            }),
         )
             .into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("{e}") })),
+            Json(ErrorResponse {
+                error: format!("{e}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }
 }
 
-/// Collect agent IDs from the `agents/` directory (directories only).
-pub(crate) async fn collect_agent_ids() -> std::io::Result<Vec<String>> {
-    let agents_dir = crate::utils::agents_dir();
-    let mut ids = Vec::new();
-    let mut rd = tokio::fs::read_dir(agents_dir).await?;
-    while let Ok(Some(entry)) = rd.next_entry().await {
-        let is_dir = entry
-            .file_type()
-            .await
-            .map(|ft| ft.is_dir())
-            .unwrap_or(false);
-        if is_dir {
-            ids.push(entry.file_name().to_string_lossy().into_owned());
+/// `POST /api/agents/:id/test` — send a test message to an agent.
+pub(crate) async fn api_agent_test(
+    Path(agent_id): Path<String>,
+    Json(body): Json<TestAgentRequest>,
+) -> impl IntoResponse {
+    use crate::config::Config;
+    use crate::models::{build_provider_manager_from_config, ChatMessage, ModelProvider};
+
+    // Validate agent_id
+    validate_or_return!(&agent_id);
+
+    // Check if agent exists
+    let agent_root = crate::utils::agent_root(&agent_id);
+    if !agent_root.exists() {
+        return not_found_response(agent_id);
+    }
+
+    // Load agent configuration so the test hits the real agent provider path.
+    let config_path = crate::pinchy_home().join("config.yaml");
+    let cfg = match Config::load(&config_path).await {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            tracing::warn!(error = %e, agent_id = %agent_id, "agent test config load failed");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to load config: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
+            )
+                .into_response();
+        }
+    };
+
+    let agent_config = match cfg.agents.iter().find(|a| a.id == agent_id) {
+        Some(ac) => ac,
+        None => return not_found_response(agent_id),
+    };
+
+    tracing::info!(
+        agent = %agent_id,
+        provider = agent_config.provider.as_deref().unwrap_or(""),
+        model = agent_config.model.as_deref().unwrap_or(""),
+        "agent test using configured provider"
+    );
+
+    // Build system prompt from SOUL.md
+    let soul_path = agent_root.join("SOUL.md");
+    let soul_content = tokio::fs::read_to_string(&soul_path).await.ok();
+
+    let system_prompt = soul_content
+        .unwrap_or_else(|| format!("You are a helpful AI assistant named {}.", agent_id));
+
+    // Build messages for the model
+    let mut messages = vec![ChatMessage::system(&system_prompt)];
+    messages.push(ChatMessage::user(&body.message));
+
+    let manager = build_provider_manager_from_config(agent_config, &cfg);
+
+    // Try to send to model
+    match manager.send_chat(&messages).await {
+        Ok(reply) => {
+            // Estimate token counts (approximate)
+            let input_tokens = body.message.len() as u64 / 4;
+            let output_tokens = reply.len() as u64 / 4;
+
+            let response = TestAgentResponse {
+                response: reply.clone(),
+                content: Some(reply),
+                usage: Some(TestAgentUsage {
+                    input_tokens,
+                    output_tokens,
+                }),
+            };
+
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, agent_id = %agent_id, "agent test failed");
+
+            // Return a graceful fallback response
+            let response = TestAgentResponse {
+                response: format!(
+                    "I'm {} (running in fallback mode).\n\nYou said: {}\n\nNote: No AI model is currently configured. Please set up an AI provider (OpenAI, Anthropic, Copilot, etc.) in your config.yaml to enable full responses.",
+                    agent_id,
+                    body.message
+                ),
+                content: Some(format!(
+                    "Fallback response: Agent {} received your test message.",
+                    agent_id
+                )),
+                usage: Some(TestAgentUsage {
+                    input_tokens: body.message.len() as u64 / 4,
+                    output_tokens: 0,
+                }),
+            };
+
+            (StatusCode::OK, Json(response)).into_response()
         }
     }
+}
+
+/// Collect agent IDs from the `agents/` directory (directories only).
+pub(crate) async fn collect_agent_ids() -> std::io::Result<Vec<String>> {
+    let mut ids: Vec<String> = crate::gateway::utils::list_agent_ids().await;
     ids.sort();
     Ok(ids)
 }

@@ -6,11 +6,16 @@
 
 pub mod agent;
 pub mod apply_patch;
+pub mod browser_extract;
+pub mod browser_form;
+pub mod browser_research;
+pub mod browser_screenshot;
 pub mod cron;
 pub mod delegate;
 pub mod edit_file;
 pub mod exec_shell;
 pub mod list_files;
+pub mod mcp;
 pub mod memory;
 pub mod read_file;
 pub mod self_update;

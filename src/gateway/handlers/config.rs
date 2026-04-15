@@ -1,5 +1,6 @@
 use axum::{extract::State, http::StatusCode, response::IntoResponse, Json};
 
+use super::super::types::*;
 use super::super::AppState;
 
 /// `GET /api/config/schema` — return the JSON Schema for the config struct.
@@ -15,13 +16,58 @@ pub(crate) async fn api_config_get(State(state): State<AppState>) -> impl IntoRe
             Ok(v) => (StatusCode::OK, Json(v)).into_response(),
             Err(e) => (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": format!("serialize: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("serialize: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response(),
         },
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("{e:#}") })),
+            Json(ErrorResponse {
+                error: format!("{e:#}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
+        )
+            .into_response(),
+    }
+}
+
+/// `GET /api/config/models`
+///
+/// Legacy compatibility endpoint that now mirrors `/api/models`.
+pub(crate) async fn api_config_models_get(State(state): State<AppState>) -> impl IntoResponse {
+    match crate::config::Config::load(&state.config_path).await {
+        Ok(cfg) => {
+            let models = crate::gateway::handlers::models::collect_model_inventory(&cfg).await;
+            let models: Vec<AgentModelOption> = models
+                .into_iter()
+                .map(|m| AgentModelOption {
+                    name: m.name,
+                    provider: m.provider,
+                    model: m.id,
+                    description: m.description,
+                })
+                .collect();
+
+            (StatusCode::OK, Json(AgentModelOptionsResponse { models })).into_response()
+        }
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("config load: {e:#}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }
@@ -42,7 +88,13 @@ pub(crate) async fn api_config_put(
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({ "error": format!("validation: {e}") })),
+                Json(ErrorResponse {
+                    error: format!("validation: {e}"),
+                    id: None,
+                    agent_id: None,
+                    filename: None,
+                    allowed: None,
+                }),
             )
                 .into_response();
         }
@@ -61,10 +113,16 @@ pub(crate) async fn api_config_put(
     }
 
     match cfg.save(&state.config_path).await {
-        Ok(()) => (StatusCode::OK, Json(serde_json::json!({ "saved": true }))).into_response(),
+        Ok(()) => (StatusCode::OK, Json(ConfigSaveResponse { saved: true })).into_response(),
         Err(e) => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(serde_json::json!({ "error": format!("{e:#}") })),
+            Json(ErrorResponse {
+                error: format!("{e:#}"),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }

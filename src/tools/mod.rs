@@ -398,6 +398,36 @@ const AUTO_PLUCK_RULES: &[(&[&str], &[&str])] = &[
         &["delegate", "list_agents"],
     ),
     (&["update", "upgrade", "version"], &["self_update"]),
+    // Browser automation: surface browser tools when web/research keywords detected
+    (
+        &[
+            "browser",
+            "web",
+            "website",
+            "browse",
+            "url",
+            "http",
+            "page",
+            "screenshot",
+            "scrape",
+            "crawl",
+            "extract",
+            "form",
+            "fill",
+            "login",
+            "research",
+            "search",
+            "navigate",
+            "click",
+            "playwright",
+        ],
+        &[
+            "browser_research",
+            "browser_fill_form",
+            "browser_screenshot",
+            "browser_extract",
+        ],
+    ),
     (
         &[
             "message",
@@ -412,6 +442,21 @@ const AUTO_PLUCK_RULES: &[(&[&str], &[&str])] = &[
             "report",
         ],
         &["send_message"],
+    ),
+    // MCP tools: surface when user mentions MCP servers or external tools
+    (
+        &[
+            "mcp",
+            "model context protocol",
+            "mcp server",
+            "mcp tool",
+            "external tool",
+            "filesystem server",
+            "github server",
+            "postgres server",
+            "sqlite server",
+        ],
+        &["mcp_list_servers", "mcp_list_tools", "mcp_call_tool"],
     ),
 ];
 
@@ -594,7 +639,8 @@ pub fn get_skill_instructions(name: &str) -> Option<String> {
 }
 
 /// Return skill metadata for API responses (e.g. `GET /api/skills`).
-pub fn list_skill_entries() -> Vec<serde_json::Value> {
+pub fn list_skill_entries() -> Vec<crate::gateway::types::SkillItem> {
+    use crate::gateway::types::SkillItem;
     let reg = REGISTRY.lock().expect("tool registry poisoned");
     let mut entries = Vec::new();
     let mut seen = HashSet::new();
@@ -603,11 +649,11 @@ pub fn list_skill_entries() -> Vec<serde_json::Value> {
             if !seen.insert(&entry.meta.name) {
                 continue;
             }
-            entries.push(serde_json::json!({
-                "id": entry.meta.name,
-                "description": skill.description,
-                "operator_managed": skill.operator_managed,
-            }));
+            entries.push(SkillItem {
+                name: entry.meta.name.clone(),
+                description: Some(skill.description.clone()),
+                has_skill: skill.operator_managed.unwrap_or(false),
+            });
         }
     }
     entries
@@ -747,6 +793,7 @@ pub async fn call_skill(name: &str, args: Value, workspace: &Path) -> anyhow::Re
         "save_memory" => builtins::memory::save_memory(workspace, args).await,
         "recall_memory" => builtins::memory::recall_memory(workspace, args).await,
         "forget_memory" => builtins::memory::forget_memory(workspace, args).await,
+        "curated_memory" => builtins::memory::curated_memory(workspace, args).await,
         "create_skill" => builtins::skill_author::create_skill(workspace, args).await,
         "list_skills" => builtins::skill_author::list_skills(workspace, args).await,
         "delete_skill" => builtins::skill_author::delete_skill(workspace, args).await,
@@ -846,6 +893,10 @@ pub fn builtin_skill_names() -> &'static [&'static str] {
         "send_message",
         "self_update",
         "apply_patch",
+        "browser_research",
+        "browser_fill_form",
+        "browser_screenshot",
+        "browser_extract",
     ]
 }
 
@@ -868,6 +919,11 @@ pub fn init() {
     builtins::session_yield::register();
     builtins::send_message::register();
     builtins::self_update::register();
+    builtins::mcp::register();
+    builtins::browser_research::register();
+    builtins::browser_form::register();
+    builtins::browser_screenshot::register();
+    builtins::browser_extract::register();
 
     // Attach handlers to the built-in tools.
     register_handler(
@@ -1048,6 +1104,44 @@ pub fn init() {
         "delegate",
         Arc::new(|args, ws| Box::pin(async move { builtins::delegate::delegate(&ws, args).await })),
     );
+    register_handler(
+        "mcp_list_servers",
+        Arc::new(|args, _ws| Box::pin(async move { builtins::mcp::mcp_list_servers(args).await })),
+    );
+    register_handler(
+        "mcp_list_tools",
+        Arc::new(|args, _ws| Box::pin(async move { builtins::mcp::mcp_list_tools(args).await })),
+    );
+    register_handler(
+        "mcp_call_tool",
+        Arc::new(|args, _ws| Box::pin(async move { builtins::mcp::mcp_call_tool(args).await })),
+    );
+    register_handler(
+        "browser_research",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::browser_research::browser_research(&ws, args).await })
+        }),
+    );
+    register_handler(
+        "browser_fill_form",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::browser_form::browser_fill_form(&ws, args).await })
+        }),
+    );
+    register_handler(
+        "browser_screenshot",
+        Arc::new(|args, ws| {
+            Box::pin(
+                async move { builtins::browser_screenshot::browser_screenshot(&ws, args).await },
+            )
+        }),
+    );
+    register_handler(
+        "browser_extract",
+        Arc::new(|args, ws| {
+            Box::pin(async move { builtins::browser_extract::browser_extract(&ws, args).await })
+        }),
+    );
 
     // Mark less-common tools as deferred (auto-injected when relevant
     // keywords appear in the user's message via auto_pluck_deferred).
@@ -1072,6 +1166,13 @@ pub fn init() {
             "edit_skill",
             "self_update",
             "send_message",
+            "mcp_list_servers",
+            "mcp_list_tools",
+            "mcp_call_tool",
+            "browser_research",
+            "browser_fill_form",
+            "browser_screenshot",
+            "browser_extract",
         ];
         let mut reg = REGISTRY.lock().expect("tool registry poisoned");
         for entry in reg.iter_mut() {

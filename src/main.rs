@@ -387,6 +387,12 @@ async fn async_main() -> anyhow::Result<()> {
         "configuration loaded"
     );
 
+    // Initialize MCP clients from config
+    if !cfg.mcp_servers.is_empty() {
+        info!(count = cfg.mcp_servers.len(), "initializing MCP servers");
+        mini_claw::mcp::init_clients(cfg.mcp_servers.clone()).await;
+    }
+
     // Open consolidated SQLite store
     let pinchy_home = mini_claw::pinchy_home();
     let db = mini_claw::store::PinchyDb::open(&pinchy_home).context("failed to open pinchy.db")?;
@@ -606,6 +612,18 @@ async fn async_main() -> anyhow::Result<()> {
 
     // Give WebSocket clients a moment to receive the shutdown event
     tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+
+    // 5. Shutdown MCP connections.
+    mini_claw::mcp::shutdown().await;
+
+    // 6. Checkpoint database to ensure all WAL data is persisted.
+    if let Some(db) = mini_claw::store::global_db() {
+        if let Err(e) = db.checkpoint() {
+            tracing::warn!(error = %e, "failed to checkpoint database during shutdown");
+        } else {
+            info!("database checkpointed");
+        }
+    }
 
     info!("shutdown complete");
 

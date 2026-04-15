@@ -242,6 +242,7 @@ impl ModelProvider for OpenAICompatProvider {
                         .map(|s| s.to_string()),
                     supported_endpoints: vec!["chat".to_string()],
                     is_default: false,
+                    ..Default::default()
                 })
             })
             .collect();

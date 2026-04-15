@@ -145,11 +145,10 @@ impl Agent {
                 session = ?session_override,
                 "using session override for this turn"
             );
-            crate::gateway::publish_event_json(&serde_json::json!({
-                "type": "session_created",
-                "agent": self.id,
-                "session": session_override,
-            }));
+            // Do not emit `session_created` here. Session overrides are commonly
+            // used when the UI is resuming an existing session, so broadcasting
+            // a creation event causes the frontend to treat ordinary replies as
+            // brand-new chats.
             Some(prev)
         } else {
             // Reload current session from db (or file fallback).
@@ -219,6 +218,7 @@ impl Agent {
             id: self.id.clone(),
             root: self.agent_root.display().to_string(),
             model: self.model_config_ref.clone(),
+            provider: Some(self.provider.clone()),
             heartbeat_secs: None,
             cron_jobs: Vec::new(),
             max_tool_iterations: Some(self.max_tool_iterations),
@@ -232,6 +232,7 @@ impl Agent {
             timezone: None,
             watch_paths: Vec::new(),
             reasoning_effort: self.reasoning_effort.clone(),
+            header_overrides: None,
         };
         match cfg {
             Some(c) => crate::models::build_provider_manager_from_config(&agent_cfg, c),
@@ -304,6 +305,11 @@ impl Agent {
             &self.provider,
             &self.model_id,
         );
+
+        // Persist the user message BEFORE the model call so it's recorded
+        // even if the model call fails (e.g., no API key configured).
+        self.persist_user_message(&msg).await?;
+
         let initial_timer = std::time::Instant::now();
         let (mut response, usage) = manager
             .send_chat_with_functions(&messages, &function_defs)
@@ -334,10 +340,6 @@ impl Agent {
         .await;
 
         // -- Tool loop --
-        // Persist the user message BEFORE the tool loop so the JSONL
-        // ordering is: user → assistant+tool_calls → tool result → …
-        self.persist_user_message(&msg).await?;
-
         let pre_tool_msg_count = messages.len();
         let receipt_tool_calls = run_tool_loop(
             &mut response,
@@ -409,9 +411,9 @@ impl Agent {
         crate::gateway::publish_event_json(
             &serde_json::to_value(&receipt)
                 .map(|mut v| {
-                    v.as_object_mut()
-                        .unwrap()
-                        .insert("type".into(), serde_json::json!("turn_receipt"));
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.insert("type".into(), serde_json::json!("turn_receipt"));
+                    }
                     v
                 })
                 .unwrap_or_else(|_| serde_json::json!({"type": "turn_receipt"})),

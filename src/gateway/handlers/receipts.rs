@@ -1,6 +1,7 @@
 use axum::{extract::Path, http::StatusCode, response::IntoResponse, Json};
 
 use super::super::auth::validate_path_segment;
+use super::super::types::*;
 
 /// `GET /api/agents/:id/receipts` — list all receipt files for an agent.
 pub(crate) async fn api_receipts_list(Path(agent_id): Path<String>) -> impl IntoResponse {
@@ -11,19 +12,21 @@ pub(crate) async fn api_receipts_list(Path(agent_id): Path<String>) -> impl Into
     // When PinchyDb is available, return session ids that have receipts.
     if let Some(db) = crate::store::global_db() {
         let sessions = db.list_sessions_for_agent(&agent_id).unwrap_or_default();
-        let receipt_files: Vec<String> = sessions
+        let receipts: Vec<ReceiptItem> = sessions
             .into_iter()
-            .map(|s| format!("{}.receipts.jsonl", s.session_id))
+            .map(|s| ReceiptItem {
+                file: format!("{}.receipts.jsonl", s.session_id),
+            })
             .collect();
-        return (
-            StatusCode::OK,
-            Json(serde_json::json!({ "receipts": receipt_files })),
-        )
-            .into_response();
+        return (StatusCode::OK, Json(ReceiptsListResponse { receipts })).into_response();
     }
 
     tracing::warn!("no database available — skipping api_receipts_list");
-    (StatusCode::OK, Json(serde_json::json!({ "receipts": [] }))).into_response()
+    (
+        StatusCode::OK,
+        Json(ReceiptsListResponse { receipts: vec![] }),
+    )
+        .into_response()
 }
 
 /// `GET /api/agents/:id/receipts/:session_id` — return parsed receipts
@@ -56,7 +59,10 @@ pub(crate) async fn api_receipts_by_session(
             .collect();
         return (
             StatusCode::OK,
-            Json(serde_json::json!({ "file": filename, "receipts": receipts_json })),
+            Json(ReceiptGetResponse {
+                file: filename,
+                receipts: receipts_json,
+            }),
         )
             .into_response();
     }
@@ -64,7 +70,13 @@ pub(crate) async fn api_receipts_by_session(
     tracing::warn!("no database available — skipping api_receipts_by_session");
     (
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(serde_json::json!({ "error": "no database available" })),
+        Json(ErrorResponse {
+            error: "no database available".to_string(),
+            id: None,
+            agent_id: None,
+            filename: None,
+            allowed: None,
+        }),
     )
         .into_response()
 }

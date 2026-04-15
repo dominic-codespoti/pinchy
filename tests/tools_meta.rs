@@ -15,6 +15,10 @@ fn list_tools_returns_builtins() {
     assert!(names.contains(&"write_file"), "missing write_file");
     assert!(names.contains(&"exec_shell"), "missing exec_shell");
     assert!(
+        !names.contains(&"curated_memory"),
+        "curated_memory should not be exposed as a separate tool"
+    );
+    assert!(
         metas.len() >= 3,
         "expected at least 3 tools, got {}",
         metas.len()

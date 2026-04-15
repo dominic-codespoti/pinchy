@@ -342,6 +342,7 @@ pub fn interactive_onboard_tui(
                             id: id.to_string(),
                             root: workspace_str,
                             model: Some(model_config_id.clone()),
+                            provider: None,
                             heartbeat_secs: None,
                             cron_jobs: vec![],
                             max_tool_iterations: None,
@@ -355,6 +356,7 @@ pub fn interactive_onboard_tui(
                             timezone: None,
                             watch_paths: Vec::new(),
                             reasoning_effort: None,
+                            header_overrides: None,
                         });
                     }
 
@@ -601,6 +603,11 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
                             Ok(ct) => {
                                 auth::copilot_token::cache_copilot_token(&ct).ok();
                                 println!("Copilot token obtained and cached.");
+
+                                // Clear the disabled state since user is reconnecting
+                                if let Err(e) = auth::store::enable_provider("copilot") {
+                                    eprintln!("Warning: failed to clear disabled state: {e}");
+                                }
                             }
                             Err(e) => {
                                 eprintln!("Warning: Copilot token exchange failed: {e}");
@@ -1314,8 +1321,10 @@ pub async fn apply_manifest(
 
 /// Check whether the Pinchy daemon is running by hitting the gateway /api/status endpoint.
 pub async fn check_status() -> anyhow::Result<()> {
+    use crate::ports::GATEWAY_BIND_DEFAULT;
+
     let raw_addr =
-        std::env::var("PINCHY_GATEWAY_ADDR").unwrap_or_else(|_| "0.0.0.0:3131".to_string());
+        std::env::var("PINCHY_GATEWAY_ADDR").unwrap_or_else(|_| GATEWAY_BIND_DEFAULT.to_string());
     let addr = raw_addr.replace("0.0.0.0", "127.0.0.1");
     let url = format!("http://{addr}/api/status");
 

@@ -270,3 +270,204 @@ async fn recall_memory_with_tag_filter() {
     assert_eq!(memories.len(), 1);
     assert_eq!(memories[0]["key"], "a");
 }
+
+#[tokio::test]
+async fn save_and_recall_curated_memory() {
+    let ws = workspace();
+    let result = tools::call_skill(
+        "save_memory",
+        json!({
+            "storage_mode": "curated",
+            "target": "memory",
+            "key": "timezone",
+            "value": "User is in UTC"
+        }),
+        ws.path(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result["status"], "saved");
+    assert_eq!(result["storage_mode"], "curated");
+
+    let result = tools::call_skill(
+        "recall_memory",
+        json!({ "storage_mode": "curated", "target": "memory" }),
+        ws.path(),
+    )
+    .await
+    .unwrap();
+
+    let memories = result["memories"].as_array().unwrap();
+    assert_eq!(memories.len(), 1);
+    assert_eq!(memories[0]["key"], "timezone");
+    assert_eq!(memories[0]["value"], "User is in UTC");
+    assert!(result["content"]
+        .as_str()
+        .unwrap()
+        .contains("User is in UTC"));
+}
+
+#[tokio::test]
+async fn forget_curated_memory_by_text_match() {
+    let ws = workspace();
+    tools::call_skill(
+        "save_memory",
+        json!({
+            "storage_mode": "curated",
+            "target": "user",
+            "value": "Prefers concise replies"
+        }),
+        ws.path(),
+    )
+    .await
+    .unwrap();
+
+    let result = tools::call_skill(
+        "forget_memory",
+        json!({
+            "storage_mode": "curated",
+            "target": "user",
+            "key": "Prefers concise replies"
+        }),
+        ws.path(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result["status"], "deleted");
+
+    let result = tools::call_skill(
+        "recall_memory",
+        json!({ "storage_mode": "curated", "target": "user" }),
+        ws.path(),
+    )
+    .await
+    .unwrap();
+
+    let memories = result["memories"].as_array().unwrap();
+    assert!(memories.is_empty());
+}
+
+#[tokio::test]
+async fn forget_curated_memory_does_not_delete_by_substring() {
+    let ws = workspace();
+    tools::call_skill(
+        "save_memory",
+        json!({
+            "storage_mode": "curated",
+            "target": "user",
+            "value": "Prefers concise replies"
+        }),
+        ws.path(),
+    )
+    .await
+    .unwrap();
+
+    let result = tools::call_skill(
+        "forget_memory",
+        json!({
+            "storage_mode": "curated",
+            "target": "user",
+            "key": "concise replies"
+        }),
+        ws.path(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result["status"], "not_found");
+}
+
+#[tokio::test]
+async fn forget_curated_memory_value_match_deletes_only_one_duplicate() {
+    let ws = workspace();
+    for _ in 0..2 {
+        tools::call_skill(
+            "save_memory",
+            json!({
+                "storage_mode": "curated",
+                "target": "user",
+                "value": "Prefers concise replies"
+            }),
+            ws.path(),
+        )
+        .await
+        .unwrap();
+    }
+
+    let result = tools::call_skill(
+        "forget_memory",
+        json!({
+            "storage_mode": "curated",
+            "target": "user",
+            "key": "Prefers concise replies"
+        }),
+        ws.path(),
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(result["status"], "deleted");
+
+    let result = tools::call_skill(
+        "recall_memory",
+        json!({ "storage_mode": "curated", "target": "user" }),
+        ws.path(),
+    )
+    .await
+    .unwrap();
+
+    let memories = result["memories"].as_array().unwrap();
+    assert_eq!(memories.len(), 1);
+    assert_eq!(memories[0]["value"], "Prefers concise replies");
+}
+
+#[tokio::test]
+async fn curated_memory_alias_maps_to_unified_curated_behavior() {
+    let ws = workspace();
+    let save = tools::call_skill(
+        "curated_memory",
+        json!({
+            "operation": "save",
+            "target": "memory",
+            "key": "timezone",
+            "value": "User is in UTC"
+        }),
+        ws.path(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(save["status"], "saved");
+
+    let recall = tools::call_skill(
+        "curated_memory",
+        json!({ "operation": "recall", "target": "memory" }),
+        ws.path(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(recall["storage_mode"], "curated");
+    assert_eq!(recall["memories"][0]["key"], "timezone");
+}
+
+#[tokio::test]
+async fn save_memory_rejects_whitespace_key_and_value() {
+    let ws = workspace();
+
+    let whitespace_key = tools::call_skill(
+        "save_memory",
+        json!({ "key": "   ", "value": "real value" }),
+        ws.path(),
+    )
+    .await;
+    assert!(whitespace_key.is_err());
+
+    let whitespace_value = tools::call_skill(
+        "save_memory",
+        json!({ "key": "real_key", "value": "   " }),
+        ws.path(),
+    )
+    .await;
+    assert!(whitespace_value.is_err());
+}

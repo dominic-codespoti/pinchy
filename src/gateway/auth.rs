@@ -3,12 +3,33 @@ use axum::{
     extract::State,
     http::{Request, StatusCode},
     middleware,
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     Json,
 };
 use subtle::ConstantTimeEq;
 
+use super::types::ErrorResponse;
 use super::AppState;
+
+pub(crate) struct GatewayError {
+    status: StatusCode,
+    body: Box<ErrorResponse>,
+}
+
+impl GatewayError {
+    fn new(status: StatusCode, body: ErrorResponse) -> Self {
+        Self {
+            status,
+            body: Box::new(body),
+        }
+    }
+}
+
+impl IntoResponse for GatewayError {
+    fn into_response(self) -> Response {
+        (self.status, Json(*self.body)).into_response()
+    }
+}
 
 pub(crate) async fn auth_middleware(
     State(state): State<AppState>,
@@ -41,12 +62,24 @@ pub(crate) async fn auth_middleware(
         }
         Some(_) => (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "invalid token"})),
+            Json(ErrorResponse {
+                error: "invalid token".to_string(),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
         None => (
             StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({"error": "missing or invalid Authorization header"})),
+            Json(ErrorResponse {
+                error: "missing or invalid Authorization header".to_string(),
+                id: None,
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            }),
         )
             .into_response(),
     }
@@ -64,7 +97,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 /// Validate that a user-supplied path segment is safe to use in filesystem paths.
 /// Rejects empty strings, path separators, parent-directory traversals, and null bytes.
-pub(crate) fn validate_path_segment(s: &str) -> Result<(), (StatusCode, Json<serde_json::Value>)> {
+pub(crate) fn validate_path_segment(s: &str) -> Result<(), GatewayError> {
     let bad = s.is_empty()
         || s.contains('/')
         || s.contains('\\')
@@ -73,9 +106,15 @@ pub(crate) fn validate_path_segment(s: &str) -> Result<(), (StatusCode, Json<ser
         || s == ".."
         || s.contains("..");
     if bad {
-        Err((
+        Err(GatewayError::new(
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "invalid path segment", "value": s})),
+            ErrorResponse {
+                error: "invalid path segment".to_string(),
+                id: Some(s.to_string()),
+                agent_id: None,
+                filename: None,
+                allowed: None,
+            },
         ))
     } else {
         Ok(())

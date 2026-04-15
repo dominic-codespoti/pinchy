@@ -173,6 +173,7 @@ impl PinchyDb {
                 condition       TEXT,
                 retry_count     INTEGER NOT NULL DEFAULT 0,
                 last_status     TEXT,
+                enabled         INTEGER NOT NULL DEFAULT 1,
                 PRIMARY KEY (agent_id, name)
             );
 
@@ -266,38 +267,34 @@ impl PinchyDb {
 
     /// Clear the current session for an agent.
     pub fn clear_current_session(&self, agent_id: &str) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        conn.execute(
+        self.execute(
             "UPDATE sessions SET is_current = 0 WHERE agent_id = ?1",
             params![agent_id],
         )?;
+        debug!(agent = %agent_id, "current session cleared");
         Ok(())
     }
 
     /// Delete a session and all its exchanges and receipts.
     pub fn delete_session(&self, session_id: &str) -> Result<bool> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        // Delete exchanges first (child rows).
-        conn.execute(
-            "DELETE FROM exchanges WHERE session_id = ?1",
-            params![session_id],
-        )?;
-        // Delete receipts.
-        conn.execute(
-            "DELETE FROM receipts WHERE session_id = ?1",
-            params![session_id],
-        )?;
-        // Delete session row.
-        let changed = conn.execute(
-            "DELETE FROM sessions WHERE session_id = ?1",
-            params![session_id],
-        )?;
+        let changed = self.transaction(|tx| {
+            // Delete exchanges first (child rows).
+            tx.execute(
+                "DELETE FROM exchanges WHERE session_id = ?1",
+                params![session_id],
+            )?;
+            // Delete receipts.
+            tx.execute(
+                "DELETE FROM receipts WHERE session_id = ?1",
+                params![session_id],
+            )?;
+            // Delete session row.
+            let changed = tx.execute(
+                "DELETE FROM sessions WHERE session_id = ?1",
+                params![session_id],
+            )?;
+            Ok(changed)
+        })?;
         if changed > 0 {
             debug!(session_id, "session deleted from db");
         }
@@ -354,14 +351,11 @@ impl PinchyDb {
 
     /// Update session title.
     pub fn update_session_title(&self, session_id: &str, title: &str) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        conn.execute(
+        self.execute(
             "UPDATE sessions SET title = ?1 WHERE session_id = ?2",
             params![title, session_id],
         )?;
+        debug!(session_id, "session title updated");
         Ok(())
     }
 
@@ -379,12 +373,7 @@ impl PinchyDb {
         if exchanges.is_empty() {
             return Ok(());
         }
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        let tx = conn.unchecked_transaction()?;
-        {
+        self.transaction(|tx| {
             let mut stmt = tx.prepare_cached(
                 "INSERT INTO exchanges (session_id, timestamp, role, content, metadata, tool_calls, tool_call_id, images)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -414,44 +403,45 @@ impl PinchyDb {
                     images,
                 ])?;
             }
-        }
-        tx.commit()?;
+            Ok(())
+        })?;
+        debug!(session_id, count = exchanges.len(), "exchanges appended");
         Ok(())
     }
 
     /// Replace all exchanges in a session with the given list.
     /// Used by the PUT session API to overwrite session content.
     pub fn replace_exchanges(&self, session_id: &str, exchanges: &[Exchange]) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        conn.execute(
-            "DELETE FROM exchanges WHERE session_id = ?1",
-            params![session_id],
-        )?;
-        let mut stmt = conn.prepare(
-            "INSERT INTO exchanges (session_id, timestamp, role, content, metadata, tool_calls, tool_call_id, images)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-        )?;
-        for ex in exchanges {
-            let metadata = ex.metadata.as_ref().map(|v| v.to_string());
-            let tool_calls = ex
-                .tool_calls
-                .as_ref()
-                .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "[]".into()));
-            let images = serde_json::to_string(&ex.images).unwrap_or_else(|_| "[]".into());
-            stmt.execute(params![
-                session_id,
-                ex.timestamp as i64,
-                ex.role,
-                ex.content,
-                metadata,
-                tool_calls,
-                ex.tool_call_id,
-                images,
-            ])?;
-        }
+        self.transaction(|tx| {
+            tx.execute(
+                "DELETE FROM exchanges WHERE session_id = ?1",
+                params![session_id],
+            )?;
+            let mut stmt = tx.prepare(
+                "INSERT INTO exchanges (session_id, timestamp, role, content, metadata, tool_calls, tool_call_id, images)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            )?;
+            for ex in exchanges {
+                let metadata = ex.metadata.as_ref().map(|v| v.to_string());
+                let tool_calls = ex
+                    .tool_calls
+                    .as_ref()
+                    .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "[]".into()));
+                let images = serde_json::to_string(&ex.images).unwrap_or_else(|_| "[]".into());
+                stmt.execute(params![
+                    session_id,
+                    ex.timestamp as i64,
+                    ex.role,
+                    ex.content,
+                    metadata,
+                    tool_calls,
+                    ex.tool_call_id,
+                    images,
+                ])?;
+            }
+            Ok(())
+        })?;
+        debug!(session_id, count = exchanges.len(), "exchanges replaced");
         Ok(())
     }
 
@@ -542,15 +532,11 @@ impl PinchyDb {
 
     /// Persist a turn receipt.
     pub fn insert_receipt(&self, receipt: &TurnReceipt) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let tool_calls_json =
             serde_json::to_string(&receipt.tool_calls).unwrap_or_else(|_| "[]".into());
         let call_details_json =
             serde_json::to_string(&receipt.call_details).unwrap_or_else(|_| "[]".into());
-        conn.execute(
+        self.execute(
             "INSERT INTO receipts (
                 session_id, agent_id, started_at, duration_ms, user_prompt,
                 tool_calls_json, prompt_tokens, completion_tokens, total_tokens,
@@ -733,24 +719,22 @@ impl PinchyDb {
 
     /// Upsert a cron job.
     pub fn upsert_cron_job(&self, job: &PersistedCronJob) -> Result<()> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let depends_on = job
             .depends_on
             .as_ref()
             .map(|v| serde_json::to_string(v).unwrap_or_else(|_| "null".into()));
         let kind_str = serde_json::to_string(&job.kind).unwrap_or_else(|_| "\"Message\"".into());
         let retry_delay_secs = job.retry_delay_secs.map(|v| v as i64);
-        conn.execute(
-            "INSERT INTO cron_jobs (agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status)
-             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)
+        let enabled = if job.enabled { 1i64 } else { 0i64 };
+        self.execute(
+            "INSERT INTO cron_jobs (agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status, enabled)
+             VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)
              ON CONFLICT(agent_id, name) DO UPDATE SET
                 schedule=excluded.schedule, message=excluded.message, kind=excluded.kind,
                 depends_on=excluded.depends_on, max_retries=excluded.max_retries,
                 retry_delay_secs=excluded.retry_delay_secs, condition=excluded.condition,
-                retry_count=excluded.retry_count, last_status=excluded.last_status",
+                retry_count=excluded.retry_count, last_status=excluded.last_status,
+                enabled=excluded.enabled",
             params![
                 job.agent_id,
                 job.name,
@@ -763,6 +747,7 @@ impl PinchyDb {
                 job.condition,
                 job.retry_count,
                 job.last_status,
+                enabled,
             ],
         )?;
         debug!(agent = %job.agent_id, name = %job.name, "cron job upserted");
@@ -771,14 +756,13 @@ impl PinchyDb {
 
     /// Remove a cron job by agent + name.
     pub fn remove_cron_job(&self, agent_id: &str, name: &str) -> Result<bool> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        let changed = conn.execute(
+        let changed = self.execute(
             "DELETE FROM cron_jobs WHERE agent_id = ?1 AND name = ?2",
             params![agent_id, name],
         )?;
+        if changed > 0 {
+            debug!(agent = %agent_id, name = %name, "cron job removed");
+        }
         Ok(changed > 0)
     }
 
@@ -789,12 +773,13 @@ impl PinchyDb {
             .lock()
             .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status
+            "SELECT agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status, enabled
              FROM cron_jobs WHERE agent_id = ?1",
         )?;
         let rows = stmt.query_map(params![agent_id], |row| {
             let kind_str: String = row.get(4)?;
             let depends_on_str: Option<String> = row.get(5)?;
+            let enabled_i64: i64 = row.get(11)?;
             Ok(PersistedCronJob {
                 agent_id: row.get(0)?,
                 name: row.get(1)?,
@@ -807,6 +792,7 @@ impl PinchyDb {
                 condition: row.get(8)?,
                 retry_count: row.get(9)?,
                 last_status: row.get(10)?,
+                enabled: enabled_i64 != 0,
             })
         })?;
         let mut out = Vec::new();
@@ -823,12 +809,13 @@ impl PinchyDb {
             .lock()
             .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status
+            "SELECT agent_id, name, schedule, message, kind, depends_on, max_retries, retry_delay_secs, condition, retry_count, last_status, enabled
              FROM cron_jobs",
         )?;
         let rows = stmt.query_map([], |row| {
             let kind_str: String = row.get(4)?;
             let depends_on_str: Option<String> = row.get(5)?;
+            let enabled_i64: i64 = row.get(11)?;
             Ok(PersistedCronJob {
                 agent_id: row.get(0)?,
                 name: row.get(1)?,
@@ -841,6 +828,7 @@ impl PinchyDb {
                 condition: row.get(8)?,
                 retry_count: row.get(9)?,
                 last_status: row.get(10)?,
+                enabled: enabled_i64 != 0,
             })
         })?;
         let mut out = Vec::new();
@@ -858,14 +846,10 @@ impl PinchyDb {
     pub fn insert_cron_event(&self, event: &JobRun) -> Result<()> {
         let status_str =
             serde_json::to_string(&event.status).unwrap_or_else(|_| "\"Pending\"".into());
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let executed_at = event.executed_at.map(|v| v as i64);
         let completed_at = event.completed_at.map(|v| v as i64);
         let duration_ms = event.duration_ms.map(|v| v as i64);
-        conn.execute(
+        self.execute(
             "INSERT OR REPLACE INTO cron_events (id, job_id, scheduled_at, executed_at, completed_at, status, output_preview, error, duration_ms)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
             params![
@@ -880,6 +864,7 @@ impl PinchyDb {
                 duration_ms,
             ],
         )?;
+        debug!(event_id = %event.id, "cron event inserted");
         Ok(())
     }
 
@@ -917,11 +902,7 @@ impl PinchyDb {
 
     /// Cleanup old cron events, keeping the most recent `keep` per job.
     pub fn cleanup_cron_events(&self, keep: usize) -> Result<usize> {
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        let deleted = conn.execute(
+        let deleted = self.execute(
             "DELETE FROM cron_events WHERE id NOT IN (
                 SELECT id FROM (
                     SELECT id, ROW_NUMBER() OVER (PARTITION BY job_id ORDER BY scheduled_at DESC) AS rn
@@ -931,7 +912,7 @@ impl PinchyDb {
             params![keep as i64],
         )?;
         if deleted > 0 {
-            debug!(deleted, keep, "cleaned up old cron events");
+            debug!(deleted, keep, "old cron events cleaned up");
         }
         Ok(deleted)
     }
@@ -979,14 +960,13 @@ impl PinchyDb {
             Some(pair) => pair,
             None => return Ok(false),
         };
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
-        let changed = conn.execute(
+        let changed = self.execute(
             "UPDATE cron_jobs SET last_status = ?1 WHERE agent_id = ?2 AND name = ?3",
             params![status, agent_id, name],
         )?;
+        if changed > 0 {
+            debug!(job_id, status, "cron job status updated");
+        }
         Ok(changed > 0)
     }
 
@@ -997,14 +977,10 @@ impl PinchyDb {
     /// Upsert heartbeat status for an agent.
     pub fn upsert_heartbeat_status(&self, status: &HeartbeatStatus) -> Result<()> {
         let health_str = serde_json::to_string(&status.health).unwrap_or_else(|_| "\"OK\"".into());
-        let conn = self
-            .conn
-            .lock()
-            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let last_tick = status.last_tick.map(|v| v as i64);
         let next_tick = status.next_tick.map(|v| v as i64);
         let interval_secs = status.interval_secs.map(|v| v as i64);
-        conn.execute(
+        self.execute(
             "INSERT INTO heartbeat_status (agent_id, enabled, health, last_tick, next_tick, interval_secs, message_preview, latest_session)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
              ON CONFLICT(agent_id) DO UPDATE SET
@@ -1023,6 +999,7 @@ impl PinchyDb {
                 status.latest_session,
             ],
         )?;
+        debug!(agent = %status.agent_id, "heartbeat status upserted");
         Ok(())
     }
 
@@ -1053,6 +1030,288 @@ impl PinchyDb {
         .optional()
         .map_err(Into::into)
     }
+
+    /// Force a WAL checkpoint to ensure all data is persisted to the main database file.
+    /// Call this during graceful shutdown or after critical writes.
+    pub fn checkpoint(&self) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+        let _: (i32, i32, i32) = conn
+            .query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?))
+            })
+            .context("WAL checkpoint")?;
+        debug!("WAL checkpoint completed");
+        Ok(())
+    }
+
+    /// Execute SQL without checkpointing (checkpoints handled automatically by SQLite or during shutdown)
+    pub fn execute(&self, sql: &str, params: &[&dyn rusqlite::ToSql]) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+        let rows = conn.execute(sql, params)?;
+        Ok(rows)
+    }
+
+    /// Execute a transaction without automatic checkpoint (checkpoints handled automatically by SQLite or during shutdown)
+    pub fn transaction<F, R>(&self, f: F) -> Result<R>
+    where
+        F: FnOnce(&rusqlite::Transaction) -> Result<R>,
+    {
+        let mut conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+        let tx = conn.transaction()?;
+        let result = f(&tx)?;
+        tx.commit()?;
+        Ok(result)
+    }
+
+    /// Execute SQL and immediately checkpoint WAL (for critical writes only)
+    #[deprecated(
+        note = "Use execute() instead and let SQLite handle checkpointing, or call checkpoint() explicitly during shutdown"
+    )]
+    pub fn execute_with_checkpoint(
+        &self,
+        sql: &str,
+        params: &[&dyn rusqlite::ToSql],
+    ) -> Result<usize> {
+        let rows = self.execute(sql, params)?;
+        Ok(rows)
+    }
+
+    /// Execute a transaction with automatic checkpoint on commit (for critical writes only)
+    #[deprecated(
+        note = "Use transaction() instead and let SQLite handle checkpointing, or call checkpoint() explicitly during shutdown"
+    )]
+    pub fn transaction_with_checkpoint<F, R>(&self, f: F) -> Result<R>
+    where
+        F: FnOnce(&rusqlite::Transaction) -> Result<R>,
+    {
+        self.transaction(f)
+    }
+
+    // =====================================================================
+    // System logs (persistent)
+    // =====================================================================
+
+    /// Insert a system log entry.
+    pub fn insert_system_log(
+        &self,
+        timestamp: i64,
+        level: &str,
+        target: &str,
+        message: &str,
+        fields_json: Option<&str>,
+    ) -> Result<i64> {
+        let ts_rfc3339 = chrono::DateTime::from_timestamp(timestamp, 0)
+            .map(|dt| dt.to_rfc3339())
+            .unwrap_or_else(|| timestamp.to_string());
+
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+        conn.execute(
+            "INSERT INTO system_logs (timestamp, ts_rfc3339, level, target, message, fields_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![timestamp, ts_rfc3339, level, target, message, fields_json],
+        )?;
+        let id = conn.last_insert_rowid();
+        debug!(id, target, level, "system log inserted");
+        Ok(id)
+    }
+
+    /// Query system logs with optional filters.
+    pub fn query_system_logs(
+        &self,
+        level_filter: Option<&str>,
+        search_filter: Option<&str>,
+        from_ts: Option<i64>,
+        to_ts: Option<i64>,
+        limit: usize,
+        offset: usize,
+    ) -> Result<Vec<SystemLogEntry>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+
+        // Build dynamic WHERE clause
+        let mut conditions = Vec::new();
+        let mut params_list: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(level) = level_filter {
+            conditions.push(format!("level = ?{}", params_list.len() + 1));
+            params_list.push(Box::new(level.to_string()));
+        }
+        if let Some(search) = search_filter {
+            let pattern = format!("%{}%", search);
+            conditions.push(format!(
+                "(message LIKE ?{} OR target LIKE ?{})",
+                params_list.len() + 1,
+                params_list.len() + 2
+            ));
+            params_list.push(Box::new(pattern.clone()));
+            params_list.push(Box::new(pattern));
+        }
+        if let Some(from) = from_ts {
+            conditions.push(format!("timestamp >= ?{}", params_list.len() + 1));
+            params_list.push(Box::new(from));
+        }
+        if let Some(to) = to_ts {
+            conditions.push(format!("timestamp <= ?{}", params_list.len() + 1));
+            params_list.push(Box::new(to));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let sql = format!(
+            "SELECT id, timestamp, ts_rfc3339, level, target, message, fields_json
+             FROM system_logs
+             {}
+             ORDER BY timestamp DESC, id DESC
+             LIMIT ?{} OFFSET ?{}",
+            where_clause,
+            params_list.len() + 1,
+            params_list.len() + 2
+        );
+
+        params_list.push(Box::new(limit as i64));
+        params_list.push(Box::new(offset as i64));
+
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_list.iter().map(|b| b.as_ref()).collect();
+
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params_refs.as_slice(), |row| {
+            Ok(SystemLogEntry {
+                id: row.get(0)?,
+                timestamp: row.get::<_, i64>(1)? as u64,
+                ts_rfc3339: row.get(2)?,
+                level: row.get(3)?,
+                target: row.get(4)?,
+                message: row.get(5)?,
+                fields_json: row.get(6)?,
+            })
+        })?;
+
+        let mut entries = Vec::new();
+        for r in rows {
+            entries.push(r?);
+        }
+        Ok(entries)
+    }
+
+    /// Count system logs matching filters (for pagination).
+    pub fn count_system_logs(
+        &self,
+        level_filter: Option<&str>,
+        search_filter: Option<&str>,
+        from_ts: Option<i64>,
+        to_ts: Option<i64>,
+    ) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+
+        // Build dynamic WHERE clause
+        let mut conditions = Vec::new();
+        let mut params_list: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+
+        if let Some(level) = level_filter {
+            conditions.push(format!("level = ?{}", params_list.len() + 1));
+            params_list.push(Box::new(level.to_string()));
+        }
+        if let Some(search) = search_filter {
+            let pattern = format!("%{}%", search);
+            conditions.push(format!(
+                "(message LIKE ?{} OR target LIKE ?{})",
+                params_list.len() + 1,
+                params_list.len() + 2
+            ));
+            params_list.push(Box::new(pattern.clone()));
+            params_list.push(Box::new(pattern));
+        }
+        if let Some(from) = from_ts {
+            conditions.push(format!("timestamp >= ?{}", params_list.len() + 1));
+            params_list.push(Box::new(from));
+        }
+        if let Some(to) = to_ts {
+            conditions.push(format!("timestamp <= ?{}", params_list.len() + 1));
+            params_list.push(Box::new(to));
+        }
+
+        let where_clause = if conditions.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE {}", conditions.join(" AND "))
+        };
+
+        let sql = format!("SELECT COUNT(*) FROM system_logs {}", where_clause);
+
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_list.iter().map(|b| b.as_ref()).collect();
+
+        let count: i64 = conn.query_row(&sql, params_refs.as_slice(), |row| row.get(0))?;
+        Ok(count as usize)
+    }
+
+    /// Clean up old system logs based on retention policy.
+    pub fn cleanup_system_logs(&self, retention_days: i64, max_rows: i64) -> Result<usize> {
+        let cutoff_ts = chrono::Utc::now().timestamp() - (retention_days * 24 * 60 * 60);
+
+        // First, delete logs older than retention period
+        let deleted_old = self.execute(
+            "DELETE FROM system_logs WHERE timestamp < ?1",
+            params![cutoff_ts],
+        )?;
+
+        // Then, if still over max_rows, delete oldest entries
+        let count = self.count_system_logs(None, None, None, None)?;
+        let mut deleted_excess = 0;
+
+        if count > max_rows as usize {
+            let to_delete = count - max_rows as usize;
+            deleted_excess = self.execute(
+                "DELETE FROM system_logs WHERE id IN (
+                    SELECT id FROM system_logs ORDER BY timestamp ASC LIMIT ?1
+                )",
+                params![to_delete as i64],
+            )?;
+        }
+
+        let total_deleted = deleted_old + deleted_excess;
+        if total_deleted > 0 {
+            debug!(
+                deleted = total_deleted,
+                retention_days, max_rows, "system logs cleaned up"
+            );
+        }
+        Ok(total_deleted)
+    }
+}
+
+/// System log entry for persisted logs.
+#[derive(Debug)]
+pub struct SystemLogEntry {
+    pub id: i64,
+    pub timestamp: u64,
+    pub ts_rfc3339: String,
+    pub level: String,
+    pub target: String,
+    pub message: String,
+    pub fields_json: Option<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1153,6 +1412,7 @@ mod tests {
             condition: None,
             retry_count: 0,
             last_status: None,
+            enabled: true,
         };
         db.upsert_cron_job(&job).unwrap();
 
