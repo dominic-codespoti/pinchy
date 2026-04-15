@@ -12,7 +12,7 @@ env:
   PLAYWRIGHT_SKIP_INSTALL: 1
 
 permissions:
-  contents: write  # Needed for auto-tagging
+  contents: read
 
 jobs:
   check:
@@ -61,67 +61,44 @@ jobs:
       - name: Run tests
         run: cargo test --no-default-features --lib
 
-  # Auto-increment version on main branch pushes
-  auto-tag:
-    name: Auto-increment version tag
+  web-check:
+    name: Web Lint & Type Check
     runs-on: ubuntu-latest
-    needs: [test]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'chore(release)')
-    outputs:
-      new_version: ${{ steps.bump.outputs.new_version }}
-      tagged: ${{ steps.bump.outputs.tagged }}
+    needs: check
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install web dependencies
+        run: npm ci
+        working-directory: web
 
-      - name: Bump patch version and tag
-        id: bump
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Run web lint
+        run: npm run lint
+        working-directory: web
 
-          # Pull latest main so we're not behind any prior chore(release) commits
-          git pull --rebase origin main
-
-          # Read version from the now-current Cargo.toml
-          CURRENT=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
-          echo "Current version: $CURRENT"
-
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
-          NEW_PATCH=$((PATCH + 1))
-          NEW_VERSION="${MAJOR}.${MINOR}.${NEW_PATCH}"
-          echo "New version: $NEW_VERSION"
-
-          if git rev-parse "v${NEW_VERSION}" >/dev/null 2>&1; then
-            echo "Tag v${NEW_VERSION} already exists, skipping."
-            echo "tagged=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          sed -i "0,/^version = \"${CURRENT}\"/s//version = \"${NEW_VERSION}\"/" Cargo.toml
-          cargo generate-lockfile
-          echo "Updated Cargo.toml to ${NEW_VERSION}"
-
-          git add Cargo.toml Cargo.lock
-          git commit -m "chore(release): bump version to v${NEW_VERSION}"
-          git tag "v${NEW_VERSION}"
-          git push origin main --tags
-
-          echo "new_version=${NEW_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "tagged=true" >> "$GITHUB_OUTPUT"
-          echo "Created tag v${NEW_VERSION}"
+      - name: Run web type check
+        run: npm run type-check
+        working-directory: web
 
   # Build validation job - quick check that release builds work
   build-validate:
     name: Build Validation (Release)
     runs-on: ubuntu-latest
-    needs: [test]
+    needs: [test, web-check]
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -134,12 +111,18 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: ${{ runner.os }}-cargo-
 
+      - name: Install web dependencies
+        run: npm ci
+        working-directory: web
+
       - name: Build release binary (validation)
         run: cargo build --release --no-default-features
+
+      - name: Validate crates.io package
+        run: cargo package --no-default-features --allow-dirty --no-verify
 
       - name: Show binary info
         run: |
           ls -lh target/release/pinchy
           file target/release/pinchy
           ./target/release/pinchy --version || true
-

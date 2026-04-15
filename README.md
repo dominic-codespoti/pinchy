@@ -9,7 +9,7 @@ skills, and persistent memory.
 
 ### Quick Install (Recommended)
 
-Install the latest version with the official installer:
+Install the latest published release with the official installer:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/dominic-codespoti/pinchy/main/install.sh | bash
@@ -23,10 +23,16 @@ wget -qO- https://raw.githubusercontent.com/dominic-codespoti/pinchy/main/instal
 
 The installer will:
 - Detect your platform (Linux/macOS, x86_64/ARM64)
-- Download the appropriate binary
+- Download the matching binary from the latest GitHub release
 - Verify the SHA256 checksum
 - Install to `~/.local/bin` (creating the directory if needed)
 - Add `~/.local/bin` to your PATH if not present
+
+Install a specific release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dominic-codespoti/pinchy/main/install.sh | bash -s -- --version 0.1.21
+```
 
 ### Manual Installation
 
@@ -63,15 +69,18 @@ pinchy --version
 
 ### Build from Source
 
-Requires [Rust](https://rustup.rs/) 1.70+:
+Requires [Rust](https://rustup.rs/) and Node.js 20+:
 
 ```bash
 # Clone the repository
 git clone https://github.com/dominic-codespoti/pinchy.git
 cd pinchy
 
+# Install web dependencies
+cd web && npm ci && cd ..
+
 # Build release binary
-cargo build --release
+cargo build --release --no-default-features
 
 # The binary will be at target/release/pinchy
 cp target/release/pinchy ~/.local/bin/
@@ -79,14 +88,32 @@ cp target/release/pinchy ~/.local/bin/
 
 ## Quick Start
 
-```bash
-# 1. Build
-cargo build --release
+If you installed from a release binary:
 
-# 2. Interactive onboarding (creates config, sets up first agent)
-cargo run --release -- onboard
+```bash
+# 1. Confirm the binary is installed
+pinchy --version
+
+# 2. Interactive onboarding (creates config, sets up the first agent)
+pinchy onboard
 
 # 3. Start the daemon
+pinchy
+```
+
+If you are running from source:
+
+```bash
+# 1. Install web dependencies
+cd web && npm ci && cd ..
+
+# 2. Build
+cargo build --release --no-default-features
+
+# 3. Interactive onboarding (creates config, sets up first agent)
+cargo run --release -- onboard
+
+# 4. Start the daemon
 cargo run --release
 ```
 
@@ -307,20 +334,35 @@ cargo test            # Run tests (21 integration test files)
 Three workflows run on GitHub Actions:
 
 1. **CI** (`.github/workflows/ci.yml`) — On every push/PR to `main`:
-   - `cargo fmt --check` + `cargo clippy --no-default-features`
-   - `cargo test --no-default-features --lib`
-   - Auto-tag on main (patches version, creates git tag)
+    - `cargo fmt --check` + `cargo clippy --no-default-features`
+    - `cargo test --no-default-features --lib`
+    - `npm run lint` + `npm run type-check` in `web/`
+    - `cargo build --release --no-default-features` after web dependencies are installed
 
 2. **Build Binaries** (`.github/workflows/build-binaries.yml`) — On every push/PR to `main`:
-   - Cross-platform release builds (x86_64 + aarch64 Linux, x86_64 + aarch64 macOS)
-   - Artifacts uploaded for testing (not released)
+    - Cross-platform release builds (x86_64 + aarch64 Linux, x86_64 + aarch64 macOS)
+    - Artifacts uploaded for testing (not released)
 
 3. **Release** (`.github/workflows/release.yml`) — On version tags (`v*`):
-   - Creates optimized release binaries for all platforms
-   - Generates SHA256 checksums for all binaries
-   - Creates GitHub Release with auto-generated notes
-   - Uploads binaries as release assets
-   - Publishes to crates.io
+    - Verifies the pushed tag matches `Cargo.toml`
+    - Creates optimized release binaries for all platforms
+    - Generates SHA256 checksums for all binaries
+    - Creates GitHub Release with auto-generated notes
+    - Uploads binaries as release assets
+    - Publishes to crates.io
+
+Release process:
+
+1. Merge release-ready changes to `main`.
+2. Run `make release-prepare V=0.1.21` to bump the version if needed, regenerate `Cargo.lock`, run verification, create the release commit if needed, and create the matching tag.
+3. Run `git push origin main && git push origin v0.1.21`, or use `make release-push V=0.1.21` to do it in one step.
+4. Let GitHub Actions build artifacts, create the GitHub release, and publish to crates.io.
+
+Dry-run the automation without changing git state:
+
+```bash
+bash scripts/release.sh --version 0.1.21 --dry-run
+```
 
 ## Systemd Service
 

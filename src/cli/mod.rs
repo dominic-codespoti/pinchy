@@ -799,11 +799,11 @@ pub async fn app_onboard(config_path: &Path) -> anyhow::Result<()> {
     println!("  Next steps:");
     println!("    1. Start pinchy:    pinchy");
     println!("    2. Open dashboard:  http://127.0.0.1:3131");
-    println!("    3. Edit agent:      pinchy edit default soul");
+    println!("    3. Edit agent:      pinchy agent edit default soul");
     println!("    4. Send a message:  curl -X POST http://127.0.0.1:3131/api/webhook/default \\");
     println!("                          -H 'Content-Type: application/json' \\");
     println!("                          -d '{{\"message\": \"hello\"}}'");
-    println!("    5. View skills:     pinchy show default");
+    println!("    5. View agent:      pinchy agent show default");
     println!("    6. Enable service:  sudo pinchy service install");
     println!();
 

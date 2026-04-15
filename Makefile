@@ -1,4 +1,4 @@
-.PHONY: dev dev-clean build web run update install release lint web-lint web-type-check web-check check fix web-install web-dev setup backup backup-list restore publish watch
+.PHONY: dev dev-clean build web run update install release lint web-lint web-type-check web-check check fix web-install web-dev setup backup backup-list restore publish watch release-prepare release-push
 
 # Start everything: Next.js HMR + Rust backend (auto-rebuild if cargo-watch installed)
 dev:
@@ -112,3 +112,15 @@ restore:
 publish: web
 	cargo publish --allow-dirty
 	@echo "✅ Published to crates.io"
+
+# Prepare a release locally: bump version, verify, commit, and tag.
+# Usage: make release-prepare V=0.1.21
+release-prepare:
+	@test -n "$(V)" || (echo "Usage: make release-prepare V=<x.y.z>" && exit 1)
+	@bash scripts/release.sh --version "$(V)"
+
+# Prepare and push a release in one command.
+# Usage: make release-push V=0.1.21
+release-push:
+	@test -n "$(V)" || (echo "Usage: make release-push V=<x.y.z>" && exit 1)
+	@bash scripts/release.sh --version "$(V)" --push

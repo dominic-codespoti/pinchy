@@ -6,7 +6,7 @@
 # Usage: curl -fsSL https://raw.githubusercontent.com/dominic-codespoti/pinchy/main/install.sh | bash
 #
 
-set -e
+set -euo pipefail
 
 REPO="dominic-codespoti/pinchy"
 BINARY_NAME="pinchy"
@@ -76,8 +76,13 @@ detect_os() {
 	esac
 }
 
-# Get the latest release version
+# Get the latest release version unless a specific version was requested
 get_latest_version() {
+	if [ -n "${VERSION:-}" ]; then
+		echo "${VERSION#v}"
+		return 0
+	fi
+
 	local version
 	version=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name":' | sed -E 's/.*"tag_name": "v?([^"]+)".*/\1/')
 	echo "$version"
@@ -231,28 +236,30 @@ main() {
 	# Install
 	install_binary "$temp_dir" "$binary_name"
 
-	# Cleanup
-	rm -rf "$temp_dir"
+	local binary_path="${INSTALL_DIR}/${BINARY_NAME}"
 
 	# Check PATH
 	ensure_in_path
 
 	# Test installation
-	if command -v "$BINARY_NAME" &>/dev/null; then
+	if "$binary_path" --version &>/dev/null; then
 		local installed_version
-		installed_version=$($BINARY_NAME --version 2>/dev/null || echo "unknown")
+		installed_version=$("$binary_path" --version 2>/dev/null || echo "unknown")
 		success "Installation complete!"
 		info "Version: $installed_version"
 		echo ""
 		echo "Quick start:"
 		echo "  pinchy --help        # Show help"
 		echo "  pinchy onboard       # Interactive setup"
-		echo "  pinchy start         # Start the daemon"
+		echo "  pinchy               # Start the daemon"
 		echo ""
 	else
 		warn "Installation complete, but $BINARY_NAME is not in your current PATH"
 		warn "You may need to restart your shell or run: source ~/.bashrc (or ~/.zshrc)"
 	fi
+
+	# Cleanup
+	rm -rf "$temp_dir"
 }
 
 # Handle script arguments
@@ -271,8 +278,12 @@ while [[ $# -gt 0 ]]; do
 		echo ""
 		echo "Usage: curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash"
 		echo ""
-		echo "Options (passed via environment variables):"
-		echo "  INSTALL_DIR    Installation directory (default: ~/.local/bin)"
+		echo "Options:"
+		echo "  -d, --dir DIR        Installation directory (default: ~/.local/bin)"
+		echo "  -v, --version VER    Install a specific release version"
+		echo ""
+		echo "Environment variables:"
+		echo "  INSTALL_DIR          Installation directory override"
 		echo ""
 		exit 0
 		;;
