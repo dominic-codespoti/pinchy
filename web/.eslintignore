@@ -1,0 +1,6 @@
+inspect*.js
+verify*.js
+scripts/**/*.js
+tests/**/*.js
+tests/**/*.spec.ts
+mocks/**

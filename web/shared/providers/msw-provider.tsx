@@ -50,27 +50,18 @@ function MockBanner() {
  * cannot activate in production builds.
  */
 export function MSWProvider({ children }: MSWProviderProps) {
-  const [isReady, setIsReady] = useState(false);
   const [isMockActive, setIsMockActive] = useState(false);
 
-  // CRITICAL SAFETY CHECK: Never enable mocks in production
-  // Use type assertion since NODE_ENV is typed as 'development' | 'test'
   const nodeEnv = process.env.NODE_ENV as string;
-  if (nodeEnv === 'production') {
-    // This should never happen due to webpack config, but guard anyway
-    console.error('[MSW] CRITICAL: MSWProvider rendered in production. Mocking disabled.');
-    return <>{children}</>;
-  }
-
   const shouldEnableMocks = process.env.NEXT_PUBLIC_ENABLE_MOCKS === 'true';
-  // Use type assertion since NODE_ENV is typed as 'development' | 'test'
-  const isProductionBuild = nodeEnv === 'production';
-  const canEnableMocks = shouldEnableMocks && !isProductionBuild;
+  const canEnableMocks = shouldEnableMocks && nodeEnv !== 'production';
 
   useEffect(() => {
-    // Only initialize MSW on client side when explicitly enabled AND not production
+    if (nodeEnv === 'production' && shouldEnableMocks) {
+      console.error('[MSW] CRITICAL: MSWProvider rendered in production. Mocking disabled.');
+    }
+
     if (!canEnableMocks) {
-      setIsReady(true);
       return;
     }
 
@@ -86,11 +77,10 @@ export function MSWProvider({ children }: MSWProviderProps) {
           console.error('[MSW] Failed to start mock worker:', error);
         }
       }
-      setIsReady(true);
     }
 
     initMocks();
-  }, [canEnableMocks]);
+  }, [canEnableMocks, nodeEnv, shouldEnableMocks]);
 
   // Always render children to avoid hydration mismatches
   // MSW readiness is tracked internally but doesn't block rendering
