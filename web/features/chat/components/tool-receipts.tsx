@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { AlertCircle, ChevronDown, CircleCheckBig, CircleHelp, Wrench } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { AlertCircle, Brain, ChevronDown, CircleCheckBig, CircleHelp, Wrench } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
@@ -17,6 +17,8 @@ interface ToolReceiptsProps {
   toolCalls?: ToolCall[];
   toolResults?: ToolResult[];
   receiptToolCalls?: ToolCallRecord[];
+  forceOpen?: boolean;
+  onForceOpenHandled?: () => void;
 }
 
 type ToolStatus = 'ok' | 'error' | 'unknown';
@@ -91,6 +93,29 @@ function formatCost(costUsd?: number): string | null {
   return costUsd < 0.01 ? `$${costUsd.toFixed(4)}` : `$${costUsd.toFixed(2)}`;
 }
 
+function getReasoningBadgeLabel(turnReceipt?: TurnReceipt): string | null {
+  if (!turnReceipt) {
+    return null;
+  }
+
+  const reasoningText = turnReceipt.reasoning_text?.trim();
+  const reasoningTokens = turnReceipt.tokens.reasoning_tokens;
+
+  if (!reasoningText && reasoningTokens <= 0) {
+    return null;
+  }
+
+  if (reasoningText && reasoningTokens > 0) {
+    return `${formatTokenCount(reasoningTokens)} reasoning`;
+  }
+
+  if (reasoningText) {
+    return 'Reasoning';
+  }
+
+  return `${formatTokenCount(reasoningTokens)} reasoning`;
+}
+
 function getToolStatusBadge(status: ToolStatus) {
   if (status === 'ok') {
     return { label: 'ok', className: 'bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-400 dark:border-green-800', icon: CircleCheckBig, iconClassName: 'text-green-600 dark:text-green-400' };
@@ -137,8 +162,25 @@ function buildSummaryItems(receiptToolCalls?: ToolCallRecord[]): SummaryToolRece
   }));
 }
 
-export function ToolReceipts({ timestamp, turnReceipt, toolCalls, toolResults, receiptToolCalls }: ToolReceiptsProps) {
+export function ToolReceipts({
+  timestamp,
+  turnReceipt,
+  toolCalls,
+  toolResults,
+  receiptToolCalls,
+  forceOpen = false,
+  onForceOpenHandled,
+}: ToolReceiptsProps) {
   const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!forceOpen) {
+      return;
+    }
+
+    setIsOpen(true);
+    onForceOpenHandled?.();
+  }, [forceOpen, onForceOpenHandled]);
 
   const exactItems = useMemo(() => buildExactItems(toolCalls, toolResults), [toolCalls, toolResults]);
   const summaryItems = useMemo(
@@ -147,6 +189,8 @@ export function ToolReceipts({ timestamp, turnReceipt, toolCalls, toolResults, r
   );
   const toolCount = exactItems.length > 0 ? exactItems.length : summaryItems.length;
   const costLabel = formatCost(turnReceipt?.estimated_cost_usd);
+  const reasoningText = turnReceipt?.reasoning_text?.trim();
+  const reasoningBadgeLabel = getReasoningBadgeLabel(turnReceipt);
 
   if (!turnReceipt && toolCount === 0) {
     return null;
@@ -154,11 +198,11 @@ export function ToolReceipts({ timestamp, turnReceipt, toolCalls, toolResults, r
 
   return (
     <Collapsible open={isOpen} onOpenChange={setIsOpen} className="w-full min-w-0">
-      <Card className="w-full min-w-0 overflow-hidden border-border/60 bg-background/80 shadow-none">
+      <Card className="w-full min-w-0 overflow-hidden border-border/60 bg-background/70 shadow-none">
         <CollapsibleTrigger asChild>
-          <Button variant="ghost" className="h-auto w-full min-w-0 justify-between rounded-xl px-3 py-2 text-left">
+          <Button variant="ghost" className="h-auto w-full min-w-0 justify-between rounded-xl px-3 py-2 text-left hover:bg-muted/40">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-2 text-sm text-foreground">
+              <span className="flex items-center gap-2 text-sm font-medium text-foreground">
                 <Wrench className="size-4 text-muted-foreground" />
                 <span>Details</span>
               </span>
@@ -168,17 +212,20 @@ export function ToolReceipts({ timestamp, turnReceipt, toolCalls, toolResults, r
               {turnReceipt && (
                 <>
                   <Badge variant="outline" className="font-normal">
-                    {formatTokenCount(turnReceipt.tokens.total_tokens)} tokens
-                  </Badge>
-                  <Badge variant="outline" className="font-normal">
-                    {formatDuration(turnReceipt.duration_ms)}
-                  </Badge>
-                  <Badge variant="outline" className="font-normal">
                     {turnReceipt.model_id}
+                  </Badge>
+                  <Badge variant="outline" className="font-normal">
+                    {formatTokenCount(turnReceipt.tokens.total_tokens)} tokens
                   </Badge>
                   {costLabel && (
                     <Badge variant="outline" className="font-normal">
                       {costLabel}
+                    </Badge>
+                  )}
+                  {reasoningBadgeLabel && (
+                    <Badge variant="outline" className="font-normal">
+                      <Brain className="mr-1 size-3" />
+                      {reasoningBadgeLabel}
                     </Badge>
                   )}
                 </>
@@ -195,6 +242,28 @@ export function ToolReceipts({ timestamp, turnReceipt, toolCalls, toolResults, r
         <CustomCollapsibleContent isOpen={isOpen}>
           <div className="w-full min-w-0">
             <CardContent className="w-full min-w-0 space-y-3 px-3 pb-3 pt-0">
+            {reasoningText && (
+              <div className="w-full min-w-0 rounded-xl border border-border/50 bg-muted/30 p-3">
+                <div className="mb-2 flex flex-wrap items-center gap-2">
+                  <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Reasoning
+                  </p>
+                  {reasoningBadgeLabel && (
+                    <Badge variant="secondary" className="font-normal">
+                      <Brain className="mr-1 size-3" />
+                      {reasoningBadgeLabel}
+                    </Badge>
+                  )}
+                  <Badge variant="outline" className="font-normal">
+                    {formatDuration(turnReceipt?.duration_ms)}
+                  </Badge>
+                </div>
+                <p className="whitespace-pre-wrap break-words text-sm leading-6 text-foreground/90">
+                  {reasoningText}
+                </p>
+              </div>
+            )}
+
             {exactItems.length > 0 && (
               <div className="w-full min-w-0 space-y-3">
                 {exactItems.map((item, index) => {
@@ -284,6 +353,7 @@ export function ToolReceipts({ timestamp, turnReceipt, toolCalls, toolResults, r
                 </div>
               </>
             )}
+
             </CardContent>
           </div>
         </CustomCollapsibleContent>

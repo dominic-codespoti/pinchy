@@ -14,6 +14,7 @@ const prodConfig: NextConfig = {
   output: 'export',
   distDir: '../static/react',
   trailingSlash: true,
+  transpilePackages: ['react-remove-scroll'],
   // Exclude mock handlers from production bundle
   webpack: (config, { isServer }) => {
     config.resolve = config.resolve || {};
@@ -31,6 +32,7 @@ const prodConfig: NextConfig = {
 
 const devConfig: NextConfig = {
   reactStrictMode: false,
+  transpilePackages: ['react-remove-scroll'],
   async rewrites() {
     return [
       {

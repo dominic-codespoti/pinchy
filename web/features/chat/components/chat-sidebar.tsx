@@ -63,8 +63,8 @@ export function ChatSidebar({
         </Button>
       </div>
 
-      <div className="p-2">
-        <h3 className="px-2 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+      <div className="px-3 py-2">
+        <h3 className="py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Recent Sessions
         </h3>
       </div>

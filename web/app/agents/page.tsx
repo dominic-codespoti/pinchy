@@ -60,6 +60,7 @@ function AgentsPageContent() {
       model: data.config?.model,
       heartbeatEnabled: data.heartbeatEnabled,
       heartbeat_secs: data.heartbeatInterval,
+      reasoning_effort: data.reasoningEffort ?? undefined,
       enabled_skills: data.enabledSkills ?? undefined,
     });
     setAgentToEdit(null);

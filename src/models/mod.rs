@@ -21,6 +21,7 @@ pub mod together;
 pub mod xai;
 
 use std::any::Any;
+use std::future::Future;
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -28,6 +29,36 @@ use async_trait::async_trait;
 use futures_core::Stream;
 use reqwest::Client;
 use tracing::{debug, warn};
+
+#[derive(Debug, Clone)]
+pub struct LiveReasoningContext {
+    pub agent_id: String,
+    pub session_id: Option<String>,
+}
+
+tokio::task_local! {
+    static LIVE_REASONING_CONTEXT: LiveReasoningContext;
+}
+
+pub async fn scope_live_reasoning_context<F>(context: LiveReasoningContext, future: F) -> F::Output
+where
+    F: Future,
+{
+    LIVE_REASONING_CONTEXT.scope(context, future).await
+}
+
+pub fn publish_live_reasoning_preview(text: &str, source: &str, model: Option<&str>) {
+    let _ = LIVE_REASONING_CONTEXT.try_with(|context| {
+        crate::gateway::publish_event_json(&serde_json::json!({
+            "type": "reasoning_delta",
+            "agent": context.agent_id,
+            "session": context.session_id,
+            "text": text,
+            "source": source,
+            "model": model,
+        }));
+    });
+}
 
 // ---------------------------------------------------------------------------
 // ModelInfo – metadata returned by provider model discovery
@@ -207,6 +238,22 @@ pub trait ModelProvider: Send + Sync {
         ))
     }
 
+    /// Like [`ModelProvider::send_chat_with_functions`] but may also return
+    /// provider-exposed reasoning text diagnostics when available.
+    async fn send_chat_with_functions_detailed(
+        &self,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> Result<ProviderCallResult, anyhow::Error> {
+        let (response, usage) = self.send_chat_with_functions(messages, functions).await?;
+        Ok(ProviderCallResult {
+            response,
+            usage,
+            reasoning_text: None,
+            reasoning_text_status: ReasoningTextStatus::ProviderDidNotExpose,
+        })
+    }
+
     /// Send chat messages and return a stream of content-delta strings.
     ///
     /// The default implementation calls `send_chat` and yields the
@@ -281,6 +328,95 @@ pub fn parse_token_usage(json: &serde_json::Value) -> Option<TokenUsage> {
             .unwrap_or(0),
         model,
     })
+}
+
+/// Extract safe provider-exposed reasoning text when present.
+pub fn extract_reasoning_text(json: &serde_json::Value) -> Option<String> {
+    let message = json
+        .get("choices")
+        .and_then(|choices| choices.get(0))
+        .and_then(|choice| choice.get("message"))
+        .or_else(|| {
+            json.get("choices")
+                .and_then(|choices| choices.get(0))
+                .and_then(|choice| choice.get("delta"))
+        });
+
+    let candidate = message.and_then(extract_reasoning_text_from_message_like);
+
+    if candidate.is_some() {
+        return candidate;
+    }
+
+    extract_reasoning_text_from_message_like(json)
+}
+
+fn extract_reasoning_text_from_message_like(value: &serde_json::Value) -> Option<String> {
+    string_field(value, "reasoning_text")
+        .or_else(|| string_field(value, "reasoning_content"))
+        .or_else(|| extract_thinking_blocks_text(value))
+        .or_else(|| extract_thought_parts_text(value))
+}
+
+fn extract_thinking_blocks_text(value: &serde_json::Value) -> Option<String> {
+    let blocks = value.get("thinking_blocks")?.as_array()?;
+    join_text_values(blocks.iter().filter_map(|block| {
+        string_field(block, "thinking").or_else(|| string_field(block, "text"))
+    }))
+}
+
+fn extract_thought_parts_text(value: &serde_json::Value) -> Option<String> {
+    let parts = value
+        .get("content")
+        .and_then(|content| content.get("parts"))
+        .and_then(|parts| parts.as_array())
+        .or_else(|| value.get("parts").and_then(|parts| parts.as_array()))?;
+
+    join_text_values(parts.iter().filter_map(|part| {
+        let thought = part
+            .get("thought")
+            .and_then(|flag| flag.as_bool())
+            .unwrap_or(false);
+        if !thought {
+            return None;
+        }
+
+        string_field(part, "text")
+    }))
+}
+
+fn join_text_values<I>(values: I) -> Option<String>
+where
+    I: Iterator<Item = String>,
+{
+    let items: Vec<String> = values
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .collect();
+
+    if items.is_empty() {
+        None
+    } else {
+        Some(items.join("\n\n"))
+    }
+}
+
+fn concat_text_values<I>(values: I) -> Option<String>
+where
+    I: Iterator<Item = String>,
+{
+    let combined = values.collect::<Vec<String>>().join("");
+    let trimmed = combined.trim();
+    (!trimmed.is_empty()).then_some(combined)
+}
+
+fn string_field(value: &serde_json::Value, field: &str) -> Option<String> {
+    value
+        .get(field)
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToOwned::to_owned)
 }
 
 /// Parse `tool_calls` from an OpenAI-style chat completion response.
@@ -406,6 +542,21 @@ pub struct TokenUsage {
     pub model: String,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ReasoningTextStatus {
+    Captured,
+    ProviderDidNotExpose,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProviderCallResult {
+    pub response: ProviderResponse,
+    pub usage: Option<TokenUsage>,
+    pub reasoning_text: Option<String>,
+    pub reasoning_text_status: ReasoningTextStatus,
+}
+
 /// A single function call within a multi-call response.
 #[derive(Debug, Clone)]
 pub struct FunctionCallItem {
@@ -525,6 +676,19 @@ impl ProviderManager {
         messages: &[ChatMessage],
         functions: &[serde_json::Value],
     ) -> Result<(ProviderResponse, Option<TokenUsage>), anyhow::Error> {
+        let result = self
+            .send_chat_with_functions_detailed(messages, functions)
+            .await?;
+        Ok((result.response, result.usage))
+    }
+
+    /// Send chat messages with function support and return richer per-call
+    /// diagnostics when available.
+    pub async fn send_chat_with_functions_detailed(
+        &self,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> Result<ProviderCallResult, anyhow::Error> {
         // ── Payload dump (debug level) ───────────────────────────────
         // Logs the full message array and function defs so we can
         // diagnose what the model actually sees.
@@ -609,7 +773,10 @@ impl ProviderManager {
 
             for (idx, provider) in self.providers.iter().enumerate() {
                 for attempt in 0..attempts {
-                    match provider.send_chat_with_functions(messages, functions).await {
+                    match provider
+                        .send_chat_with_functions_detailed(messages, functions)
+                        .await
+                    {
                         Ok(result) => return Ok(result),
                         Err(e) => {
                             let is_permanent = is_permanent_error(&e);
@@ -652,7 +819,12 @@ impl ProviderManager {
         }
         // Fallback: plain send_chat
         let reply = self.send_chat(messages).await?;
-        Ok((ProviderResponse::Final(reply), None))
+        Ok(ProviderCallResult {
+            response: ProviderResponse::Final(reply),
+            usage: None,
+            reasoning_text: None,
+            reasoning_text_status: ReasoningTextStatus::ProviderDidNotExpose,
+        })
     }
 
     /// Send chat messages with automatic retries and provider fallback.
@@ -789,6 +961,14 @@ impl ModelProvider for ProviderManager {
         // Delegate to the inherent method which handles
         // supports_functions gating and fallback logic.
         ProviderManager::send_chat_with_functions(self, messages, functions).await
+    }
+
+    async fn send_chat_with_functions_detailed(
+        &self,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> Result<ProviderCallResult, anyhow::Error> {
+        ProviderManager::send_chat_with_functions_detailed(self, messages, functions).await
     }
 
     fn send_chat_stream<'a>(
@@ -1249,7 +1429,9 @@ pub fn get_shared_http_client() -> Client {
 ///
 /// All providers (OpenAI, Azure, OpenAI-compat) use the same SSE wire
 /// format — `data: {json}\n` lines with `data: [DONE]` as the sentinel.
-/// This function extracts `choices[0].delta.content` from each event.
+/// This function extracts `choices[0].delta.content` from each event and,
+/// when providers expose reasoning fields on delta payloads, forwards a
+/// compact live reasoning preview through the shared event channel.
 pub fn stream_sse_deltas(
     resp: reqwest::Response,
 ) -> Pin<Box<dyn Stream<Item = Result<String, anyhow::Error>> + Send>> {
@@ -1274,15 +1456,49 @@ pub fn stream_sse_deltas(
                     return;
                 }
                 if let Ok(json) = serde_json::from_str::<serde_json::Value>(data) {
-                    if let Some(content) = json["choices"][0]["delta"]["content"].as_str() {
+                    if let Some(reasoning) = extract_reasoning_delta_text(&json)
+                        .and_then(|text| crate::agent::types::extract_reasoning_preview(&text))
+                    {
+                        publish_live_reasoning_preview(&reasoning, "openai_sse", None);
+                    }
+
+                    if let Some(content) = extract_sse_content_delta(&json) {
                         if !content.is_empty() {
-                            yield content.to_string();
+                            yield content;
                         }
                     }
                 }
             }
         }
     })
+}
+
+fn extract_sse_content_delta(json: &serde_json::Value) -> Option<String> {
+    let content = json
+        .get("choices")
+        .and_then(|choices| choices.get(0))
+        .and_then(|choice| choice.get("delta"))
+        .and_then(|delta| delta.get("content"))?;
+
+    match content {
+        serde_json::Value::String(text) => (!text.is_empty()).then(|| text.to_string()),
+        serde_json::Value::Array(parts) => concat_text_values(parts.iter().filter_map(|part| {
+            part.get("text")
+                .and_then(|value| value.as_str())
+                .or_else(|| part.get("content").and_then(|value| value.as_str()))
+                .map(ToOwned::to_owned)
+        })),
+        _ => None,
+    }
+}
+
+fn extract_reasoning_delta_text(json: &serde_json::Value) -> Option<String> {
+    let delta = json
+        .get("choices")
+        .and_then(|choices| choices.get(0))
+        .and_then(|choice| choice.get("delta"))?;
+
+    extract_reasoning_text_from_message_like(delta)
 }
 
 /// Module initialization stub (called from main).
@@ -1440,5 +1656,40 @@ mod tests {
         assert_eq!(resolved.0, "copilot");
         assert_eq!(resolved.1, "gemini-3.1-pro-preview");
         assert!(resolved.2.is_none());
+    }
+
+    #[test]
+    fn extracts_reasoning_text_from_sse_delta_fields() {
+        let json = serde_json::json!({
+            "choices": [{
+                "delta": {
+                    "reasoning_content": "Considering the tool results"
+                }
+            }]
+        });
+
+        assert_eq!(
+            extract_reasoning_delta_text(&json).as_deref(),
+            Some("Considering the tool results")
+        );
+    }
+
+    #[test]
+    fn extracts_array_content_from_sse_delta() {
+        let json = serde_json::json!({
+            "choices": [{
+                "delta": {
+                    "content": [
+                        { "text": "Hello" },
+                        { "content": " world" }
+                    ]
+                }
+            }]
+        });
+
+        assert_eq!(
+            extract_sse_content_delta(&json).as_deref(),
+            Some("Hello world")
+        );
     }
 }

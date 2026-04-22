@@ -125,38 +125,42 @@ function SidebarUtilityBar() {
 
 export function Sidebar() {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
+  const showMobileTrigger = !pathname.startsWith('/chat');
 
   return (
     <>
       {/* Mobile Sheet Navigation */}
-      <Sheet open={open} onOpenChange={setOpen}>
-        <SheetTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="fixed right-4 top-4 z-40 rounded-full border border-border/70 bg-background/90 shadow-sm backdrop-blur lg:hidden"
-            aria-label="Open navigation menu"
-          >
-            <Menu data-icon="default" aria-hidden="true" />
-          </Button>
-        </SheetTrigger>
-        <SheetContent side="left" className="flex w-72 flex-col p-0">
-          <SheetHeader className="border-b px-4 py-5 text-left">
-            <div className="space-y-1.5 pr-10">
-              <SheetTitle className="text-lg font-semibold tracking-tight">Pinchy</SheetTitle>
-              <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Operations Console</p>
+      {showMobileTrigger && (
+        <Sheet open={open} onOpenChange={setOpen}>
+          <SheetTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="fixed right-4 top-4 z-40 rounded-full border border-border/70 bg-background/90 shadow-sm backdrop-blur lg:hidden"
+              aria-label="Open navigation menu"
+            >
+              <Menu data-icon="default" aria-hidden="true" />
+            </Button>
+          </SheetTrigger>
+          <SheetContent side="left" className="flex w-72 flex-col p-0">
+            <SheetHeader className="border-b px-4 py-5 text-left">
+              <div className="space-y-1.5 pr-10">
+                <SheetTitle className="text-lg font-semibold tracking-tight">Pinchy</SheetTitle>
+                <p className="text-xs uppercase tracking-[0.22em] text-muted-foreground">Operations Console</p>
+              </div>
+            </SheetHeader>
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="p-4 pb-6">
+                <NavLinks onNavigate={() => setOpen(false)} />
+              </div>
+            </ScrollArea>
+            <div className="border-t p-4">
+              <SidebarUtilityBar />
             </div>
-          </SheetHeader>
-          <ScrollArea className="min-h-0 flex-1">
-            <div className="p-4 pb-6">
-              <NavLinks onNavigate={() => setOpen(false)} />
-            </div>
-          </ScrollArea>
-          <div className="border-t p-4">
-            <SidebarUtilityBar />
-          </div>
-        </SheetContent>
-      </Sheet>
+          </SheetContent>
+        </Sheet>
+      )}
 
       {/* Desktop Sidebar */}
       <Card className="sticky top-0 hidden h-screen w-72 flex-col rounded-none border-y-0 border-l-0 border-r border-border/70 bg-gradient-to-b from-background via-background to-muted/20 shadow-none lg:flex">

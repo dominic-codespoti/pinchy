@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Loading() {
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
+    <div className="-mx-4 -my-6 flex h-[calc(100dvh-4rem)] overflow-hidden sm:-mx-6 lg:mx-0 lg:my-0 lg:h-[calc(100vh-3.5rem)]">
       {/* Desktop Sidebar skeleton */}
       <aside className="hidden lg:flex w-72 flex-col border-r bg-background p-4 space-y-4">
         {/* Search/Filter */}
@@ -36,27 +36,27 @@ export default function Loading() {
         </div>
 
         {/* Message list skeleton */}
-        <div className="flex-1 p-4 space-y-6 overflow-hidden">
+        <div className="flex-1 space-y-6 overflow-hidden px-3 py-3 sm:p-4">
           {/* User message */}
           <div className="flex justify-end">
-            <Skeleton className="h-16 w-3/4 max-w-md" />
+            <Skeleton className="h-16 w-[88%] max-w-md sm:w-3/4" />
           </div>
           {/* Agent message */}
           <div className="flex justify-start">
-            <Skeleton className="h-24 w-3/4 max-w-lg" />
+            <Skeleton className="h-24 w-[92%] max-w-lg sm:w-3/4" />
           </div>
           {/* User message */}
           <div className="flex justify-end">
-            <Skeleton className="h-12 w-2/3 max-w-sm" />
+            <Skeleton className="h-12 w-[72%] max-w-sm sm:w-2/3" />
           </div>
           {/* Agent message */}
           <div className="flex justify-start">
-            <Skeleton className="h-32 w-3/4 max-w-lg" />
+            <Skeleton className="h-32 w-[92%] max-w-lg sm:w-3/4" />
           </div>
         </div>
 
         {/* Input area skeleton */}
-        <div className="border-t p-4">
+        <div className="border-t px-3 pb-2 pt-3 sm:p-4">
           <Skeleton className="h-20 w-full" />
         </div>
       </main>

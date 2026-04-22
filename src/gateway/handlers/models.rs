@@ -69,11 +69,68 @@ fn copilot_fallback_model() -> ModelInfo {
     }
 }
 
+fn enrich_copilot_model_from_registry(
+    model: &mut ModelInfo,
+    registry: &crate::models_dev::ModelsDevRegistry,
+) {
+    let normalized_id = normalize_model_name(&model.id);
+    let normalized_name = normalize_model_name(&model.name);
+
+    let matching_models: Vec<_> = registry
+        .providers()
+        .iter()
+        .flat_map(|provider| provider.models.iter())
+        .filter(|candidate| {
+            let candidate_id = normalize_model_name(&candidate.id);
+            let candidate_name = normalize_model_name(&candidate.name);
+
+            (!normalized_id.is_empty()
+                && (candidate_id == normalized_id || candidate_name == normalized_id))
+                || (!normalized_name.is_empty()
+                    && (candidate_id == normalized_name || candidate_name == normalized_name))
+        })
+        .collect();
+
+    if let Some(candidate) = matching_models.first() {
+        // Use the registry as a coarse capability source for routed Copilot models.
+        // Some providers disagree on flags for the same normalized model name, so
+        // prefer "supported anywhere" for boolean visibility hints.
+        if matching_models.iter().any(|m| m.reasoning == Some(true)) {
+            model.reasoning = true;
+        }
+        if matching_models.iter().any(|m| m.attachment == Some(true)) {
+            model.attachment = true;
+        }
+        model.family = candidate.family.clone().or_else(|| model.family.clone());
+        model.cache_read_price = candidate.cost.as_ref().and_then(|c| c.cache_read);
+        model.cache_write_price = candidate.cost.as_ref().and_then(|c| c.cache_write);
+        model.modalities = candidate.modalities.as_ref().map(|m| {
+            let mut mods = Vec::new();
+            if let Some(ref inputs) = m.input {
+                for input in inputs {
+                    mods.push(format!("input:{}", input));
+                }
+            }
+            if let Some(ref outputs) = m.output {
+                for output in outputs {
+                    mods.push(format!("output:{}", output));
+                }
+            }
+            mods
+        });
+
+        if model.description.is_none() {
+            model.description = candidate.prompt.clone();
+        }
+    }
+}
+
 /// Build the current selectable model inventory used by the UI and agent validation.
 pub(crate) async fn collect_model_inventory(cfg: &crate::config::Config) -> Vec<ModelInfo> {
     let mut all_models: Vec<ModelInfo> = Vec::new();
     let timeout_duration = std::time::Duration::from_secs(5);
     let mut providers_with_live_models: HashSet<String> = HashSet::new();
+    let registry = crate::models_dev::get_or_load_registry().await.ok();
 
     all_models.push(copilot_fallback_model());
 
@@ -95,7 +152,7 @@ pub(crate) async fn collect_model_inventory(cfg: &crate::config::Config) -> Vec<
             Ok(Ok(Some(models))) if !models.is_empty() => {
                 providers_with_live_models.insert("copilot".to_string());
                 for model in models {
-                    all_models.push(ModelInfo {
+                    let mut model_info = ModelInfo {
                         id: model.id.clone(),
                         name: model.name.clone(),
                         provider: "copilot".to_string(),
@@ -114,7 +171,13 @@ pub(crate) async fn collect_model_inventory(cfg: &crate::config::Config) -> Vec<
                         cache_read_price: None,
                         cache_write_price: None,
                         modalities: None,
-                    });
+                    };
+
+                    if let Some(ref registry) = registry {
+                        enrich_copilot_model_from_registry(&mut model_info, registry);
+                    }
+
+                    all_models.push(model_info);
                 }
             }
             _ => {}
@@ -129,8 +192,8 @@ pub(crate) async fn collect_model_inventory(cfg: &crate::config::Config) -> Vec<
     )
     .await;
 
-    match crate::models_dev::get_or_load_registry().await {
-        Ok(registry) => {
+    match registry {
+        Some(registry) => {
             for provider in registry.providers() {
                 if providers_with_live_models.contains(&provider.id) {
                     continue;
@@ -217,8 +280,8 @@ pub(crate) async fn collect_model_inventory(cfg: &crate::config::Config) -> Vec<
                 }
             }
         }
-        Err(e) => {
-            tracing::warn!(error = %e, "failed to load models.dev registry");
+        None => {
+            tracing::warn!("failed to load models.dev registry");
         }
     }
 

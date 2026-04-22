@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::Config;
-use crate::models::TokenUsage;
+use crate::models::{ReasoningTextStatus, TokenUsage};
 use crate::store::PinchyDb;
 
 // ---------------------------------------------------------------------------
@@ -86,6 +86,32 @@ pub fn truncate_tool_result(s: String) -> String {
     )
 }
 
+pub fn extract_reasoning_preview(text: &str) -> Option<String> {
+    const MAX_PREVIEW_CHARS: usize = 180;
+
+    let latest_line = text.lines().rev().map(str::trim).find(|line| {
+        !line.is_empty() && !line.chars().all(|ch| matches!(ch, '-' | '=' | '_' | '~'))
+    });
+
+    let candidate = latest_line.unwrap_or(text);
+    let collapsed = candidate.split_whitespace().collect::<Vec<_>>().join(" ");
+    if collapsed.is_empty() {
+        return None;
+    }
+
+    Some(truncate_inline_preview(&collapsed, MAX_PREVIEW_CHARS))
+}
+
+fn truncate_inline_preview(text: &str, limit: usize) -> String {
+    let mut chars = text.chars();
+    let truncated: String = chars.by_ref().take(limit).collect();
+    if chars.next().is_none() {
+        return truncated;
+    }
+
+    format!("{}...", truncated.trim_end())
+}
+
 // ---------------------------------------------------------------------------
 // Turn receipt types
 // ---------------------------------------------------------------------------
@@ -102,9 +128,13 @@ pub struct ToolCallRecord {
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TurnReceipt {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receipt_id: Option<i64>,
     pub agent: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub assistant_exchange_id: Option<i64>,
     pub started_at: u64,
     pub duration_ms: u64,
     pub user_prompt: String,
@@ -121,18 +151,93 @@ pub struct TurnReceipt {
     /// Per model-call usage breakdown.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub call_details: Vec<ModelCallDetail>,
+    /// Structured snapshot of the assembled prompt context for this turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prompt_snapshot: Option<PromptSnapshot>,
+    /// Provider-exposed reasoning text, aggregated across model calls when available.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_text: Option<String>,
+    /// Whether provider reasoning text was captured for this turn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_text_status: Option<ReasoningTextStatus>,
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct PromptSnapshot {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<PromptSnapshotSection>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub available_tools: Vec<PromptSnapshotTool>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PromptSnapshotSection {
+    pub key: String,
+    pub title: String,
+    pub content: String,
+    #[serde(default)]
+    pub truncated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original_char_count: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PromptSnapshotTool {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct ModelCallDetail {
+    #[serde(default)]
+    pub call_index: u32,
     pub model: String,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub cached_tokens: u64,
+    pub reasoning_tokens: u64,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub provider: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_surface: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
+    pub latency_ms: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ModelCallTrace {
+    pub call_index: u32,
+    pub provider: String,
+    pub model_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api_surface: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_kind: Option<String>,
+    pub started_at: u64,
+    pub latency_ms: u64,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub normalized_messages: Vec<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub normalized_tools: Vec<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub function_call_mode: Option<String>,
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
     pub cached_tokens: u64,
     pub reasoning_tokens: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cost_usd: Option<f64>,
-    pub latency_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning_text: Option<String>,
+    pub reasoning_text_status: ReasoningTextStatus,
 }
 
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
@@ -153,6 +258,52 @@ impl TokenUsageSummary {
         self.total_tokens += usage.total_tokens;
         self.cached_tokens += usage.cached_tokens;
         self.reasoning_tokens += usage.reasoning_tokens;
+    }
+}
+
+pub fn summarize_reasoning_from_model_calls(
+    model_call_traces: &[ModelCallTrace],
+) -> (Option<String>, Option<ReasoningTextStatus>) {
+    let captured_texts: Vec<String> = model_call_traces
+        .iter()
+        .filter_map(|trace| trace.reasoning_text.as_deref())
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToOwned::to_owned)
+        .collect();
+
+    if !captured_texts.is_empty() {
+        return (
+            Some(captured_texts.join("\n\n---\n\n")),
+            Some(ReasoningTextStatus::Captured),
+        );
+    }
+
+    if model_call_traces
+        .iter()
+        .any(|trace| trace.reasoning_tokens > 0)
+    {
+        return (None, Some(ReasoningTextStatus::ProviderDidNotExpose));
+    }
+
+    (None, None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::extract_reasoning_preview;
+
+    #[test]
+    fn reasoning_preview_uses_latest_meaningful_line() {
+        let preview =
+            extract_reasoning_preview("First thought\n\nSecond thought\nFinal useful line");
+        assert_eq!(preview.as_deref(), Some("Final useful line"));
+    }
+
+    #[test]
+    fn reasoning_preview_skips_separator_lines() {
+        let preview = extract_reasoning_preview("Earlier\n---\nLatest useful line");
+        assert_eq!(preview.as_deref(), Some("Latest useful line"));
     }
 }
 

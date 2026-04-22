@@ -20,8 +20,10 @@ pub async fn run_tool_loop(
     receipt_tokens: &mut TokenUsageSummary,
     receipt_model_calls: &mut u32,
     call_details: &mut Vec<ModelCallDetail>,
+    model_call_traces: &mut Vec<ModelCallTrace>,
     provider: &str,
     model: &str,
+    reasoning_effort: Option<&str>,
 ) -> Vec<ToolCallRecord> {
     match run_tool_loop_inner(
         response,
@@ -35,8 +37,10 @@ pub async fn run_tool_loop(
         receipt_tokens,
         receipt_model_calls,
         call_details,
+        model_call_traces,
         provider,
         model,
+        reasoning_effort,
     )
     .await
     {
@@ -61,8 +65,10 @@ async fn run_tool_loop_inner(
     receipt_tokens: &mut TokenUsageSummary,
     receipt_model_calls: &mut u32,
     call_details: &mut Vec<ModelCallDetail>,
+    model_call_traces: &mut Vec<ModelCallTrace>,
     provider: &str,
     model: &str,
+    reasoning_effort: Option<&str>,
 ) -> anyhow::Result<Vec<ToolCallRecord>> {
     let mut tool_calls = Vec::new();
     let mut consecutive_unknown_tool: u32 = 0;
@@ -255,8 +261,10 @@ async fn run_tool_loop_inner(
             receipt_tokens,
             receipt_model_calls,
             call_details,
+            model_call_traces,
             provider,
             model,
+            reasoning_effort,
         )
         .await
         .context("model call failed in tool loop")?;

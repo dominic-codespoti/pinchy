@@ -7,6 +7,7 @@
 
 pub mod curated;
 
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -31,6 +32,26 @@ pub struct MemoryEntry {
 /// SQLite-backed memory store with FTS5 search.
 pub struct MemoryStore {
     inner: Arc<Mutex<Connection>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveMemoryKind {
+    ActiveTask,
+    RelevantFacts,
+}
+
+#[derive(Debug, Clone)]
+struct ActiveMemoryEntry {
+    entry: MemoryEntry,
+    score: f64,
+    kind: ActiveMemoryKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QueryIntent {
+    Preference,
+    WorkContext,
+    FileLookup,
 }
 
 impl MemoryStore {
@@ -214,6 +235,26 @@ impl MemoryStore {
         Ok(deleted > 0)
     }
 
+    /// Fetch a single memory entry by exact key.
+    pub fn get(&self, key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+        let conn = self
+            .inner
+            .lock()
+            .map_err(|e| anyhow::anyhow!("memory db poisoned: {e}"))?;
+        let mut stmt = conn.prepare("SELECT key, value, tags, ts FROM memories WHERE key = ?1")?;
+        let mut rows = stmt.query(params![key])?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+        Ok(Some(MemoryEntry {
+            key: row.get(0)?,
+            value: row.get(1)?,
+            tags: parse_tags(&row.get::<_, String>(2)?),
+            timestamp: row.get(3)?,
+            score: None,
+        }))
+    }
+
     /// Search memories using FTS5 ranked search.
     ///
     /// When `query` is empty, returns all memories (optionally filtered by tag).
@@ -306,34 +347,228 @@ impl MemoryStore {
     /// relevance.  Falls back to most-recent when empty or on error.
     /// Returns at most 50 entries, capped at `max_chars`.
     pub fn prompt_block(&self, max_chars: usize) -> String {
-        self.prompt_block_contextual("", max_chars)
+        self.prompt_block_token_budget("", max_chars_to_token_budget(max_chars))
     }
 
     /// Context-aware memory injection: selects the most relevant memories
     /// for the given query (last user message) using hybrid search.
     pub fn prompt_block_contextual(&self, query: &str, max_chars: usize) -> String {
-        let entries = if query.is_empty() {
-            self.search("", None, 50).unwrap_or_default()
-        } else {
-            // Try hybrid first, fall back to BM25, fall back to recency.
-            self.search_hybrid(query, None, 50)
-                .or_else(|_| self.search(query, None, 50))
-                .unwrap_or_else(|_| self.search("", None, 50).unwrap_or_default())
-        };
-        if entries.is_empty() {
+        self.prompt_block_token_budget(query, max_chars_to_token_budget(max_chars))
+    }
+
+    pub fn prompt_block_token_budget(&self, query: &str, max_tokens: usize) -> String {
+        if max_tokens == 0 {
             return String::new();
         }
 
-        let mut block = String::from("<memory>\n");
-        for entry in &entries {
-            let line = format!("- **{}**: {}\n", entry.key, entry.value);
-            if block.len() + line.len() > max_chars {
+        let active = self.select_active_memory(query, 8);
+        if active.is_empty() {
+            return String::new();
+        }
+
+        let mut block = String::from("<active_memory>\n");
+        let mut used_tokens = estimate_tokens(&block);
+        let mut wrote_section = false;
+
+        for (kind, label) in [
+            (ActiveMemoryKind::ActiveTask, "active_task"),
+            (ActiveMemoryKind::RelevantFacts, "relevant_facts"),
+        ] {
+            let section_entries: Vec<&ActiveMemoryEntry> =
+                active.iter().filter(|entry| entry.kind == kind).collect();
+            if section_entries.is_empty() {
+                continue;
+            }
+
+            let section_header = format!("<{label}>\n");
+            let section_footer = format!("</{label}>\n");
+            let closing = "</active_memory>";
+            let section_overhead = estimate_tokens(&section_header)
+                + estimate_tokens(&section_footer)
+                + estimate_tokens(closing);
+            if used_tokens + section_overhead > max_tokens {
                 break;
             }
-            block.push_str(&line);
+
+            let section_start = block.len();
+            let section_start_tokens = used_tokens;
+            block.push_str(&section_header);
+            used_tokens += estimate_tokens(&section_header);
+            let mut wrote_line = false;
+            for active_entry in section_entries {
+                let line = format_active_memory_line(&active_entry.entry);
+                let line_tokens = estimate_tokens(&line);
+                if used_tokens
+                    + line_tokens
+                    + estimate_tokens(&section_footer)
+                    + estimate_tokens(closing)
+                    > max_tokens
+                {
+                    break;
+                }
+                block.push_str(&line);
+                used_tokens += line_tokens;
+                wrote_line = true;
+            }
+
+            if wrote_line {
+                block.push_str(&section_footer);
+                used_tokens += estimate_tokens(&section_footer);
+                wrote_section = true;
+            } else {
+                block.truncate(section_start);
+                used_tokens = section_start_tokens;
+            }
         }
-        block.push_str("</memory>");
+
+        if !wrote_section {
+            return String::new();
+        }
+
+        block.push_str("</active_memory>");
         block
+    }
+
+    fn select_active_memory(&self, query: &str, limit: usize) -> Vec<ActiveMemoryEntry> {
+        let query_tokens = tokenize_for_match(query);
+        let query_intents = detect_query_intents(query_tokens.as_slice(), query);
+        let mut entries = if query.trim().is_empty() {
+            self.search("", None, limit.max(8)).unwrap_or_default()
+        } else {
+            let mut lexical = self.search(query, None, limit.max(24)).unwrap_or_default();
+            let mut exact = self.exact_match_candidates(query, query_tokens.as_slice());
+            let mut recent = self.search("", None, limit.max(8)).unwrap_or_default();
+            exact.append(&mut lexical);
+            let mut lexical = exact;
+            lexical.append(&mut recent);
+            if lexical.is_empty() {
+                self.search("", None, limit.max(8)).unwrap_or_default()
+            } else {
+                lexical
+            }
+        };
+
+        if entries.is_empty() {
+            return Vec::new();
+        }
+
+        let query_lower = query.to_ascii_lowercase();
+        let query_phrase = if query_tokens.is_empty() {
+            None
+        } else {
+            Some(query_tokens.join(" "))
+        };
+
+        let mut scored: Vec<ActiveMemoryEntry> = entries
+            .drain(..)
+            .map(|entry| {
+                let score = active_memory_score(
+                    &entry,
+                    &query_lower,
+                    query_tokens.as_slice(),
+                    query_phrase.as_deref(),
+                    query_intents.as_slice(),
+                );
+                let kind = classify_active_memory(&entry, query_tokens.as_slice());
+                ActiveMemoryEntry { entry, score, kind }
+            })
+            .collect();
+
+        scored.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| b.entry.timestamp.cmp(&a.entry.timestamp))
+        });
+
+        let mut seen = HashSet::new();
+        let mut selected = Vec::new();
+        let mut task_count = 0usize;
+        let mut fact_count = 0usize;
+        let task_cap = limit.min(3);
+        let fact_cap = limit.max(4);
+
+        for item in scored {
+            if !seen.insert(item.entry.key.clone()) {
+                continue;
+            }
+
+            match item.kind {
+                ActiveMemoryKind::ActiveTask if task_count >= task_cap => continue,
+                ActiveMemoryKind::RelevantFacts if fact_count >= fact_cap => continue,
+                ActiveMemoryKind::ActiveTask => task_count += 1,
+                ActiveMemoryKind::RelevantFacts => fact_count += 1,
+            }
+
+            selected.push(item);
+            if selected.len() >= limit {
+                break;
+            }
+        }
+
+        selected
+    }
+
+    fn exact_match_candidates(&self, query: &str, query_tokens: &[String]) -> Vec<MemoryEntry> {
+        if query.trim().is_empty() {
+            return Vec::new();
+        }
+
+        let conn = match self.inner.lock() {
+            Ok(conn) => conn,
+            Err(_) => return Vec::new(),
+        };
+
+        let mut patterns = Vec::new();
+        let normalized_query = query.trim().to_ascii_lowercase();
+        patterns.push(normalized_query.clone());
+        let compact = query_tokens.join("_");
+        if !compact.is_empty() {
+            patterns.push(compact.clone());
+            patterns.push(compact.replace('_', "-"));
+        }
+        if query_tokens.len() > 1 {
+            patterns.push(query_tokens.join("_"));
+            patterns.push(query_tokens.join("-"));
+        }
+        patterns.extend(query_tokens.iter().cloned());
+        patterns.sort();
+        patterns.dedup();
+
+        let mut results = Vec::new();
+        for pattern in patterns {
+            let mut stmt = match conn.prepare(
+                "SELECT key, value, tags, ts
+                 FROM memories
+                 WHERE lower(key) = ?1 OR lower(key) LIKE ?2 OR lower(value) LIKE ?3
+                 ORDER BY ts DESC
+                 LIMIT 6",
+            ) {
+                Ok(stmt) => stmt,
+                Err(_) => return results,
+            };
+            let rows = match stmt.query_map(
+                params![pattern, format!("%{pattern}%"), format!("%{pattern}%"),],
+                |row| {
+                    let tags_json: String = row.get(2)?;
+                    Ok(MemoryEntry {
+                        key: row.get(0)?,
+                        value: row.get(1)?,
+                        tags: parse_tags(&tags_json),
+                        timestamp: row.get(3)?,
+                        score: Some(0.0),
+                    })
+                },
+            ) {
+                Ok(rows) => rows,
+                Err(_) => continue,
+            };
+            for row in rows.flatten() {
+                results.push(row);
+            }
+        }
+
+        results
     }
 
     /// Return total number of memory entries.
@@ -589,6 +824,312 @@ fn parse_tags(json: &str) -> Vec<String> {
     serde_json::from_str(json).unwrap_or_default()
 }
 
+fn estimate_tokens(text: &str) -> usize {
+    crate::context::estimate_tokens(text)
+}
+
+fn max_chars_to_token_budget(max_chars: usize) -> usize {
+    estimate_tokens(&"x".repeat(max_chars)).max(1)
+}
+
+fn tokenize_for_match(text: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() {
+            current.push(ch.to_ascii_lowercase());
+        } else if !current.is_empty() {
+            tokens.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
+fn active_memory_score(
+    entry: &MemoryEntry,
+    query_lower: &str,
+    query_tokens: &[String],
+    query_phrase: Option<&str>,
+    query_intents: &[QueryIntent],
+) -> f64 {
+    let mut score = entry.score.unwrap_or(0.0);
+    let key_lower = entry.key.to_ascii_lowercase();
+    let value_lower = entry.value.to_ascii_lowercase();
+    let key_tokens = tokenize_for_match(&entry.key);
+    let value_tokens = tokenize_for_match(&entry.value);
+    let tags_lower: Vec<String> = entry
+        .tags
+        .iter()
+        .map(|tag| tag.to_ascii_lowercase())
+        .collect();
+    let entry_path_like = looks_like_path(&entry.key) || looks_like_path(&entry.value);
+    let entry_symbol_like = looks_like_symbol(&entry.key);
+
+    if !query_lower.is_empty() && key_lower == query_lower.trim() {
+        score += 8.0;
+    }
+    if let Some(phrase) = query_phrase {
+        if !phrase.is_empty() {
+            if key_lower.contains(phrase) {
+                score += 4.0;
+            }
+            if value_lower.contains(phrase) {
+                score += 2.0;
+            }
+        }
+    }
+
+    if !key_lower.is_empty() && query_lower.contains(&key_lower) {
+        score += 2.5;
+    }
+
+    for token in query_tokens {
+        if key_tokens.iter().any(|candidate| candidate == token) {
+            score += 2.0;
+        } else if key_lower.contains(token) {
+            score += 0.75;
+        }
+
+        if value_tokens.iter().any(|candidate| candidate == token) {
+            score += 0.75;
+        }
+
+        if tags_lower.iter().any(|tag| tag == token) {
+            score += 1.5;
+        }
+
+        if entry_path_like && (token.contains('/') || token.contains('.') || token == "src") {
+            score += 1.25;
+        }
+
+        if entry_symbol_like && key_lower.contains(token) {
+            score += 1.5;
+        }
+    }
+
+    if let Some(boost) = recency_boost(&entry.timestamp) {
+        score += boost;
+    }
+
+    score += source_boost(entry);
+    score += intent_boost(query_intents, &key_lower, &value_lower, &tags_lower);
+
+    if is_task_memory(entry, query_tokens) {
+        score += 1.0;
+    }
+
+    score
+}
+
+fn classify_active_memory(entry: &MemoryEntry, query_tokens: &[String]) -> ActiveMemoryKind {
+    if is_task_memory(entry, query_tokens) {
+        ActiveMemoryKind::ActiveTask
+    } else {
+        ActiveMemoryKind::RelevantFacts
+    }
+}
+
+fn is_task_memory(entry: &MemoryEntry, query_tokens: &[String]) -> bool {
+    if entry.key.starts_with("file:") {
+        return true;
+    }
+
+    let task_tags = [
+        "task",
+        "task-state",
+        "task_state",
+        "active-task",
+        "file-watch",
+        "auto-ingest",
+        "workspace",
+        "project",
+        "recent",
+        "status",
+    ];
+    if entry.tags.iter().any(|tag| {
+        task_tags
+            .iter()
+            .any(|candidate| tag.eq_ignore_ascii_case(candidate))
+    }) {
+        return true;
+    }
+
+    let key_tokens = tokenize_for_match(&entry.key);
+    query_tokens.iter().any(|token| {
+        matches!(
+            token.as_str(),
+            "file" | "build" | "test" | "project" | "task" | "work"
+        ) && key_tokens.iter().any(|candidate| candidate == token)
+    })
+}
+
+fn recency_boost(timestamp: &str) -> Option<f64> {
+    let parsed = chrono::DateTime::parse_from_rfc3339(timestamp).ok()?;
+    let age = chrono::Utc::now().signed_duration_since(parsed.with_timezone(&chrono::Utc));
+    if age < chrono::Duration::hours(6) {
+        Some(2.0)
+    } else if age < chrono::Duration::days(2) {
+        Some(1.0)
+    } else if age < chrono::Duration::days(7) {
+        Some(0.35)
+    } else {
+        Some(0.0)
+    }
+}
+
+fn format_active_memory_line(entry: &MemoryEntry) -> String {
+    format!("- {}: {}\n", entry.key, entry.value.replace('\n', " "))
+}
+
+fn detect_query_intents(query_tokens: &[String], query: &str) -> Vec<QueryIntent> {
+    let mut intents = Vec::new();
+    let query_lower = query.to_ascii_lowercase();
+
+    if query_tokens.iter().any(|token| {
+        matches!(
+            token.as_str(),
+            "preference"
+                | "prefer"
+                | "preferences"
+                | "setting"
+                | "settings"
+                | "timezone"
+                | "editor"
+                | "provider"
+                | "model"
+                | "name"
+        )
+    }) {
+        intents.push(QueryIntent::Preference);
+    }
+
+    if query_tokens.iter().any(|token| {
+        matches!(
+            token.as_str(),
+            "continue"
+                | "working"
+                | "work"
+                | "task"
+                | "build"
+                | "test"
+                | "debug"
+                | "fix"
+                | "project"
+        )
+    }) || query_lower.contains("keep working")
+    {
+        intents.push(QueryIntent::WorkContext);
+    }
+
+    if query.contains('/')
+        || query.contains("::")
+        || query.contains('.')
+        || query_tokens.iter().any(|token| {
+            matches!(
+                token.as_str(),
+                "file" | "path" | "function" | "module" | "symbol"
+            )
+        })
+    {
+        intents.push(QueryIntent::FileLookup);
+    }
+
+    intents
+}
+
+fn source_boost(entry: &MemoryEntry) -> f64 {
+    if entry
+        .tags
+        .iter()
+        .any(|tag| tag.eq_ignore_ascii_case("preference") || tag.eq_ignore_ascii_case("user"))
+    {
+        return 2.5;
+    }
+    if entry
+        .tags
+        .iter()
+        .any(|tag| tag.eq_ignore_ascii_case("task") || tag.eq_ignore_ascii_case("task-state"))
+    {
+        return 1.5;
+    }
+    if entry.tags.iter().any(|tag| {
+        tag.eq_ignore_ascii_case("file-watch") || tag.eq_ignore_ascii_case("auto-ingest")
+    }) {
+        return 0.75;
+    }
+    0.0
+}
+
+fn intent_boost(
+    query_intents: &[QueryIntent],
+    key_lower: &str,
+    value_lower: &str,
+    tags_lower: &[String],
+) -> f64 {
+    let mut score = 0.0;
+
+    for intent in query_intents {
+        match intent {
+            QueryIntent::Preference => {
+                if tags_lower
+                    .iter()
+                    .any(|tag| tag == "preference" || tag == "user")
+                {
+                    score += 3.0;
+                }
+                if matches!(
+                    key_lower,
+                    "timezone" | "editor" | "provider" | "model" | "name"
+                ) {
+                    score += 2.5;
+                }
+            }
+            QueryIntent::WorkContext => {
+                if tags_lower.iter().any(|tag| {
+                    matches!(
+                        tag.as_str(),
+                        "task"
+                            | "task-state"
+                            | "task_state"
+                            | "file-watch"
+                            | "auto-ingest"
+                            | "project"
+                    )
+                }) {
+                    score += 2.5;
+                }
+                if looks_like_path(key_lower) || value_lower.contains("working on") {
+                    score += 1.5;
+                }
+            }
+            QueryIntent::FileLookup => {
+                if looks_like_path(key_lower) || looks_like_symbol(key_lower) {
+                    score += 3.0;
+                }
+                if value_lower.contains("src/") || value_lower.contains("::") {
+                    score += 1.5;
+                }
+            }
+        }
+    }
+
+    score
+}
+
+fn looks_like_path(value: &str) -> bool {
+    value.contains('/')
+        || value.ends_with(".rs")
+        || value.ends_with(".ts")
+        || value.ends_with(".tsx")
+}
+
+fn looks_like_symbol(value: &str) -> bool {
+    value.contains("::") || (value.contains('(') && value.contains(')'))
+}
+
 /// Try to synchronously get a query embedding from the global provider manager.
 ///
 /// This uses `tokio::task::block_in_place` to call the async embed method
@@ -728,10 +1269,11 @@ mod tests {
         store.save("name", "Alice", &[]).unwrap();
         store.save("goal", "Build a robot", &[]).unwrap();
         let block = store.prompt_block(4000);
-        assert!(block.starts_with("<memory>"));
-        assert!(block.ends_with("</memory>"));
-        assert!(block.contains("**name**"));
-        assert!(block.contains("**goal**"));
+        assert!(block.starts_with("<active_memory>"));
+        assert!(block.ends_with("</active_memory>"));
+        assert!(block.contains("<relevant_facts>"));
+        assert!(block.contains("name: Alice"));
+        assert!(block.contains("goal: Build a robot"));
     }
 
     #[test]
@@ -808,8 +1350,117 @@ mod tests {
         }
         let block = store.prompt_block(200);
         assert!(block.len() <= 200 + 50); // small slack for final </memory> tag
-        assert!(block.starts_with("<memory>"));
-        assert!(block.ends_with("</memory>"));
+        assert!(block.starts_with("<active_memory>"));
+        assert!(block.ends_with("</active_memory>"));
+    }
+
+    #[test]
+    fn prompt_block_prioritizes_exact_key_matches() {
+        let (_dir, store) = temp_store();
+        store
+            .save(
+                "timezone",
+                "User is in Europe/London",
+                &["preference".into()],
+            )
+            .unwrap();
+        store
+            .save(
+                "project",
+                "Working on memory improvements",
+                &["task".into()],
+            )
+            .unwrap();
+
+        let selected = store.select_active_memory("timezone", 5);
+        assert!(!selected.is_empty());
+        assert_eq!(selected[0].entry.key, "timezone");
+    }
+
+    #[test]
+    fn prompt_block_groups_task_memories() {
+        let (_dir, store) = temp_store();
+        store
+            .save(
+                "file:src/memory/mod.rs",
+                "Recent work touched active memory selection",
+                &["file-watch".into(), "auto-ingest".into()],
+            )
+            .unwrap();
+        store
+            .save("timezone", "User is in UTC", &["preference".into()])
+            .unwrap();
+
+        let block = store.prompt_block_contextual("keep working on memory", 4000);
+        assert!(block.contains("<active_task>"));
+        assert!(block.contains("file:src/memory/mod.rs"));
+        assert!(block.contains("<relevant_facts>"));
+        assert!(block.contains("timezone: User is in UTC"));
+    }
+
+    #[test]
+    fn prompt_block_prefers_preference_memories_for_settings_queries() {
+        let (_dir, store) = temp_store();
+        store
+            .save(
+                "timezone",
+                "User is in Europe/London",
+                &["preference".into()],
+            )
+            .unwrap();
+        store
+            .save(
+                "file:src/config.rs",
+                "Recent config work touched timezone parsing",
+                &["file-watch".into(), "auto-ingest".into()],
+            )
+            .unwrap();
+
+        let selected = store.select_active_memory("what is my timezone setting", 5);
+        assert!(!selected.is_empty());
+        assert_eq!(selected[0].entry.key, "timezone");
+    }
+
+    #[test]
+    fn prompt_block_prefers_file_memories_for_path_queries() {
+        let (_dir, store) = temp_store();
+        store
+            .save(
+                "file:src/memory/mod.rs",
+                "Active memory ranking lives here",
+                &["file-watch".into(), "auto-ingest".into()],
+            )
+            .unwrap();
+        store
+            .save(
+                "memory_notes",
+                "Remember to revisit ranking",
+                &["preference".into()],
+            )
+            .unwrap();
+
+        let selected = store.select_active_memory("open src/memory/mod.rs", 5);
+        assert!(!selected.is_empty());
+        assert_eq!(selected[0].entry.key, "file:src/memory/mod.rs");
+    }
+
+    #[test]
+    fn prompt_block_prefers_task_memories_for_work_queries() {
+        let (_dir, store) = temp_store();
+        store
+            .save(
+                "project",
+                "Working on active memory ranking improvements",
+                &["task".into()],
+            )
+            .unwrap();
+        store
+            .save("timezone", "User is in UTC", &["preference".into()])
+            .unwrap();
+
+        let selected = store.select_active_memory("continue working on ranking", 5);
+        assert!(!selected.is_empty());
+        assert_eq!(selected[0].entry.key, "project");
     }
 
     #[test]

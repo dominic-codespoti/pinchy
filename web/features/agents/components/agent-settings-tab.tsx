@@ -11,12 +11,12 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
 import { Settings, Save, Heart, Wrench, Bot, Clock, AlertTriangle } from 'lucide-react';
 import { Agent, AgentHeaderOverride } from '../types';
-import { useAgentModels } from '@/features/settings';
+import { useAgentModels, useAvailableModels } from '@/features/settings';
 import type { AgentModelOption } from '@/features/settings';
 import { LIMITS } from '@/lib/config/timeouts';
 import { FALLBACKS } from '@/lib/constants/fallbacks';
 import { AgentModelPicker } from './agent-model-picker';
-import { normalizeAgentModelSelection } from '../model-options';
+import { getReasoningControlSpec, normalizeAgentModelSelection } from '../model-options';
 import { AgentHeaderOverrides, normalizeHeaderOverrides } from './agent-header-overrides';
 
 // Types
@@ -59,13 +59,6 @@ interface FormData {
   reasoningEffort: string;
   timezone: string;
 }
-
-// Constants
-const REASONING_OPTIONS = [
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-];
 
 // Sub-components
 function SectionCard({ icon, title, description, children, footer }: SectionCardProps) {
@@ -183,10 +176,19 @@ function HeartbeatSettingsSection({ formData, onChange }: HeartbeatSettingsSecti
 
 interface ExecutionSettingsSectionProps {
   formData: FormData;
+  reasoningLabel: string;
+  reasoningDescription: string;
+  reasoningOptions: Array<{ value: string; label: string }>;
   onChange: (field: string, value: string | number | boolean) => void;
 }
 
-function ExecutionSettingsSection({ formData, onChange }: ExecutionSettingsSectionProps) {
+function ExecutionSettingsSection({
+  formData,
+  reasoningLabel,
+  reasoningDescription,
+  reasoningOptions,
+  onChange,
+}: ExecutionSettingsSectionProps) {
   return (
     <div className="space-y-4">
       <CardTitle className="flex items-center gap-2 text-sm font-medium">
@@ -240,7 +242,7 @@ function ExecutionSettingsSection({ formData, onChange }: ExecutionSettingsSecti
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="reasoning-effort">Reasoning Effort</Label>
+          <Label htmlFor="reasoning-effort">{reasoningLabel}</Label>
           <Select
             value={formData.reasoningEffort}
             onValueChange={(v: string) => onChange('reasoningEffort', v)}
@@ -249,7 +251,7 @@ function ExecutionSettingsSection({ formData, onChange }: ExecutionSettingsSecti
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {REASONING_OPTIONS.map((option) => (
+              {reasoningOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
                   {option.label}
                 </SelectItem>
@@ -257,7 +259,7 @@ function ExecutionSettingsSection({ formData, onChange }: ExecutionSettingsSecti
             </SelectContent>
           </Select>
           <p className="text-xs text-muted-foreground">
-            Depth of reasoning for complex tasks
+            {reasoningDescription}
           </p>
         </div>
       </div>
@@ -327,8 +329,13 @@ function AgentSettingsSkeleton() {
 // Main component
 export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabProps) {
   const { data: models, isLoading: modelsLoading } = useAgentModels();
+  const { data: availableModels } = useAvailableModels();
   const modelOptions = models;
   const selection = normalizeAgentModelSelection(agent.config.provider, agent.config.model, modelOptions);
+  const reasoningSpec = useMemo(
+    () => getReasoningControlSpec(selection.provider, selection.model, selection.option, availableModels),
+    [availableModels, selection.model, selection.option, selection.provider],
+  );
   const initialHeaderOverrides = useMemo(() => agent.headerOverrides ?? [], [agent.headerOverrides]);
   const [formData, setFormData] = useState<FormData>({
     model: selection.model,
@@ -338,7 +345,7 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
     maxTurns: agent.maxTurns || 10,
     historyMessages: agent.historyMessages || 5,
     maxToolIterations: agent.maxToolIterations || 5,
-    reasoningEffort: agent.reasoningEffort || 'medium',
+    reasoningEffort: agent.reasoningEffort || reasoningSpec.defaultValue,
     timezone: agent.timezone || FALLBACKS.TIMEZONE,
   });
   const [headerOverrides, setHeaderOverrides] = useState<AgentHeaderOverride[]>(initialHeaderOverrides);
@@ -360,12 +367,12 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
       maxTurns: agent.maxTurns || 10,
       historyMessages: agent.historyMessages || 5,
       maxToolIterations: agent.maxToolIterations || 5,
-      reasoningEffort: agent.reasoningEffort || 'medium',
+      reasoningEffort: agent.reasoningEffort || reasoningSpec.defaultValue,
       timezone: agent.timezone || FALLBACKS.TIMEZONE,
     });
     setHeaderOverrides(initialHeaderOverrides);
     setHasChanges(false);
-  }, [models, agent.id, agent.config.provider, agent.config.model, agent.heartbeatEnabled, agent.hasHeartbeat, agent.heartbeatInterval, agent.maxTurns, agent.historyMessages, agent.maxToolIterations, agent.reasoningEffort, agent.timezone, initialHeaderOverrides]);
+  }, [models, agent.id, agent.config.provider, agent.config.model, agent.heartbeatEnabled, agent.hasHeartbeat, agent.heartbeatInterval, agent.maxTurns, agent.historyMessages, agent.maxToolIterations, agent.reasoningEffort, agent.timezone, initialHeaderOverrides, reasoningSpec.defaultValue]);
 
   const handleChange = (field: string, value: string | number | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -444,7 +451,19 @@ export function AgentSettingsTab({ agent, isLoading, onSave }: AgentSettingsTabP
 
         <Separator />
 
-        <ExecutionSettingsSection formData={formData} onChange={handleChange} />
+        {reasoningSpec.visible ? (
+          <ExecutionSettingsSection
+            formData={formData}
+            reasoningLabel={reasoningSpec.label}
+            reasoningDescription={reasoningSpec.description}
+            reasoningOptions={reasoningSpec.options}
+            onChange={handleChange}
+          />
+        ) : (
+          <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
+            {reasoningSpec.description}
+          </div>
+        )}
       </SectionCard>
 
       <DangerZoneCard agent={agent} />

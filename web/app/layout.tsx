@@ -83,13 +83,13 @@ export default function RootLayout({
       <head>
       </head>
 
-      <body className="min-h-screen bg-background font-sans antialiased lg:pb-0 pb-20">
+      <body className="min-h-screen bg-background font-sans antialiased">
         <Providers>
           <NotificationTriggers />
           <div className="flex h-screen overflow-hidden">
             <Sidebar />
-            <main className="flex-1 overflow-auto">
-              <div className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+            <main className="px-4 flex-1 overflow-auto pb-[calc(4rem+env(safe-area-inset-bottom,0px))] lg:pb-0">
+              <div className="mx-auto w-full px-4 py-6 sm:px-6 lg:px-1">
                 {children}
               </div>
             </main>

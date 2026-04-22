@@ -226,8 +226,10 @@ function QuickActions({
     try {
       await updateAgent(agentId, {
         model: data.config?.model,
+        provider: data.config?.provider,
         heartbeatEnabled: data.heartbeatEnabled,
         heartbeat_secs: data.heartbeatInterval,
+        reasoning_effort: data.reasoningEffort ?? undefined,
       });
       toast.success('Agent updated successfully');
       // Invalidate agent query to refresh data

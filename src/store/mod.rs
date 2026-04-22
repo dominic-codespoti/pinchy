@@ -35,7 +35,7 @@ pub fn global_db() -> Option<&'static PinchyDb> {
     GLOBAL_DB.get()
 }
 
-use crate::agent::types::{TokenUsageSummary, TurnReceipt};
+use crate::agent::types::{ModelCallTrace, PromptSnapshot, TokenUsageSummary, TurnReceipt};
 use crate::scheduler::{HeartbeatStatus, JobRun, PersistedCronJob};
 use crate::session::{index::IndexEntry, Exchange};
 
@@ -140,26 +140,60 @@ impl PinchyDb {
                 id                 INTEGER PRIMARY KEY AUTOINCREMENT,
                 session_id         TEXT,
                 agent_id           TEXT NOT NULL,
+                assistant_exchange_id INTEGER,
                 started_at         INTEGER NOT NULL,
                 duration_ms        INTEGER NOT NULL,
                 user_prompt        TEXT NOT NULL,
                 tool_calls_json    TEXT NOT NULL DEFAULT '[]',
                 prompt_tokens      INTEGER NOT NULL DEFAULT 0,
                 completion_tokens  INTEGER NOT NULL DEFAULT 0,
-                total_tokens       INTEGER NOT NULL DEFAULT 0,
-                cached_tokens      INTEGER NOT NULL DEFAULT 0,
-                reasoning_tokens   INTEGER NOT NULL DEFAULT 0,
-                model_calls        INTEGER NOT NULL DEFAULT 0,
-                reply_summary      TEXT NOT NULL DEFAULT '',
-                model_id           TEXT NOT NULL DEFAULT '',
-                estimated_cost_usd REAL,
-                call_details_json  TEXT NOT NULL DEFAULT '[]'
-            );
+                 total_tokens       INTEGER NOT NULL DEFAULT 0,
+                 cached_tokens      INTEGER NOT NULL DEFAULT 0,
+                 reasoning_tokens   INTEGER NOT NULL DEFAULT 0,
+                 model_calls        INTEGER NOT NULL DEFAULT 0,
+                 reply_summary      TEXT NOT NULL DEFAULT '',
+                 model_id           TEXT NOT NULL DEFAULT '',
+                 estimated_cost_usd REAL,
+                 call_details_json  TEXT NOT NULL DEFAULT '[]',
+                 prompt_snapshot_json TEXT,
+                 reasoning_text     TEXT,
+                 reasoning_text_status TEXT
+              );
 
             CREATE INDEX IF NOT EXISTS idx_receipts_session
                 ON receipts(session_id);
             CREATE INDEX IF NOT EXISTS idx_receipts_agent
                 ON receipts(agent_id);
+
+            CREATE TABLE IF NOT EXISTS receipt_model_calls (
+                id                      INTEGER PRIMARY KEY AUTOINCREMENT,
+                receipt_id              INTEGER NOT NULL,
+                session_id              TEXT,
+                call_index              INTEGER NOT NULL,
+                provider                TEXT NOT NULL,
+                model_id                TEXT NOT NULL,
+                api_surface             TEXT,
+                request_kind            TEXT,
+                started_at              INTEGER NOT NULL,
+                latency_ms              INTEGER NOT NULL,
+                normalized_messages_json TEXT NOT NULL DEFAULT '[]',
+                normalized_tools_json   TEXT NOT NULL DEFAULT '[]',
+                reasoning_effort        TEXT,
+                function_call_mode      TEXT,
+                prompt_tokens           INTEGER NOT NULL DEFAULT 0,
+                completion_tokens       INTEGER NOT NULL DEFAULT 0,
+                cached_tokens           INTEGER NOT NULL DEFAULT 0,
+                reasoning_tokens        INTEGER NOT NULL DEFAULT 0,
+                cost_usd                REAL,
+                reasoning_text          TEXT,
+                reasoning_text_status   TEXT NOT NULL DEFAULT 'provider_did_not_expose',
+                FOREIGN KEY (receipt_id) REFERENCES receipts(id)
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_receipt_model_calls_receipt
+                ON receipt_model_calls(receipt_id, call_index);
+            CREATE INDEX IF NOT EXISTS idx_receipt_model_calls_session
+                ON receipt_model_calls(session_id, receipt_id, call_index);
 
             CREATE TABLE IF NOT EXISTS cron_jobs (
                 agent_id        TEXT NOT NULL,
@@ -204,6 +238,10 @@ impl PinchyDb {
             );",
         )
         .context("PinchyDb schema migration")?;
+        ensure_column(&conn, "receipts", "assistant_exchange_id", "INTEGER")?;
+        ensure_column(&conn, "receipts", "prompt_snapshot_json", "TEXT")?;
+        ensure_column(&conn, "receipts", "reasoning_text", "TEXT")?;
+        ensure_column(&conn, "receipts", "reasoning_text_status", "TEXT")?;
         Ok(())
     }
 
@@ -278,6 +316,10 @@ impl PinchyDb {
     /// Delete a session and all its exchanges and receipts.
     pub fn delete_session(&self, session_id: &str) -> Result<bool> {
         let changed = self.transaction(|tx| {
+            tx.execute(
+                "DELETE FROM receipt_model_calls WHERE session_id = ?1",
+                params![session_id],
+            )?;
             // Delete exchanges first (child rows).
             tx.execute(
                 "DELETE FROM exchanges WHERE session_id = ?1",
@@ -364,20 +406,24 @@ impl PinchyDb {
     // =====================================================================
 
     /// Append a single exchange to a session.
-    pub fn append_exchange(&self, session_id: &str, exchange: &Exchange) -> Result<()> {
-        self.append_exchanges(session_id, std::slice::from_ref(exchange))
+    pub fn append_exchange(&self, session_id: &str, exchange: &Exchange) -> Result<i64> {
+        self.append_exchanges(session_id, std::slice::from_ref(exchange))?
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("append_exchange did not return an inserted row id"))
     }
 
     /// Append multiple exchanges in a single transaction.
-    pub fn append_exchanges(&self, session_id: &str, exchanges: &[Exchange]) -> Result<()> {
+    pub fn append_exchanges(&self, session_id: &str, exchanges: &[Exchange]) -> Result<Vec<i64>> {
         if exchanges.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
-        self.transaction(|tx| {
+        let inserted_ids = self.transaction(|tx| {
             let mut stmt = tx.prepare_cached(
                 "INSERT INTO exchanges (session_id, timestamp, role, content, metadata, tool_calls, tool_call_id, images)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             )?;
+            let mut inserted_ids = Vec::with_capacity(exchanges.len());
             for ex in exchanges {
                 let metadata = ex
                     .metadata
@@ -402,11 +448,12 @@ impl PinchyDb {
                     ex.tool_call_id,
                     images,
                 ])?;
+                inserted_ids.push(tx.last_insert_rowid());
             }
-            Ok(())
+            Ok(inserted_ids)
         })?;
         debug!(session_id, count = exchanges.len(), "exchanges appended");
-        Ok(())
+        Ok(inserted_ids)
     }
 
     /// Replace all exchanges in a session with the given list.
@@ -452,25 +499,26 @@ impl PinchyDb {
             .lock()
             .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT timestamp, role, content, metadata, tool_calls, tool_call_id, images
+            "SELECT id, timestamp, role, content, metadata, tool_calls, tool_call_id, images
              FROM (
-                 SELECT * FROM exchanges
-                 WHERE session_id = ?1
+                  SELECT * FROM exchanges
+                  WHERE session_id = ?1
                  ORDER BY id DESC
                  LIMIT ?2
              ) sub ORDER BY id ASC",
         )?;
         let rows = stmt.query_map(params![session_id, limit as i64], |row| {
-            let metadata_str: Option<String> = row.get(3)?;
-            let tool_calls_str: Option<String> = row.get(4)?;
-            let images_str: String = row.get(6)?;
+            let metadata_str: Option<String> = row.get(4)?;
+            let tool_calls_str: Option<String> = row.get(5)?;
+            let images_str: String = row.get(7)?;
             Ok(Exchange {
-                timestamp: row.get::<_, i64>(0)? as u64,
-                role: row.get(1)?,
-                content: row.get(2)?,
+                exchange_id: Some(row.get::<_, i64>(0)?),
+                timestamp: row.get::<_, i64>(1)? as u64,
+                role: row.get(2)?,
+                content: row.get(3)?,
                 metadata: metadata_str.and_then(|s| serde_json::from_str(&s).ok()),
                 tool_calls: tool_calls_str.and_then(|s| serde_json::from_str(&s).ok()),
-                tool_call_id: row.get(5)?,
+                tool_call_id: row.get(6)?,
                 images: serde_json::from_str(&images_str).unwrap_or_default(),
             })
         })?;
@@ -488,20 +536,21 @@ impl PinchyDb {
             .lock()
             .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT timestamp, role, content, metadata, tool_calls, tool_call_id, images
+            "SELECT id, timestamp, role, content, metadata, tool_calls, tool_call_id, images
              FROM exchanges WHERE session_id = ?1 ORDER BY id ASC",
         )?;
         let rows = stmt.query_map(params![session_id], |row| {
-            let metadata_str: Option<String> = row.get(3)?;
-            let tool_calls_str: Option<String> = row.get(4)?;
-            let images_str: String = row.get(6)?;
+            let metadata_str: Option<String> = row.get(4)?;
+            let tool_calls_str: Option<String> = row.get(5)?;
+            let images_str: String = row.get(7)?;
             Ok(Exchange {
-                timestamp: row.get::<_, i64>(0)? as u64,
-                role: row.get(1)?,
-                content: row.get(2)?,
+                exchange_id: Some(row.get::<_, i64>(0)?),
+                timestamp: row.get::<_, i64>(1)? as u64,
+                role: row.get(2)?,
+                content: row.get(3)?,
                 metadata: metadata_str.and_then(|s| serde_json::from_str(&s).ok()),
                 tool_calls: tool_calls_str.and_then(|s| serde_json::from_str(&s).ok()),
-                tool_call_id: row.get(5)?,
+                tool_call_id: row.get(6)?,
                 images: serde_json::from_str(&images_str).unwrap_or_default(),
             })
         })?;
@@ -531,21 +580,35 @@ impl PinchyDb {
     // =====================================================================
 
     /// Persist a turn receipt.
-    pub fn insert_receipt(&self, receipt: &TurnReceipt) -> Result<()> {
+    pub fn insert_receipt(&self, receipt: &TurnReceipt) -> Result<i64> {
         let tool_calls_json =
             serde_json::to_string(&receipt.tool_calls).unwrap_or_else(|_| "[]".into());
         let call_details_json =
             serde_json::to_string(&receipt.call_details).unwrap_or_else(|_| "[]".into());
-        self.execute(
+        let prompt_snapshot_json = receipt
+            .prompt_snapshot
+            .as_ref()
+            .and_then(|snapshot| serde_json::to_string(snapshot).ok());
+        let reasoning_text_status_json = receipt
+            .reasoning_text_status
+            .as_ref()
+            .and_then(|status| serde_json::to_string(status).ok());
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+        conn.execute(
             "INSERT INTO receipts (
-                session_id, agent_id, started_at, duration_ms, user_prompt,
+                session_id, agent_id, assistant_exchange_id, started_at, duration_ms, user_prompt,
                 tool_calls_json, prompt_tokens, completion_tokens, total_tokens,
                 cached_tokens, reasoning_tokens, model_calls, reply_summary,
-                model_id, estimated_cost_usd, call_details_json
-             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+                model_id, estimated_cost_usd, call_details_json, prompt_snapshot_json,
+                reasoning_text, reasoning_text_status
+             ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
             params![
                 receipt.session,
                 receipt.agent,
+                receipt.assistant_exchange_id,
                 receipt.started_at as i64,
                 receipt.duration_ms as i64,
                 receipt.user_prompt,
@@ -560,9 +623,69 @@ impl PinchyDb {
                 receipt.model_id,
                 receipt.estimated_cost_usd,
                 call_details_json,
+                prompt_snapshot_json,
+                receipt.reasoning_text,
+                reasoning_text_status_json,
             ],
         )?;
+        let receipt_id = conn.last_insert_rowid();
         debug!(agent = %receipt.agent, "receipt persisted");
+        Ok(receipt_id)
+    }
+
+    pub fn insert_receipt_model_calls(
+        &self,
+        receipt_id: i64,
+        session_id: Option<&str>,
+        calls: &[ModelCallTrace],
+    ) -> Result<()> {
+        if calls.is_empty() {
+            return Ok(());
+        }
+
+        self.transaction(|tx| {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO receipt_model_calls (
+                    receipt_id, session_id, call_index, provider, model_id, api_surface,
+                    request_kind, started_at, latency_ms, normalized_messages_json,
+                    normalized_tools_json, reasoning_effort, function_call_mode,
+                    prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens,
+                    cost_usd, reasoning_text, reasoning_text_status
+                 ) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20)",
+            )?;
+
+            for call in calls {
+                let messages_json = serde_json::to_string(&call.normalized_messages)
+                    .unwrap_or_else(|_| "[]".into());
+                let tools_json =
+                    serde_json::to_string(&call.normalized_tools).unwrap_or_else(|_| "[]".into());
+                stmt.execute(params![
+                    receipt_id,
+                    session_id,
+                    call.call_index,
+                    call.provider,
+                    call.model_id,
+                    call.api_surface,
+                    call.request_kind,
+                    call.started_at as i64,
+                    call.latency_ms as i64,
+                    messages_json,
+                    tools_json,
+                    call.reasoning_effort,
+                    call.function_call_mode,
+                    call.prompt_tokens as i64,
+                    call.completion_tokens as i64,
+                    call.cached_tokens as i64,
+                    call.reasoning_tokens as i64,
+                    call.cost_usd,
+                    call.reasoning_text,
+                    serde_json::to_string(&call.reasoning_text_status)
+                        .unwrap_or_else(|_| "\"provider_did_not_expose\"".into()),
+                ])?;
+            }
+            Ok(())
+        })?;
+
         Ok(())
     }
 
@@ -573,10 +696,11 @@ impl PinchyDb {
             .lock()
             .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
         let mut stmt = conn.prepare(
-            "SELECT session_id, agent_id, started_at, duration_ms, user_prompt,
+            "SELECT id, session_id, agent_id, assistant_exchange_id, started_at, duration_ms, user_prompt,
                     tool_calls_json, prompt_tokens, completion_tokens, total_tokens,
                     cached_tokens, reasoning_tokens, model_calls, reply_summary,
-                    model_id, estimated_cost_usd, call_details_json
+                    model_id, estimated_cost_usd, call_details_json, prompt_snapshot_json,
+                    reasoning_text, reasoning_text_status
              FROM receipts WHERE session_id = ?1 ORDER BY id DESC",
         )?;
         let rows = stmt.query_map(params![session_id], Self::row_to_receipt)?;
@@ -587,28 +711,132 @@ impl PinchyDb {
         Ok(out)
     }
 
+    pub fn list_receipt_model_calls_for_session(
+        &self,
+        session_id: &str,
+    ) -> Result<std::collections::HashMap<i64, Vec<ModelCallTrace>>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT r.id,
+                    c.call_index, c.provider, c.model_id, c.api_surface, c.request_kind,
+                    c.started_at, c.latency_ms, c.normalized_messages_json,
+                    c.normalized_tools_json, c.reasoning_effort, c.function_call_mode,
+                    c.prompt_tokens, c.completion_tokens, c.cached_tokens, c.reasoning_tokens,
+                    c.cost_usd, c.reasoning_text, c.reasoning_text_status
+             FROM receipt_model_calls c
+             INNER JOIN receipts r ON r.id = c.receipt_id
+             WHERE c.session_id = ?1
+             ORDER BY r.id DESC, c.call_index ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id], |row| {
+            let receipt_id = row.get::<_, i64>(0)?;
+            Ok((receipt_id, Self::row_to_model_call_trace(row, 1)?))
+        })?;
+
+        let mut out = std::collections::HashMap::new();
+        for row in rows {
+            let (receipt_id, trace) = row?;
+            out.entry(receipt_id).or_insert_with(Vec::new).push(trace);
+        }
+        Ok(out)
+    }
+
+    pub fn get_receipt_model_calls(
+        &self,
+        session_id: &str,
+        receipt_id: i64,
+    ) -> Result<Vec<ModelCallTrace>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| anyhow::anyhow!("db lock poisoned: {e}"))?;
+        let mut stmt = conn.prepare(
+            "SELECT c.call_index, c.provider, c.model_id, c.api_surface, c.request_kind,
+                    c.started_at, c.latency_ms, c.normalized_messages_json,
+                    c.normalized_tools_json, c.reasoning_effort, c.function_call_mode,
+                    c.prompt_tokens, c.completion_tokens, c.cached_tokens, c.reasoning_tokens,
+                    c.cost_usd, c.reasoning_text, c.reasoning_text_status
+              FROM receipt_model_calls c
+              INNER JOIN receipts r ON r.id = c.receipt_id
+              WHERE c.session_id = ?1 AND r.id = ?2
+              ORDER BY c.call_index ASC",
+        )?;
+        let rows = stmt.query_map(params![session_id, receipt_id], |row| {
+            Self::row_to_model_call_trace(row, 0)
+        })?;
+
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
     fn row_to_receipt(row: &rusqlite::Row<'_>) -> rusqlite::Result<TurnReceipt> {
-        let tool_calls_json: String = row.get(5)?;
-        let call_details_json: String = row.get(15)?;
+        let tool_calls_json: String = row.get(7)?;
+        let call_details_json: String = row.get(17)?;
+        let prompt_snapshot_json: Option<String> = row.get(18)?;
+        let reasoning_text_status_json: Option<String> = row.get(20)?;
         Ok(TurnReceipt {
-            session: row.get(0)?,
-            agent: row.get(1)?,
-            started_at: row.get::<_, i64>(2)? as u64,
-            duration_ms: row.get::<_, i64>(3)? as u64,
-            user_prompt: row.get(4)?,
+            receipt_id: Some(row.get::<_, i64>(0)?),
+            session: row.get(1)?,
+            agent: row.get(2)?,
+            assistant_exchange_id: row.get(3)?,
+            started_at: row.get::<_, i64>(4)? as u64,
+            duration_ms: row.get::<_, i64>(5)? as u64,
+            user_prompt: row.get(6)?,
             tool_calls: serde_json::from_str(&tool_calls_json).unwrap_or_default(),
             tokens: TokenUsageSummary {
-                prompt_tokens: row.get::<_, i64>(6)? as u64,
-                completion_tokens: row.get::<_, i64>(7)? as u64,
-                total_tokens: row.get::<_, i64>(8)? as u64,
-                cached_tokens: row.get::<_, i64>(9)? as u64,
-                reasoning_tokens: row.get::<_, i64>(10)? as u64,
+                prompt_tokens: row.get::<_, i64>(8)? as u64,
+                completion_tokens: row.get::<_, i64>(9)? as u64,
+                total_tokens: row.get::<_, i64>(10)? as u64,
+                cached_tokens: row.get::<_, i64>(11)? as u64,
+                reasoning_tokens: row.get::<_, i64>(12)? as u64,
             },
-            model_calls: row.get(11)?,
-            reply_summary: row.get(12)?,
-            model_id: row.get(13)?,
-            estimated_cost_usd: row.get(14)?,
+            model_calls: row.get(13)?,
+            reply_summary: row.get(14)?,
+            model_id: row.get(15)?,
+            estimated_cost_usd: row.get(16)?,
             call_details: serde_json::from_str(&call_details_json).unwrap_or_default(),
+            prompt_snapshot: prompt_snapshot_json
+                .and_then(|json| serde_json::from_str::<PromptSnapshot>(&json).ok()),
+            reasoning_text: row.get(19)?,
+            reasoning_text_status: reasoning_text_status_json.and_then(|json| {
+                serde_json::from_str::<crate::models::ReasoningTextStatus>(&json).ok()
+            }),
+        })
+    }
+
+    fn row_to_model_call_trace(
+        row: &rusqlite::Row<'_>,
+        offset: usize,
+    ) -> rusqlite::Result<ModelCallTrace> {
+        let messages_json: String = row.get(offset + 7)?;
+        let tools_json: String = row.get(offset + 8)?;
+        let reasoning_text_status_json: String = row.get(offset + 17)?;
+        Ok(ModelCallTrace {
+            call_index: row.get(offset)?,
+            provider: row.get(offset + 1)?,
+            model_id: row.get(offset + 2)?,
+            api_surface: row.get(offset + 3)?,
+            request_kind: row.get(offset + 4)?,
+            started_at: row.get::<_, i64>(offset + 5)? as u64,
+            latency_ms: row.get::<_, i64>(offset + 6)? as u64,
+            normalized_messages: serde_json::from_str(&messages_json).unwrap_or_default(),
+            normalized_tools: serde_json::from_str(&tools_json).unwrap_or_default(),
+            reasoning_effort: row.get(offset + 9)?,
+            function_call_mode: row.get(offset + 10)?,
+            prompt_tokens: row.get::<_, i64>(offset + 11)? as u64,
+            completion_tokens: row.get::<_, i64>(offset + 12)? as u64,
+            cached_tokens: row.get::<_, i64>(offset + 13)? as u64,
+            reasoning_tokens: row.get::<_, i64>(offset + 14)? as u64,
+            cost_usd: row.get(offset + 15)?,
+            reasoning_text: row.get(offset + 16)?,
+            reasoning_text_status: serde_json::from_str(&reasoning_text_status_json)
+                .unwrap_or(crate::models::ReasoningTextStatus::ProviderDidNotExpose),
         })
     }
 
@@ -1302,6 +1530,26 @@ impl PinchyDb {
     }
 }
 
+fn ensure_column(conn: &Connection, table: &str, column: &str, definition: &str) -> Result<()> {
+    let pragma = format!("PRAGMA table_info({table})");
+    let mut stmt = conn.prepare(&pragma)?;
+    let rows = stmt.query_map([], |row| row.get::<_, String>(1))?;
+    let mut exists = false;
+    for row in rows {
+        if row? == column {
+            exists = true;
+            break;
+        }
+    }
+
+    if !exists {
+        let alter = format!("ALTER TABLE {table} ADD COLUMN {column} {definition}");
+        conn.execute(&alter, [])?;
+    }
+
+    Ok(())
+}
+
 /// System log entry for persisted logs.
 #[derive(Debug)]
 pub struct SystemLogEntry {
@@ -1321,6 +1569,8 @@ pub struct SystemLogEntry {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::types::ModelCallTrace;
+    use crate::models::ReasoningTextStatus;
 
     #[test]
     fn create_and_query_session() {
@@ -1354,6 +1604,7 @@ mod tests {
 
         let exchanges: Vec<Exchange> = (0..5)
             .map(|i| Exchange {
+                exchange_id: None,
                 timestamp: i as u64,
                 role: "user".into(),
                 content: format!("msg {i}"),
@@ -1377,8 +1628,10 @@ mod tests {
     fn insert_and_list_receipts() {
         let db = PinchyDb::open_memory().unwrap();
         let receipt = TurnReceipt {
+            receipt_id: None,
             agent: "a".into(),
             session: Some("s1".into()),
+            assistant_exchange_id: Some(42),
             started_at: 100,
             duration_ms: 50,
             user_prompt: "hello".into(),
@@ -1389,12 +1642,54 @@ mod tests {
             model_id: "gpt-4o".into(),
             estimated_cost_usd: Some(0.001),
             call_details: vec![],
+            prompt_snapshot: None,
+            reasoning_text: Some("Captured provider reasoning".into()),
+            reasoning_text_status: Some(ReasoningTextStatus::Captured),
         };
-        db.insert_receipt(&receipt).unwrap();
+        let receipt_id = db.insert_receipt(&receipt).unwrap();
+        db.insert_receipt_model_calls(
+            receipt_id,
+            receipt.session.as_deref(),
+            &[ModelCallTrace {
+                call_index: 1,
+                provider: "openai".into(),
+                model_id: "gpt-4o".into(),
+                api_surface: Some("chat_completions".into()),
+                request_kind: Some("chat_with_tools".into()),
+                started_at: 100,
+                latency_ms: 50,
+                normalized_messages: vec![serde_json::json!({"role": "user", "content": "hello"})],
+                normalized_tools: vec![serde_json::json!({"name": "read_file"})],
+                reasoning_effort: Some("medium".into()),
+                function_call_mode: Some("auto".into()),
+                prompt_tokens: 10,
+                completion_tokens: 5,
+                cached_tokens: 0,
+                reasoning_tokens: 2,
+                cost_usd: Some(0.001),
+                reasoning_text: None,
+                reasoning_text_status: ReasoningTextStatus::ProviderDidNotExpose,
+            }],
+        )
+        .unwrap();
 
         let list = db.list_receipts_for_session("s1").unwrap();
         assert_eq!(list.len(), 1);
+        assert!(list[0].receipt_id.is_some());
+        assert_eq!(list[0].assistant_exchange_id, Some(42));
         assert_eq!(list[0].model_id, "gpt-4o");
+        assert_eq!(
+            list[0].reasoning_text.as_deref(),
+            Some("Captured provider reasoning")
+        );
+        assert_eq!(
+            list[0].reasoning_text_status,
+            Some(ReasoningTextStatus::Captured)
+        );
+        let traces = db.get_receipt_model_calls("s1", receipt_id).unwrap();
+        assert_eq!(traces.len(), 1);
+        assert_eq!(traces[0].provider, "openai");
+        assert_eq!(traces[0].normalized_tools.len(), 1);
     }
 
     #[test]

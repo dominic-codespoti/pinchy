@@ -445,6 +445,14 @@ pub async fn start_gateway_with_config(
         )
         .route("/sessions", get(handlers::sessions::api_sessions_global))
         .route(
+            "/sessions/:session_id/diagnostics",
+            get(handlers::sessions::api_session_diagnostics),
+        )
+        .route(
+            "/sessions/:session_id/diagnostics/receipts/:receipt_id/model-calls",
+            get(handlers::sessions::api_session_diagnostics_receipt_model_calls),
+        )
+        .route(
             "/agents/:agent_id/sessions",
             get(handlers::sessions::api_sessions_list),
         )

@@ -43,6 +43,11 @@ export interface UseChatReturn {
   navigateToAgent: (agentId: string) => void;
 }
 
+interface StreamingReasoningPreview {
+  sessionId: string | null;
+  text: string;
+}
+
 export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatReturn {
   const searchParams = useSearchParams();
   const sessionIdFromUrl = searchParams.get('session');
@@ -58,6 +63,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
   const [isMessagesHydrating, setIsMessagesHydrating] = useState(false);
   const [sessionReceipts, setSessionReceipts] = useState<TurnReceipt[]>([]);
+  const [streamingReasoningPreview, setStreamingReasoningPreview] = useState<StreamingReasoningPreview | null>(null);
 
   const currentSessionIdRef = useRef<string | null>(null);
   const previousSessionIdRef = useRef<string | null>(null);
@@ -249,6 +255,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
         if (agentId === selectedAgentId) {
           setIsStreaming(true);
           setStreamingStartTime(new Date());
+          setStreamingReasoningPreview(null);
         }
         continue;
       }
@@ -257,6 +264,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
         const agentId = msg.agent as string;
         if (agentId === selectedAgentId) {
           setIsStreaming(false);
+          setStreamingReasoningPreview(null);
         }
         continue;
       }
@@ -308,6 +316,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
           // Clear streaming content since we now have the persisted message
           if (role === 'assistant') {
             setStreamingContent('');
+            setStreamingReasoningPreview(null);
           }
         }
         continue;
@@ -328,8 +337,35 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
 
         if (isForCurrentSession || isForOurAgentWithoutSession) {
           appendReceipts([receipt]);
+
+          if (receipt.reasoning_text?.trim()) {
+            setStreamingReasoningPreview({
+              sessionId: receipt.session ?? currentSessionId,
+              text: receipt.reasoning_text,
+            });
+          }
         }
 
+        continue;
+      }
+
+      if (msgType === 'reasoning_delta') {
+        const agentId = msg.agent as string;
+        const sessionId = typeof msg.session === 'string' ? msg.session : currentSessionIdRef.current;
+        const text = typeof msg.text === 'string' ? msg.text.trim() : '';
+
+        if (!text || agentId !== selectedAgentId) {
+          continue;
+        }
+
+        if (sessionId && currentSessionIdRef.current && sessionId !== currentSessionIdRef.current) {
+          continue;
+        }
+
+        setStreamingReasoningPreview({
+          sessionId: sessionId ?? null,
+          text,
+        });
         continue;
       }
 
@@ -347,9 +383,6 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
         const agentId = msg.agent as string;
         if (agentId === selectedAgentId) {
           setIsStreaming(false);
-          // NOTE: We intentionally do NOT clear streamingContent here.
-          // The streamed content remains visible until the session_message
-          // arrives with the persisted assistant message.
         }
         continue;
       }
@@ -370,6 +403,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
         if (agentId === selectedAgentId || !agentId) {
           setIsStreaming(false);
           setStreamingContent('');
+          setStreamingReasoningPreview(null);
           // Also clear creating session state on error
           setIsCreatingSession(false);
         }
@@ -423,6 +457,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
       setLocalMessages([]);
       setSessionReceipts([]);
       setStreamingContent('');
+      setStreamingReasoningPreview(null);
       setIsStreaming(false);
       // Clear seen messages cache when changing sessions
       seenMessagesRef.current.clear();
@@ -446,6 +481,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
     if (!sessionIdFromUrl || !selectedAgentId) {
       setIsMessagesHydrating(false);
       setSessionReceipts([]);
+      setStreamingReasoningPreview(null);
       return;
     }
 
@@ -490,6 +526,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
     const timeout = setTimeout(() => {
       setIsStreaming(false);
       setStreamingContent('');
+      setStreamingReasoningPreview(null);
       toast.warning('Response timed out. The agent may be experiencing issues.', {
         description: 'Check that your provider (Copilot/GitHub) is authenticated.',
       });
@@ -539,6 +576,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
     setStreamingStartTime(new Date());
     setIsStreaming(true);
     setStreamingContent('');
+    setStreamingReasoningPreview(null);
 
     send({
       command: content,
@@ -572,6 +610,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
     setLocalMessages([]);
     setSessionReceipts([]);
     setStreamingContent('');
+    setStreamingReasoningPreview(null);
     setIsStreaming(false);
     setPendingSessionId(null);
     setIsMessagesHydrating(false);
@@ -603,6 +642,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
     });
     setIsStreaming(false);
     setStreamingContent('');
+    setStreamingReasoningPreview(null);
   }, [send, selectedAgentId]);
 
   const navigateToSession = useCallback((sessionId: string) => {
@@ -624,7 +664,7 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
   const displayMessages = useMemo(() => {
     const hydratedMessages = attachReceiptsToMessages(localMessages, sessionReceipts);
 
-    if (!isStreaming || !streamingContent) {
+    if (!isStreaming && !streamingContent && !streamingReasoningPreview?.text) {
       return hydratedMessages;
     }
 
@@ -633,10 +673,11 @@ export function useChat(agents: Agent[] = [], agentsLoading = false): UseChatRet
       role: 'assistant',
       content: streamingContent,
       timestamp: new Date().toISOString(),
+      reasoning_preview: streamingReasoningPreview?.text,
     };
 
     return [...hydratedMessages, streamingMessage];
-  }, [localMessages, sessionReceipts, streamingContent, isStreaming, streamingStartTime]);
+  }, [localMessages, sessionReceipts, streamingContent, isStreaming, streamingReasoningPreview, streamingStartTime]);
 
   const availableMentions = useMemo(() => {
     const mentions: Mention[] = [];

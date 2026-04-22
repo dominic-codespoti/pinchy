@@ -125,6 +125,47 @@ impl CuratedStore {
             .join("\n\n"))
     }
 
+    pub fn build_prompt_block(&self, max_chars: usize) -> anyhow::Result<String> {
+        self.build_prompt_block_with_token_budget(max_chars_to_token_budget(max_chars))
+    }
+
+    pub fn build_prompt_block_with_token_budget(
+        &self,
+        max_tokens: usize,
+    ) -> anyhow::Result<String> {
+        if max_tokens == 0 {
+            return Ok(String::new());
+        }
+
+        let memory = self.render(CuratedTarget::Memory)?;
+        let user = self.render(CuratedTarget::User)?;
+        if memory.is_empty() && user.is_empty() {
+            return Ok(String::new());
+        }
+
+        let mut block = String::from("<curated_context>\n");
+        let mut used_tokens = estimate_tokens(&block);
+        append_curated_section(
+            &mut block,
+            &mut used_tokens,
+            "curated_memory",
+            &memory,
+            max_tokens,
+        );
+        append_curated_section(
+            &mut block,
+            &mut used_tokens,
+            "curated_user_context",
+            &user,
+            max_tokens,
+        );
+        if block == "<curated_context>\n" {
+            return Ok(String::new());
+        }
+        block.push_str("</curated_context>");
+        Ok(block)
+    }
+
     fn write_entries(&self, target: CuratedTarget, entries: &[CuratedEntry]) -> anyhow::Result<()> {
         let path = self.path_for(target);
         let mut content = String::new();
@@ -189,6 +230,34 @@ fn render_entry(entry: &CuratedEntry) -> String {
     }
 
     rendered
+}
+
+fn append_curated_section(
+    block: &mut String,
+    used_tokens: &mut usize,
+    label: &str,
+    content: &str,
+    max_tokens: usize,
+) {
+    if content.is_empty() {
+        return;
+    }
+    let section = format!("<{label}>\n{content}\n</{label}>\n");
+    let closing = "</curated_context>";
+    let section_tokens = estimate_tokens(&section);
+    if *used_tokens + section_tokens + estimate_tokens(closing) > max_tokens {
+        return;
+    }
+    block.push_str(&section);
+    *used_tokens += section_tokens;
+}
+
+fn estimate_tokens(text: &str) -> usize {
+    crate::context::estimate_tokens(text)
+}
+
+fn max_chars_to_token_budget(max_chars: usize) -> usize {
+    estimate_tokens(&"x".repeat(max_chars)).max(1)
 }
 
 fn parse_entries(content: &str) -> Vec<CuratedEntry> {
@@ -372,5 +441,24 @@ mod tests {
 
         let rendered = store.render(CuratedTarget::Memory).unwrap();
         assert!(rendered.contains("- [key:goal] Build a robot"));
+    }
+
+    #[test]
+    fn build_prompt_block_combines_targets() {
+        let (_dir, store) = temp_store();
+        store
+            .save(CuratedTarget::Memory, Some("timezone"), "User is in UTC")
+            .unwrap();
+        store
+            .save(CuratedTarget::User, None, "Prefers concise replies")
+            .unwrap();
+
+        let block = store.build_prompt_block(4000).unwrap();
+        assert!(block.starts_with("<curated_context>"));
+        assert!(block.contains("<curated_memory>"));
+        assert!(block.contains("timezone"));
+        assert!(block.contains("<curated_user_context>"));
+        assert!(block.contains("Prefers concise replies"));
+        assert!(block.ends_with("</curated_context>"));
     }
 }

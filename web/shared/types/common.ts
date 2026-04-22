@@ -16,6 +16,7 @@ export interface Message {
   tool_calls?: ToolCall[];
   tool_results?: ToolResult[];
   turn_receipt?: TurnReceipt;
+  reasoning_preview?: string;
 }
 
 export interface ToolCall {
@@ -47,7 +48,11 @@ export interface TokenUsageSummary {
 }
 
 export interface ModelCallDetail {
+  call_index: number;
   model: string;
+  provider: string;
+  api_surface?: string;
+  request_kind?: string;
   prompt_tokens: number;
   completion_tokens: number;
   cached_tokens: number;
@@ -56,9 +61,30 @@ export interface ModelCallDetail {
   latency_ms: number;
 }
 
+export interface PromptSnapshotSection {
+  key: string;
+  title: string;
+  content: string;
+  truncated: boolean;
+  original_char_count?: number;
+  note?: string;
+}
+
+export interface PromptSnapshotTool {
+  name: string;
+  description?: string;
+}
+
+export interface PromptSnapshot {
+  sections: PromptSnapshotSection[];
+  available_tools: PromptSnapshotTool[];
+}
+
 export interface TurnReceipt {
+  receipt_id?: number;
   agent: string;
   session?: string;
+  assistant_exchange_id?: number;
   started_at: number;
   duration_ms: number;
   user_prompt: string;
@@ -69,6 +95,33 @@ export interface TurnReceipt {
   model_id: string;
   estimated_cost_usd?: number;
   call_details: ModelCallDetail[];
+  has_model_call_traces: boolean;
+  prompt_snapshot?: PromptSnapshot;
+  reasoning_text?: string;
+  reasoning_text_status?: Exclude<ReasoningTextStatus, 'legacy_not_recorded'>;
+}
+
+export type ReasoningTextStatus = 'captured' | 'provider_did_not_expose' | 'legacy_not_recorded';
+
+export interface ModelCallTrace {
+  call_index: number;
+  provider: string;
+  model_id: string;
+  api_surface?: string;
+  request_kind?: string;
+  started_at: number;
+  latency_ms: number;
+  normalized_messages: unknown[];
+  normalized_tools: unknown[];
+  reasoning_effort?: string;
+  function_call_mode?: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cached_tokens: number;
+  reasoning_tokens: number;
+  cost_usd?: number;
+  reasoning_text?: string;
+  reasoning_text_status: ReasoningTextStatus;
 }
 
 // ============================================================================

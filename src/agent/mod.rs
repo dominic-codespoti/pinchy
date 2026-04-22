@@ -13,6 +13,7 @@
 
 mod debug;
 mod dispatch;
+mod distill;
 mod persist;
 mod tool_exec;
 mod tool_loop;

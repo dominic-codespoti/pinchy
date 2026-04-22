@@ -14,7 +14,9 @@ use serde_json::{json, Value};
 use tokio::sync::Mutex;
 use tracing::{debug, trace, warn};
 
-use super::{ChatMessage, ModelProvider, ProviderResponse};
+use super::{
+    ChatMessage, ModelProvider, ProviderCallResult, ProviderResponse, ReasoningTextStatus,
+};
 use crate::auth::copilot_token;
 use crate::auth::github_device;
 
@@ -473,6 +475,106 @@ impl CopilotProvider {
         );
     }
 
+    async fn try_proxy_http_with_tools_detailed(
+        &self,
+        proxy_ep: &str,
+        bearer: &str,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> anyhow::Result<ProviderCallResult> {
+        let http = super::get_shared_http_client();
+
+        let mut body = json!({
+            "model": &self.model_id,
+            "messages": super::serialize_messages(messages),
+        });
+
+        if let Some(ref effort) = self.reasoning_effort {
+            body["reasoning"] = json!({"effort": effort});
+        }
+
+        if !functions.is_empty() {
+            let copilot_tools: Vec<serde_json::Value> = functions
+                .iter()
+                .filter_map(|f| {
+                    let func_obj = if let (Some("function"), Some(func)) =
+                        (f.get("type").and_then(|t| t.as_str()), f.get("function"))
+                    {
+                        func.clone()
+                    } else {
+                        f.clone()
+                    };
+
+                    let name = func_obj
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or_default();
+                    if name.is_empty() {
+                        warn!("copilot: skipping function with empty name: {func_obj}");
+                        return None;
+                    }
+
+                    Some(json!({
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "description": func_obj.get("description")
+                                .and_then(|d| d.as_str())
+                                .unwrap_or(""),
+                            "parameters": func_obj.get("parameters")
+                                .cloned()
+                                .unwrap_or_else(|| json!({"type": "object"})),
+                        }
+                    }))
+                })
+                .collect();
+
+            if !copilot_tools.is_empty() {
+                body["tools"] = serde_json::Value::Array(copilot_tools);
+                body["tool_choice"] = json!("auto");
+            }
+        }
+
+        let headers = copilot_headers(bearer, self.header_overrides.as_ref())
+            .context("failed to build copilot headers")?;
+        let paths = proxy_paths();
+        let base = proxy_ep.trim_end_matches('/');
+        let mut last_err: Option<String> = None;
+
+        for path in &paths {
+            let url = format!("{base}{path}");
+
+            match post_with_retry(&http, &url, &headers, &body).await {
+                Ok(json_val) => {
+                    let usage = super::parse_token_usage(&json_val);
+
+                    if let Some(fc) = extract_tool_call(&json_val) {
+                        return Ok(reasoning_result_from_json(fc, usage, &json_val));
+                    }
+
+                    if let Some(text) = extract_assistant_text(&json_val) {
+                        return Ok(reasoning_result_from_json(
+                            ProviderResponse::Final(text),
+                            usage,
+                            &json_val,
+                        ));
+                    }
+
+                    warn!(url = %url, body = %json_val, "copilot proxy returned 200 but no assistant text found");
+                    last_err = Some(format!("{url}: no assistant text found in response"));
+                }
+                Err(msg) => {
+                    last_err = msg;
+                }
+            }
+        }
+
+        anyhow::bail!(
+            "all proxy endpoints failed (with tools): {}",
+            last_err.unwrap_or_else(|| "unknown".into())
+        );
+    }
+
     // -- Anthropic Messages API paths (Claude models) ---------------------
 
     /// POST to `/v1/messages` with Anthropic Messages format, parse SSE.
@@ -482,8 +584,8 @@ impl CopilotProvider {
         bearer: &str,
         messages: &[ChatMessage],
     ) -> anyhow::Result<String> {
-        let (resp, _usage) = self
-            .try_anthropic_http_with_tools(proxy_ep, bearer, messages, &[])
+        let (resp, _usage, _reasoning_text) = self
+            .try_anthropic_http_with_tools_internal(proxy_ep, bearer, messages, &[])
             .await?;
         match resp {
             super::ProviderResponse::Final(text) => Ok(text),
@@ -500,6 +602,48 @@ impl CopilotProvider {
         messages: &[ChatMessage],
         functions: &[serde_json::Value],
     ) -> anyhow::Result<(super::ProviderResponse, Option<super::TokenUsage>)> {
+        let (response, usage, _reasoning_text) = self
+            .try_anthropic_http_with_tools_internal(proxy_ep, bearer, messages, functions)
+            .await?;
+        Ok((response, usage))
+    }
+
+    async fn try_anthropic_http_with_tools_detailed(
+        &self,
+        proxy_ep: &str,
+        bearer: &str,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> anyhow::Result<ProviderCallResult> {
+        let (response, usage, reasoning_text) = self
+            .try_anthropic_http_with_tools_internal(proxy_ep, bearer, messages, functions)
+            .await?;
+
+        let reasoning_text_status = if reasoning_text.is_some() {
+            ReasoningTextStatus::Captured
+        } else {
+            ReasoningTextStatus::ProviderDidNotExpose
+        };
+
+        Ok(ProviderCallResult {
+            response,
+            usage,
+            reasoning_text,
+            reasoning_text_status,
+        })
+    }
+
+    async fn try_anthropic_http_with_tools_internal(
+        &self,
+        proxy_ep: &str,
+        bearer: &str,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> anyhow::Result<(
+        super::ProviderResponse,
+        Option<super::TokenUsage>,
+        Option<String>,
+    )> {
         let http = super::get_shared_http_client();
         let base = proxy_ep.trim_end_matches('/');
         let url = format!("{base}/v1/messages");
@@ -585,9 +729,10 @@ impl CopilotProvider {
             anyhow::bail!("Anthropic proxy HTTP {status}: {body_text}");
         }
 
-        let parsed = parse_anthropic_sse(resp).await?;
+        let parsed = parse_anthropic_sse(resp, &self.model_id).await?;
         debug!(
             text_len = parsed.text.len(),
+            thinking_len = parsed.thinking.len(),
             tool_uses = parsed.tool_uses.len(),
             input_tokens = parsed.input_tokens,
             output_tokens = parsed.output_tokens,
@@ -833,6 +978,224 @@ impl CopilotProvider {
                     let text = text.trim();
                     if !text.is_empty() {
                         return Ok((super::ProviderResponse::Final(text.to_string()), usage));
+                    }
+                }
+
+                anyhow::bail!(
+                    "Responses API returned 200 but no usable output: {}",
+                    serde_json::to_string(&json_val).unwrap_or_default()
+                );
+            }
+            Err(msg) => {
+                anyhow::bail!(
+                    "Responses API failed: {}",
+                    msg.unwrap_or_else(|| "unknown".into())
+                );
+            }
+        }
+    }
+
+    async fn try_responses_api_with_tools_detailed(
+        &self,
+        proxy_ep: &str,
+        bearer: &str,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> anyhow::Result<ProviderCallResult> {
+        let http = super::get_shared_http_client();
+        let base = proxy_ep.trim_end_matches('/');
+        let url = format!("{base}/responses");
+
+        let mut instructions_parts: Vec<String> = Vec::new();
+        let mut input: Vec<Value> = Vec::new();
+
+        for m in messages {
+            if m.is_system() {
+                instructions_parts.push(m.content.clone());
+                continue;
+            }
+            if m.is_tool() {
+                if let Some(ref tcid) = m.tool_call_id {
+                    input.push(json!({
+                        "type": "function_call_output",
+                        "call_id": tcid,
+                        "output": m.content,
+                    }));
+                } else {
+                    input.push(json!({"role": "user", "content": m.content}));
+                }
+                continue;
+            }
+            if m.is_assistant() && m.tool_calls.is_some() {
+                if !m.content.is_empty() {
+                    input.push(json!({"role": "assistant", "content": m.content}));
+                }
+                if let Some(ref tcs) = m.tool_calls {
+                    for tc in tcs {
+                        let func = tc.get("function").unwrap_or(tc);
+                        let name = func.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                        let call_id = tc.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                        let arguments = func
+                            .get("arguments")
+                            .and_then(|a| a.as_str())
+                            .unwrap_or("{}");
+                        input.push(json!({
+                            "type": "function_call",
+                            "call_id": call_id,
+                            "name": name,
+                            "arguments": arguments,
+                        }));
+                    }
+                }
+                continue;
+            }
+            input.push(json!({"role": &m.role, "content": m.content}));
+        }
+
+        let mut body = json!({
+            "model": &self.model_id,
+            "input": input,
+            "stream": false,
+        });
+
+        if !instructions_parts.is_empty() {
+            body["instructions"] = json!(instructions_parts.join("\n\n"));
+        }
+
+        if let Some(ref effort) = self.reasoning_effort {
+            body["reasoning"] = json!({"effort": effort});
+        }
+
+        if !functions.is_empty() {
+            let tools: Vec<Value> = functions
+                .iter()
+                .filter_map(|f| {
+                    let func_obj = if let (Some("function"), Some(func)) =
+                        (f.get("type").and_then(|t| t.as_str()), f.get("function"))
+                    {
+                        func.clone()
+                    } else {
+                        f.clone()
+                    };
+
+                    let name = func_obj
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or_default();
+                    if name.is_empty() {
+                        warn!("copilot/responses: skipping function with empty name: {func_obj}");
+                        return None;
+                    }
+
+                    Some(json!({
+                        "type": "function",
+                        "function": {
+                            "name": name,
+                            "description": func_obj.get("description")
+                                .and_then(|d| d.as_str())
+                                .unwrap_or(""),
+                            "parameters": func_obj.get("parameters")
+                                .cloned()
+                                .unwrap_or_else(|| json!({"type": "object"})),
+                        }
+                    }))
+                })
+                .collect();
+
+            if !tools.is_empty() {
+                body["tools"] = Value::Array(tools);
+                body["tool_choice"] = json!("auto");
+            }
+        }
+
+        let headers = copilot_headers(bearer, self.header_overrides.as_ref())
+            .context("failed to build copilot headers")?;
+
+        match post_with_retry(&http, &url, &headers, &body).await {
+            Ok(json_val) => {
+                let usage = parse_responses_usage(&json_val);
+
+                if let Some(output) = json_val.get("output").and_then(|o| o.as_array()) {
+                    let mut func_calls: Vec<super::FunctionCallItem> = Vec::new();
+                    let mut text_parts: Vec<String> = Vec::new();
+
+                    for item in output {
+                        let item_type = item.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                        match item_type {
+                            "function_call" => {
+                                let name = item
+                                    .get("name")
+                                    .and_then(|n| n.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                let arguments = item
+                                    .get("arguments")
+                                    .and_then(|a| a.as_str())
+                                    .unwrap_or("{}")
+                                    .to_string();
+                                let call_id = item
+                                    .get("call_id")
+                                    .and_then(|i| i.as_str())
+                                    .unwrap_or("")
+                                    .to_string();
+                                func_calls.push(super::FunctionCallItem {
+                                    id: call_id,
+                                    name,
+                                    arguments,
+                                });
+                            }
+                            "message" => {
+                                if let Some(content) =
+                                    item.get("content").and_then(|c| c.as_array())
+                                {
+                                    for part in content {
+                                        let ptype =
+                                            part.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                        if ptype == "output_text" {
+                                            if let Some(text) =
+                                                part.get("text").and_then(|t| t.as_str())
+                                            {
+                                                text_parts.push(text.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if !func_calls.is_empty() {
+                        let response = if func_calls.len() == 1 {
+                            let fc = func_calls.swap_remove(0);
+                            super::ProviderResponse::FunctionCall {
+                                id: fc.id,
+                                name: fc.name,
+                                arguments: fc.arguments,
+                            }
+                        } else {
+                            super::ProviderResponse::MultiFunctionCall(func_calls)
+                        };
+                        return Ok(reasoning_result_from_json(response, usage, &json_val));
+                    }
+
+                    if !text_parts.is_empty() {
+                        return Ok(reasoning_result_from_json(
+                            super::ProviderResponse::Final(text_parts.join("")),
+                            usage,
+                            &json_val,
+                        ));
+                    }
+                }
+
+                if let Some(text) = json_val.get("output_text").and_then(|t| t.as_str()) {
+                    let text = text.trim();
+                    if !text.is_empty() {
+                        return Ok(reasoning_result_from_json(
+                            super::ProviderResponse::Final(text.to_string()),
+                            usage,
+                            &json_val,
+                        ));
                     }
                 }
 
@@ -1101,6 +1464,47 @@ impl ModelProvider for CopilotProvider {
     ) -> Result<(ProviderResponse, Option<super::TokenUsage>), anyhow::Error> {
         self.send_chat_with_functions_inner(messages, functions)
             .await
+    }
+
+    async fn send_chat_with_functions_detailed(
+        &self,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> Result<ProviderCallResult, anyhow::Error> {
+        let (ep, bearer) =
+            self.ensure_fresh_token()
+                .await
+                .ok_or_else(|| {
+                    crate::auth::AuthError {
+                provider: "GitHub Copilot".into(),
+                hint: "your token may have expired or is invalid — run `/gh-login` to re-authorise"
+                    .into(),
+            }
+                })?;
+
+        self.prime_discovery_cache(&ep, &bearer).await;
+
+        let api_path = self.resolve_api_path().await?;
+        debug!(model = %self.model_id, ?api_path, "CopilotProvider: routing detailed function-call request");
+
+        let result = match api_path {
+            CopilotApiPath::Messages => {
+                self.try_anthropic_http_with_tools_detailed(&ep, &bearer, messages, functions)
+                    .await?
+            }
+            CopilotApiPath::Responses => {
+                return self
+                    .try_responses_api_with_tools_detailed(&ep, &bearer, messages, functions)
+                    .await;
+            }
+            CopilotApiPath::ChatCompletions => {
+                return self
+                    .try_proxy_http_with_tools_detailed(&ep, &bearer, messages, functions)
+                    .await;
+            }
+        };
+
+        Ok(result)
     }
 
     fn send_chat_stream<'a>(
@@ -1421,6 +1825,26 @@ async fn post_with_retry(
     }
 }
 
+fn reasoning_result_from_json(
+    response: ProviderResponse,
+    usage: Option<super::TokenUsage>,
+    json_val: &Value,
+) -> ProviderCallResult {
+    let reasoning_text = super::extract_reasoning_text(json_val);
+    let reasoning_text_status = if reasoning_text.is_some() {
+        ReasoningTextStatus::Captured
+    } else {
+        ReasoningTextStatus::ProviderDidNotExpose
+    };
+
+    ProviderCallResult {
+        response,
+        usage,
+        reasoning_text,
+        reasoning_text_status,
+    }
+}
+
 /// Extract the assistant message text from an OpenAI-compatible response JSON.
 ///
 /// Tries several common shapes: OpenAI chat completions, completions,
@@ -1439,19 +1863,10 @@ fn extract_assistant_text(v: &Value) -> Option<String> {
             return Some(s.to_string());
         }
     }
-    // choices[0].message.reasoning_text  (Gemini / reasoning models with
-    // content: null but reasoning_text populated)
-    if let Some(s) = v
-        .get("choices")
-        .and_then(|c| c.get(0))
-        .and_then(|c| c.get("message"))
-        .and_then(|m| m.get("reasoning_text"))
-        .and_then(|c| c.as_str())
-    {
-        let s = s.trim();
-        if !s.is_empty() {
-            return Some(s.to_string());
-        }
+    // Some Gemini-compatible proxies return only reasoning fields when the
+    // main assistant content is empty.
+    if let Some(s) = super::extract_reasoning_text(v) {
+        return Some(s);
     }
     // choices[0].text  (OpenAI completions)
     if let Some(s) = v
@@ -1841,6 +2256,7 @@ fn serialize_anthropic_messages(messages: &[super::ChatMessage]) -> (Option<Stri
 /// Accumulated result from parsing an Anthropic Messages SSE stream.
 struct AnthropicResult {
     text: String,
+    thinking: String,
     tool_uses: Vec<AnthropicToolUse>,
     input_tokens: u64,
     output_tokens: u64,
@@ -1867,11 +2283,15 @@ struct BlockAccum {
 /// Processes events: `message_start`, `content_block_start`,
 /// `content_block_delta`, `content_block_stop`, `message_delta`.
 /// Thinking blocks are silently discarded.
-async fn parse_anthropic_sse(resp: reqwest::Response) -> anyhow::Result<AnthropicResult> {
+async fn parse_anthropic_sse(
+    resp: reqwest::Response,
+    model_id: &str,
+) -> anyhow::Result<AnthropicResult> {
     use tokio_stream::StreamExt;
 
     let mut result = AnthropicResult {
         text: String::new(),
+        thinking: String::new(),
         tool_uses: Vec::new(),
         input_tokens: 0,
         output_tokens: 0,
@@ -1976,6 +2396,24 @@ async fn parse_anthropic_sse(resp: reqwest::Response) -> anyhow::Result<Anthropi
                                     result.text.push_str(text);
                                 }
                             }
+                            "thinking_delta" => {
+                                if let Some(thinking) =
+                                    delta.get("thinking").and_then(|t| t.as_str())
+                                {
+                                    result.thinking.push_str(thinking);
+                                    if let Some(preview) =
+                                        crate::agent::types::extract_reasoning_preview(
+                                            &result.thinking,
+                                        )
+                                    {
+                                        super::publish_live_reasoning_preview(
+                                            &preview,
+                                            "copilot_messages_sse",
+                                            Some(model_id),
+                                        );
+                                    }
+                                }
+                            }
                             "input_json_delta" => {
                                 if let Some(pj) = delta.get("partial_json").and_then(|p| p.as_str())
                                 {
@@ -1984,8 +2422,8 @@ async fn parse_anthropic_sse(resp: reqwest::Response) -> anyhow::Result<Anthropi
                                     }
                                 }
                             }
-                            "thinking_delta" | "signature_delta" => {
-                                // Internal reasoning — silently discard
+                            "signature_delta" => {
+                                // Signature is integrity metadata for the thinking block.
                             }
                             _ => {}
                         }
@@ -2022,7 +2460,11 @@ async fn parse_anthropic_sse(resp: reqwest::Response) -> anyhow::Result<Anthropi
 /// `(ProviderResponse, Option<TokenUsage>)` pair.
 fn anthropic_result_to_response(
     mut r: AnthropicResult,
-) -> (super::ProviderResponse, Option<super::TokenUsage>) {
+) -> (
+    super::ProviderResponse,
+    Option<super::TokenUsage>,
+    Option<String>,
+) {
     let usage = Some(super::TokenUsage {
         prompt_tokens: r.input_tokens,
         completion_tokens: r.output_tokens,
@@ -2031,9 +2473,14 @@ fn anthropic_result_to_response(
         reasoning_tokens: 0,
         model: r.model,
     });
+    let reasoning_text = (!r.thinking.trim().is_empty()).then(|| r.thinking.trim().to_string());
 
     if r.tool_uses.is_empty() {
-        (super::ProviderResponse::Final(r.text), usage)
+        (
+            super::ProviderResponse::Final(r.text),
+            usage,
+            reasoning_text,
+        )
     } else if r.tool_uses.len() == 1 {
         let tu = r.tool_uses.swap_remove(0);
         (
@@ -2043,6 +2490,7 @@ fn anthropic_result_to_response(
                 arguments: tu.input_json,
             },
             usage,
+            reasoning_text,
         )
     } else {
         let items: Vec<super::FunctionCallItem> = r
@@ -2054,7 +2502,11 @@ fn anthropic_result_to_response(
                 arguments: tu.input_json,
             })
             .collect();
-        (super::ProviderResponse::MultiFunctionCall(items), usage)
+        (
+            super::ProviderResponse::MultiFunctionCall(items),
+            usage,
+            reasoning_text,
+        )
     }
 }
 
@@ -2100,6 +2552,8 @@ fn parse_responses_usage(json: &Value) -> Option<super::TokenUsage> {
 ///
 /// The Responses API SSE format uses typed events:
 /// - `response.output_text.delta` → `{"delta": "text chunk"}`
+/// - `response.reasoning_summary_text.delta` → `{"delta": "summary chunk"}`
+/// - `response.reasoning_text.delta` → `{"delta": "reasoning chunk"}`
 /// - `response.completed` → signals stream end
 fn stream_responses_sse_deltas(
     resp: reqwest::Response,
@@ -2144,10 +2598,32 @@ fn stream_responses_sse_deltas(
                 }
 
                 // Parse text deltas from response.output_text.delta events.
-                if current_event_type == "response.output_text.delta" {
+                if matches!(
+                    current_event_type.as_str(),
+                    "response.output_text.delta"
+                        | "response.reasoning_summary_text.delta"
+                        | "response.reasoning_summary_text.done"
+                        | "response.reasoning_text.delta"
+                        | "response.reasoning_text.done"
+                        | "response.reasoning_summary_part.added"
+                        | "response.reasoning_summary_part.done"
+                ) {
                     if let Ok(v) = serde_json::from_str::<Value>(data) {
+                        if let Some(reasoning) = extract_responses_reasoning_event_text(
+                            current_event_type.as_str(),
+                            &v,
+                        )
+                        .and_then(|text| crate::agent::types::extract_reasoning_preview(&text))
+                        {
+                            super::publish_live_reasoning_preview(
+                                &reasoning,
+                                "copilot_responses_sse",
+                                None,
+                            );
+                        }
+
                         if let Some(delta) = v.get("delta").and_then(|d| d.as_str()) {
-                            if !delta.is_empty() {
+                            if current_event_type == "response.output_text.delta" && !delta.is_empty() {
                                 yield delta.to_string();
                             }
                         }
@@ -2161,6 +2637,35 @@ fn stream_responses_sse_deltas(
             }
         }
     })
+}
+
+fn extract_responses_reasoning_event_text(event_type: &str, value: &Value) -> Option<String> {
+    match event_type {
+        "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => value
+            .get("delta")
+            .and_then(|delta| delta.as_str())
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(ToOwned::to_owned),
+        "response.reasoning_summary_text.done" | "response.reasoning_text.done" => value
+            .get("text")
+            .and_then(|text| text.as_str())
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(ToOwned::to_owned),
+        "response.reasoning_summary_part.added" | "response.reasoning_summary_part.done" => value
+            .get("part")
+            .and_then(|part| {
+                (part.get("type").and_then(|ptype| ptype.as_str()) == Some("summary_text"))
+                    .then_some(part)
+            })
+            .and_then(|part| part.get("text"))
+            .and_then(|text| text.as_str())
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(ToOwned::to_owned),
+        _ => None,
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2245,6 +2750,39 @@ mod tests {
 
     fn sample_messages() -> Vec<ChatMessage> {
         vec![ChatMessage::new("user", "hello")]
+    }
+
+    #[test]
+    fn responses_reasoning_summary_delta_is_extracted() {
+        let payload = json!({ "delta": "Considering the existing receipt state" });
+
+        assert_eq!(
+            extract_responses_reasoning_event_text(
+                "response.reasoning_summary_text.delta",
+                &payload,
+            )
+            .as_deref(),
+            Some("Considering the existing receipt state")
+        );
+    }
+
+    #[test]
+    fn responses_reasoning_summary_part_is_extracted() {
+        let payload = json!({
+            "part": {
+                "type": "summary_text",
+                "text": "Checking tool output before replying"
+            }
+        });
+
+        assert_eq!(
+            extract_responses_reasoning_event_text(
+                "response.reasoning_summary_part.added",
+                &payload,
+            )
+            .as_deref(),
+            Some("Checking tool output before replying")
+        );
     }
 
     // -------------------------------------------------------------------

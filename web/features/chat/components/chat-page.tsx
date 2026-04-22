@@ -38,7 +38,7 @@ export function ChatPage({ agents = [], agentsLoading = false }: ChatPageProps) 
   } = useChat(agents, agentsLoading);
 
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden">
+    <div className="-mx-4 -my-6 flex h-[calc(100dvh-4rem)] overflow-hidden sm:-mx-6 lg:mx-0 lg:my-0 lg:h-[calc(100vh-3.5rem)]">
       {/* Desktop Sidebar */}
       <aside className="hidden lg:flex w-72 flex-col border-r bg-background">
         <ChatSidebar

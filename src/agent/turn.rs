@@ -267,7 +267,10 @@ impl Agent {
         };
 
         // -- Build message list --
-        let mut messages = self
+        let InitialTurnContext {
+            mut messages,
+            prompt_sections,
+        } = self
             .build_initial_messages(&bootstrap, &msg, manager, turn_cfg)
             .await?;
 
@@ -288,6 +291,10 @@ impl Agent {
         // -- Build function definitions --
         let tool_metas = tools::list_tools_core();
         let function_defs = self.build_function_defs(&tool_metas, &msg, &messages);
+        let prompt_snapshot = PromptSnapshot {
+            sections: prompt_sections,
+            available_tools: self.build_prompt_snapshot_tools(&function_defs),
+        };
 
         // -- Receipt tracking --
         let turn_start = SystemTime::now();
@@ -295,6 +302,7 @@ impl Agent {
         let mut receipt_tokens = TokenUsageSummary::default();
         let mut receipt_model_calls: u32 = 0;
         let mut call_details: Vec<ModelCallDetail> = Vec::new();
+        let mut model_call_traces: Vec<ModelCallTrace> = Vec::new();
 
         // -- Initial model call --
         emit_model_request_debug(
@@ -311,18 +319,30 @@ impl Agent {
         self.persist_user_message(&msg).await?;
 
         let initial_timer = std::time::Instant::now();
-        let (mut response, usage) = manager
-            .send_chat_with_functions(&messages, &function_defs)
-            .await
-            .context("model call failed")?;
+        let reasoning_context = crate::models::LiveReasoningContext {
+            agent_id: self.id.clone(),
+            session_id: self.current_session.clone(),
+        };
+        let initial_result = crate::models::scope_live_reasoning_context(
+            reasoning_context.clone(),
+            manager.send_chat_with_functions_detailed(&messages, &function_defs),
+        )
+        .await
+        .context("model call failed")?;
         let initial_latency = initial_timer.elapsed().as_millis() as u64;
         receipt_model_calls += 1;
-        emit_and_accumulate_usage(
-            &usage,
+        let mut response = emit_and_accumulate_usage(
             &self.id,
             self.current_session.as_deref(),
             &mut receipt_tokens,
             &mut call_details,
+            &mut model_call_traces,
+            initial_result,
+            &self.provider,
+            &self.model_id,
+            &messages,
+            &function_defs,
+            self.reasoning_effort.as_deref(),
             initial_latency,
         );
 
@@ -336,6 +356,7 @@ impl Agent {
             &mut receipt_tokens,
             &mut receipt_model_calls,
             &mut call_details,
+            &mut model_call_traces,
         )
         .await;
 
@@ -353,8 +374,10 @@ impl Agent {
             &mut receipt_tokens,
             &mut receipt_model_calls,
             &mut call_details,
+            &mut model_call_traces,
             &self.provider,
             &self.model_id,
+            self.reasoning_effort.as_deref(),
         )
         .await;
 
@@ -369,7 +392,8 @@ impl Agent {
         let final_reply = self.extract_final_reply(response).await;
 
         // -- Persist final assistant reply --
-        self.persist_assistant_reply(&final_reply).await?;
+        let assistant_exchange_id = self.persist_assistant_reply(&final_reply).await?;
+        self.spawn_auto_distill_if_needed();
 
         // -- Auto-name the session on first turn --
         if is_first_turn {
@@ -392,9 +416,14 @@ impl Agent {
                 None
             }
         };
+        let (reasoning_text, reasoning_text_status) =
+            summarize_reasoning_from_model_calls(&model_call_traces);
+
         let receipt = TurnReceipt {
+            receipt_id: None,
             agent: self.id.clone(),
             session: self.current_session.clone(),
+            assistant_exchange_id,
             started_at: turn_start_ms,
             duration_ms: turn_duration,
             user_prompt: crate::utils::truncate_str(&msg.content, 200),
@@ -405,8 +434,11 @@ impl Agent {
             model_id: self.model_id.clone(),
             estimated_cost_usd: estimated_cost,
             call_details,
+            prompt_snapshot: Some(prompt_snapshot),
+            reasoning_text,
+            reasoning_text_status,
         };
-        self.persist_receipt(&receipt).await;
+        self.persist_receipt(&receipt, &model_call_traces).await;
 
         crate::gateway::publish_event_json(
             &serde_json::to_value(&receipt)
@@ -436,11 +468,19 @@ impl Agent {
         msg: &IncomingMessage,
         _manager: &ProviderManager,
         turn_cfg: Option<&Config>,
-    ) -> anyhow::Result<Vec<ChatMessage>> {
+    ) -> anyhow::Result<InitialTurnContext> {
         let mut messages: Vec<ChatMessage> = Vec::new();
+        let mut prompt_sections: Vec<PromptSnapshotSection> = Vec::new();
 
         if !bootstrap.is_empty() {
             messages.push(ChatMessage::system(bootstrap.to_string()));
+            prompt_sections.push(make_prompt_section(
+                "bootstrap",
+                "Bootstrap / System Prompt",
+                bootstrap,
+                4_000,
+                None,
+            ));
         }
 
         // Time context.
@@ -449,29 +489,80 @@ impl Agent {
                 .map(|cfg| cfg.resolve_timezone(&self.id))
                 .unwrap_or(chrono_tz::UTC);
             let now = chrono::Utc::now().with_timezone(&tz);
-            messages.push(ChatMessage::system(format!(
+            let time_context = format!(
                 "Current date and time: {} ({}).",
                 now.format("%A, %B %-d, %Y %H:%M %Z"),
                 tz,
-            )));
+            );
+            messages.push(ChatMessage::system(time_context.clone()));
+            prompt_sections.push(make_prompt_section(
+                "time_context",
+                "Time Context",
+                &time_context,
+                600,
+                None,
+            ));
         }
 
         // Skill instructions.
         let skill_prompt = tools::prompt_instructions(self.enabled_skills.as_deref());
         if !skill_prompt.is_empty() {
             messages.push(ChatMessage::system(skill_prompt));
+            prompt_sections.push(make_prompt_section(
+                "skill_instructions",
+                "Skill Instructions",
+                messages
+                    .last()
+                    .map(|message| message.content.as_str())
+                    .unwrap_or_default(),
+                4_000,
+                None,
+            ));
+        }
+
+        const CURATED_MEMORY_BUDGET_TOKENS: usize = 700;
+        const ACTIVE_MEMORY_BUDGET_TOKENS: usize = 1100;
+
+        if let Ok(curated) = crate::memory::curated::CuratedStore::open(&self.workspace) {
+            if let Ok(curated_block) =
+                curated.build_prompt_block_with_token_budget(CURATED_MEMORY_BUDGET_TOKENS)
+            {
+                if !curated_block.is_empty() {
+                    messages.push(ChatMessage::system(curated_block));
+                    prompt_sections.push(make_prompt_section(
+                        "curated_memory",
+                        "Curated Memory",
+                        messages
+                            .last()
+                            .map(|message| message.content.as_str())
+                            .unwrap_or_default(),
+                        4_000,
+                        None,
+                    ));
+                }
+            }
         }
 
         // Memory injection — context-aware when a user message is available.
         if let Ok(store) = crate::memory::MemoryStore::open(&self.workspace) {
             let user_content = msg.content.clone();
             let mem_block = tokio::task::spawn_blocking(move || {
-                store.prompt_block_contextual(&user_content, 4000)
+                store.prompt_block_token_budget(&user_content, ACTIVE_MEMORY_BUDGET_TOKENS)
             })
             .await
             .unwrap_or_default();
             if !mem_block.is_empty() {
                 messages.push(ChatMessage::system(mem_block));
+                prompt_sections.push(make_prompt_section(
+                    "active_memory",
+                    "Active Memory",
+                    messages
+                        .last()
+                        .map(|message| message.content.as_str())
+                        .unwrap_or_default(),
+                    4_000,
+                    None,
+                ));
             }
         }
 
@@ -485,6 +576,34 @@ impl Agent {
             })
             .unwrap_or(40);
         let history = self.load_history(history_limit).await.unwrap_or_default();
+        if !history.is_empty() {
+            let history_count = history.len();
+            let preview_start = history_count.saturating_sub(6);
+            let preview = history
+                .iter()
+                .skip(preview_start)
+                .map(|message| {
+                    format!(
+                        "[{}] {}",
+                        message.role,
+                        truncate_chars(&message.content, 240).0
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n");
+            prompt_sections.push(make_prompt_section(
+                "history_summary",
+                "History Summary",
+                &preview,
+                4_000,
+                Some(format!(
+                    "{} prior history message{} included; showing the most recent {}.",
+                    history_count,
+                    if history_count == 1 { "" } else { "s" },
+                    history_count.min(6)
+                )),
+            ));
+        }
         messages.extend(history);
 
         if msg.images.is_empty() {
@@ -495,8 +614,18 @@ impl Agent {
                 msg.images.clone(),
             ));
         }
+        prompt_sections.push(make_prompt_section(
+            "final_user_message",
+            "Final User Message",
+            &msg.content,
+            2_000,
+            None,
+        ));
 
-        Ok(messages)
+        Ok(InitialTurnContext {
+            messages,
+            prompt_sections,
+        })
     }
 
     fn build_function_defs(
@@ -551,6 +680,25 @@ impl Agent {
         function_defs
     }
 
+    fn build_prompt_snapshot_tools(
+        &self,
+        function_defs: &[serde_json::Value],
+    ) -> Vec<PromptSnapshotTool> {
+        function_defs
+            .iter()
+            .filter_map(|definition| {
+                let name = definition.get("name").and_then(|value| value.as_str())?;
+                Some(PromptSnapshotTool {
+                    name: name.to_string(),
+                    description: definition
+                        .get("description")
+                        .and_then(|value| value.as_str())
+                        .map(ToString::to_string),
+                })
+            })
+            .collect()
+    }
+
     fn build_pluck_text(&self, user_content: &str, messages: &[ChatMessage]) -> String {
         let mut text = String::from(user_content);
         for m in messages.iter().rev().filter(|m| m.is_user()).take(5) {
@@ -591,6 +739,7 @@ impl Agent {
         receipt_tokens: &mut TokenUsageSummary,
         receipt_model_calls: &mut u32,
         call_details: &mut Vec<ModelCallDetail>,
+        model_call_traces: &mut Vec<ModelCallTrace>,
     ) {
         let needs_enforcement = matches!(response, ProviderResponse::Final(_)
                 if !function_defs.is_empty()
@@ -625,20 +774,30 @@ impl Agent {
             &self.model_id,
         );
 
-        match manager
-            .send_chat_with_functions(messages, function_defs)
-            .await
+        match crate::models::scope_live_reasoning_context(
+            crate::models::LiveReasoningContext {
+                agent_id: self.id.clone(),
+                session_id: self.current_session.clone(),
+            },
+            manager.send_chat_with_functions_detailed(messages, function_defs),
+        )
+        .await
         {
-            Ok((retry_resp, retry_usage)) => {
+            Ok(retry_result) => {
                 *receipt_model_calls += 1;
                 debug!("enforcement retry completed");
-                *response = retry_resp;
-                emit_and_accumulate_usage(
-                    &retry_usage,
+                *response = emit_and_accumulate_usage(
                     &self.id,
                     self.current_session.as_deref(),
                     receipt_tokens,
                     call_details,
+                    model_call_traces,
+                    retry_result,
+                    &self.provider,
+                    &self.model_id,
+                    messages,
+                    function_defs,
+                    self.reasoning_effort.as_deref(),
                     0,
                 );
             }
@@ -744,6 +903,39 @@ impl Agent {
             }
         }
     }
+}
+
+fn make_prompt_section(
+    key: &str,
+    title: &str,
+    content: &str,
+    limit: usize,
+    note: Option<String>,
+) -> PromptSnapshotSection {
+    let (truncated_content, truncated) = truncate_chars(content, limit);
+
+    PromptSnapshotSection {
+        key: key.to_string(),
+        title: title.to_string(),
+        content: truncated_content,
+        truncated,
+        original_char_count: truncated.then_some(content.chars().count()),
+        note,
+    }
+}
+
+fn truncate_chars(content: &str, limit: usize) -> (String, bool) {
+    if content.chars().count() <= limit {
+        return (content.to_string(), false);
+    }
+
+    let truncated = content.chars().take(limit).collect::<String>();
+    (format!("{truncated}\n\n[truncated]"), true)
+}
+
+struct InitialTurnContext {
+    messages: Vec<ChatMessage>,
+    prompt_sections: Vec<PromptSnapshotSection>,
 }
 
 fn is_conversational(msg: &str) -> bool {

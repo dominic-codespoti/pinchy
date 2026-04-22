@@ -21,7 +21,7 @@ export function SessionItem({ session, isSelected, onClick }: SessionItemProps) 
     <button
       onClick={onClick}
       className={cn(
-        'w-full flex items-start gap-2 px-2 py-2 rounded-md text-left transition-colors',
+        'w-full flex items-start gap-2 px-1.5 py-2 rounded-md text-left transition-colors',
         isSelected
           ? 'bg-accent text-accent-foreground'
           : 'hover:bg-muted'

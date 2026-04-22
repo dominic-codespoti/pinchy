@@ -14,12 +14,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Loader2, Pencil, Save, Bot } from 'lucide-react';
 import { Agent } from '../types';
-import { useAgentModels } from '@/features/settings';
+import { useAgentModels, useAvailableModels } from '@/features/settings';
 import { AgentModelPicker } from './agent-model-picker';
-import { normalizeAgentModelSelection } from '../model-options';
+import { getReasoningControlSpec, normalizeAgentModelSelection } from '../model-options';
 
 interface EditAgentSheetProps {
   agent: Agent;
@@ -42,11 +43,15 @@ export function EditAgentSheet({ agent, open: controlledOpen, onOpenChange, onSa
     model: agent.config.model || '',
     provider: agent.config.provider,
     heartbeatInterval: agent.heartbeatInterval || 60,
+    reasoningEffort: agent.reasoningEffort || 'medium',
   });
 
   const { data: models, isLoading: modelsLoading } = useAgentModels();
+  const { data: availableModels } = useAvailableModels();
 
   const modelOptions = models || [];
+  const selection = normalizeAgentModelSelection(formData.provider, formData.model, modelOptions);
+  const reasoningSpec = getReasoningControlSpec(selection.provider, selection.model, selection.option, availableModels);
   // Reset form when agent changes or sheet opens
   useEffect(() => {
     if (open) {
@@ -59,10 +64,11 @@ export function EditAgentSheet({ agent, open: controlledOpen, onOpenChange, onSa
         model: selection.model,
         provider: selection.provider,
         heartbeatInterval: agent.heartbeatInterval || 60,
+        reasoningEffort: agent.reasoningEffort || reasoningSpec.defaultValue,
       });
       setHasChanges(false);
     }
-  }, [agent.config.model, agent.config.provider, agent.heartbeatInterval, open, modelOptions]);
+  }, [agent.config.model, agent.config.provider, agent.heartbeatInterval, agent.reasoningEffort, open, modelOptions, reasoningSpec.defaultValue]);
 
   const handleChange = (field: string, value: string | number) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -88,6 +94,7 @@ export function EditAgentSheet({ agent, open: controlledOpen, onOpenChange, onSa
         },
         heartbeatEnabled: agent.heartbeatEnabled,
         heartbeatInterval: formData.heartbeatInterval,
+        reasoningEffort: formData.reasoningEffort,
       });
       setOpen(false);
     } catch (error) {
@@ -161,6 +168,40 @@ export function EditAgentSheet({ agent, open: controlledOpen, onOpenChange, onSa
               </p>
             </div>
           </div>
+
+          <Separator />
+
+          {reasoningSpec.visible ? (
+            <div className="space-y-4">
+              <h4 className="text-sm font-medium">Reasoning</h4>
+
+              <div className="space-y-2">
+                <Label htmlFor="edit-reasoning-effort">{reasoningSpec.label}</Label>
+                <Select
+                  value={formData.reasoningEffort}
+                  onValueChange={(value) => handleChange('reasoningEffort', value)}
+                >
+                  <SelectTrigger id="edit-reasoning-effort">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {reasoningSpec.options.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {reasoningSpec.description}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border bg-muted/20 p-4 text-sm text-muted-foreground">
+              {reasoningSpec.description}
+            </div>
+          )}
 
           <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 p-4">
             <p className="text-sm text-amber-800 dark:text-amber-200">

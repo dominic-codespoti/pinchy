@@ -21,6 +21,9 @@ use tracing::debug;
 /// line in JSONL session files.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Exchange {
+    /// Database row id when loaded from PinchyDb.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exchange_id: Option<i64>,
     /// Unix-epoch timestamp in milliseconds.
     pub timestamp: u64,
     /// Message role: `"user"`, `"assistant"`, `"system"`, `"tool"`.
@@ -440,6 +443,7 @@ mod tests {
             dir.path(),
             id,
             &Exchange {
+                exchange_id: None,
                 timestamp: 100,
                 role: "user".into(),
                 content: "hello".into(),
@@ -456,6 +460,7 @@ mod tests {
             dir.path(),
             id,
             &Exchange {
+                exchange_id: None,
                 timestamp: 101,
                 role: "assistant".into(),
                 content: "hi there".into(),
@@ -488,6 +493,7 @@ mod tests {
                 dir.path(),
                 id,
                 &Exchange {
+                    exchange_id: None,
                     timestamp: i,
                     role: "user".into(),
                     content: format!("msg-{i}"),

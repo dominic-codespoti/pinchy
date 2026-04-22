@@ -241,6 +241,25 @@ function receiptSummaryMatchesMessage(message: Message, receipt: TurnReceipt): b
   return content.includes(summary) || summary.includes(content.slice(0, Math.min(content.length, summary.length)));
 }
 
+function buildReasoningPreview(receipt: TurnReceipt): string | undefined {
+  const text = receipt.reasoning_text?.trim();
+  if (!text) {
+    return undefined;
+  }
+
+  const latestLine = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .at(-1);
+
+  if (!latestLine) {
+    return undefined;
+  }
+
+  return latestLine.length > 180 ? `${latestLine.slice(0, 180).trimEnd()}...` : latestLine;
+}
+
 function getReceiptKey(receipt: TurnReceipt): string {
   return [
     receipt.session ?? 'no-session',
@@ -329,6 +348,7 @@ export function attachReceiptsToMessages(messages: Message[], receipts: TurnRece
     nextMessages[messageIndex] = {
       ...nextMessages[messageIndex],
       turn_receipt: receipt,
+      reasoning_preview: buildReasoningPreview(receipt),
     };
     nextCandidatePointer = matchedIndex + 1;
   }

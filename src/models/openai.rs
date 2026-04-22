@@ -240,6 +240,61 @@ impl ModelProvider for OpenAIProvider {
         OpenAIProvider::send_chat_with_functions(self, messages, functions).await
     }
 
+    async fn send_chat_with_functions_detailed(
+        &self,
+        messages: &[ChatMessage],
+        functions: &[serde_json::Value],
+    ) -> Result<super::ProviderCallResult, anyhow::Error> {
+        let api_messages: Vec<serde_json::Value> = super::serialize_messages(messages);
+
+        let mut body = json!({
+            "model": self.model,
+            "messages": api_messages,
+        });
+
+        if !functions.is_empty() {
+            let tools = super::wrap_in_function_tools(functions);
+            body["tools"] = serde_json::Value::Array(tools);
+            body["tool_choice"] = json!("auto");
+        }
+
+        let resp = self
+            .client
+            .post(&self.endpoint)
+            .bearer_auth(&self.api_key)
+            .json(&body)
+            .send()
+            .await?;
+
+        let status = resp.status();
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("OpenAI API returned {status}: {text}");
+        }
+
+        let json: serde_json::Value = resp.json().await?;
+        let usage = super::parse_token_usage(&json);
+        let reasoning_text = super::extract_reasoning_text(&json);
+        let reasoning_text_status = if reasoning_text.is_some() {
+            super::ReasoningTextStatus::Captured
+        } else {
+            super::ReasoningTextStatus::ProviderDidNotExpose
+        };
+
+        let response = if let Some(pr) = super::parse_tool_calls(&json) {
+            pr
+        } else {
+            ProviderResponse::Final(super::extract_content(&json))
+        };
+
+        Ok(super::ProviderCallResult {
+            response,
+            usage,
+            reasoning_text,
+            reasoning_text_status,
+        })
+    }
+
     fn send_chat_stream<'a>(
         &'a self,
         messages: &'a [ChatMessage],

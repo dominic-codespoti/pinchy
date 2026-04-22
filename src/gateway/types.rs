@@ -320,10 +320,11 @@ pub(crate) struct ReceiptsListResponse {
 }
 
 /// Response for receipt get endpoint
-#[derive(Serialize)]
+#[derive(Serialize, TS)]
+#[ts(export)]
 pub(crate) struct ReceiptGetResponse {
     pub file: String,
-    pub receipts: Vec<serde_json::Value>,
+    pub receipts: Vec<TurnReceiptResponse>,
 }
 
 /// Provider status item in the list response
@@ -540,6 +541,258 @@ pub(crate) struct SessionCurrentResponse {
 pub(crate) struct SessionDeleteResponse {
     pub session_id: String,
     pub deleted: bool,
+}
+
+/// Receipt tool call record for session diagnostics.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsToolCallRecord {
+    pub tool: String,
+    pub args_summary: String,
+    pub success: bool,
+    pub duration_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Token usage summary for session diagnostics.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsTokenUsageSummary {
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
+    pub cached_tokens: u64,
+    pub reasoning_tokens: u64,
+}
+
+/// Per-model call detail for session diagnostics receipts.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsModelCallDetail {
+    pub call_index: u32,
+    pub model: String,
+    pub provider: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_surface: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_kind: Option<String>,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub cached_tokens: u64,
+    pub reasoning_tokens: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
+    pub latency_ms: u64,
+}
+
+/// Explicit reasoning text visibility status for a model call.
+#[derive(Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SessionDiagnosticsReasoningTextStatus {
+    Captured,
+    ProviderDidNotExpose,
+}
+
+/// Lightweight reasoning summary attached to normal turn receipts.
+#[derive(Serialize, TS)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum TurnReceiptReasoningTextStatus {
+    Captured,
+    ProviderDidNotExpose,
+}
+
+/// Detailed lazy-loaded model call trace.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsModelCallTrace {
+    pub call_index: u32,
+    pub provider: String,
+    pub model_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub api_surface: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_kind: Option<String>,
+    pub started_at: u64,
+    pub latency_ms: u64,
+    #[ts(type = "unknown[]")]
+    pub normalized_messages: Vec<serde_json::Value>,
+    #[ts(type = "unknown[]")]
+    pub normalized_tools: Vec<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub function_call_mode: Option<String>,
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub cached_tokens: u64,
+    pub reasoning_tokens: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cost_usd: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_text: Option<String>,
+    pub reasoning_text_status: SessionDiagnosticsReasoningTextStatus,
+}
+
+/// Structured prompt section captured for a turn.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsPromptSection {
+    pub key: String,
+    pub title: String,
+    pub content: String,
+    pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_char_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+/// Tool exposed to the model for a turn.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsPromptTool {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+/// Structured prompt snapshot captured for a turn.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsPromptSnapshot {
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<SessionDiagnosticsPromptSection>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub available_tools: Vec<SessionDiagnosticsPromptTool>,
+}
+
+/// Turn receipt attached to a diagnostics turn.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsTurnReceipt {
+    pub receipt_id: i64,
+    pub agent: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assistant_exchange_id: Option<i64>,
+    pub started_at: u64,
+    pub duration_ms: u64,
+    pub user_prompt: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<SessionDiagnosticsToolCallRecord>,
+    pub tokens: SessionDiagnosticsTokenUsageSummary,
+    pub model_calls: u32,
+    pub reply_summary: String,
+    pub model_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_cost_usd: Option<f64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub call_details: Vec<SessionDiagnosticsModelCallDetail>,
+    pub has_model_call_traces: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_snapshot: Option<SessionDiagnosticsPromptSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_text_status: Option<TurnReceiptReasoningTextStatus>,
+}
+
+/// Typed turn receipt payload returned by normal receipts endpoints.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct TurnReceiptResponse {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub receipt_id: Option<i64>,
+    pub agent: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub assistant_exchange_id: Option<i64>,
+    pub started_at: u64,
+    pub duration_ms: u64,
+    pub user_prompt: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub tool_calls: Vec<SessionDiagnosticsToolCallRecord>,
+    pub tokens: SessionDiagnosticsTokenUsageSummary,
+    pub model_calls: u32,
+    pub reply_summary: String,
+    pub model_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub estimated_cost_usd: Option<f64>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub call_details: Vec<SessionDiagnosticsModelCallDetail>,
+    pub has_model_call_traces: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_snapshot: Option<SessionDiagnosticsPromptSnapshot>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reasoning_text_status: Option<TurnReceiptReasoningTextStatus>,
+}
+
+/// Session metadata for the diagnostics endpoint.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsSession {
+    pub id: String,
+    pub agent_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    pub message_count: usize,
+    pub updated_at: i64,
+}
+
+/// Aggregate summary for a session diagnostics response.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsSummary {
+    pub total_turns: usize,
+    pub assistant_turns: usize,
+    pub tool_call_count: usize,
+    pub total_tokens: u64,
+    pub reasoning_tokens: u64,
+    pub estimated_cost_usd: f64,
+}
+
+/// Individual turn entry for session diagnostics.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsTurn {
+    pub id: String,
+    pub exchange_id: Option<i64>,
+    pub timestamp: u64,
+    pub role: String,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "unknown[] | null")]
+    pub tool_calls: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub turn_receipt: Option<SessionDiagnosticsTurnReceipt>,
+}
+
+/// Response for session diagnostics endpoint.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsResponse {
+    pub session: SessionDiagnosticsSession,
+    pub summary: SessionDiagnosticsSummary,
+    pub turns: Vec<SessionDiagnosticsTurn>,
+}
+
+/// Lazy-loaded response for per-receipt model call traces.
+#[derive(Serialize, TS)]
+#[ts(export)]
+pub(crate) struct SessionDiagnosticsReceiptModelCallsResponse {
+    pub session_id: String,
+    pub receipt_id: i64,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub model_calls: Vec<SessionDiagnosticsModelCallTrace>,
 }
 
 /// Dashboard session item for global sessions endpoint

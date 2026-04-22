@@ -1,11 +1,12 @@
 use tracing::warn;
 
-use crate::models::{ChatMessage, ProviderManager, ProviderResponse, TokenUsage};
+use crate::models::{ChatMessage, ProviderCallResult, ProviderManager, ProviderResponse};
 use crate::tools;
 
 use super::debug::emit_model_request_debug;
 use super::types::{
-    truncate_tool_result, uuid_like_id, ModelCallDetail, TokenUsageSummary, ToolCallRecord,
+    extract_reasoning_preview, truncate_tool_result, uuid_like_id, ModelCallDetail, ModelCallTrace,
+    TokenUsageSummary, ToolCallRecord,
 };
 
 // ---------------------------------------------------------------------------
@@ -111,17 +112,67 @@ pub fn unknown_tool_corrective(bad_name: &str, function_defs: &[serde_json::Valu
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn emit_and_accumulate_usage(
-    usage: &Option<TokenUsage>,
     agent_id: &str,
     session_id: Option<&str>,
     receipt_tokens: &mut TokenUsageSummary,
     call_details: &mut Vec<ModelCallDetail>,
+    model_call_traces: &mut Vec<ModelCallTrace>,
+    call_result: ProviderCallResult,
+    provider: &str,
+    model_id: &str,
+    messages: &[ChatMessage],
+    function_defs: &[serde_json::Value],
+    reasoning_effort: Option<&str>,
     latency_ms: u64,
-) {
+) -> ProviderResponse {
+    let ProviderCallResult {
+        response,
+        usage,
+        reasoning_text,
+        reasoning_text_status,
+    } = call_result;
+
+    let call_index = (model_call_traces.len() as u32) + 1;
+    let started_at = crate::agent::types::epoch_millis().saturating_sub(latency_ms);
+
+    let function_call_mode = if function_defs.is_empty() {
+        None
+    } else {
+        Some("auto".to_string())
+    };
+
+    let api_surface = Some(
+        if provider == "copilot" {
+            if model_id.starts_with('o') {
+                "responses"
+            } else {
+                "chat_completions"
+            }
+        } else if provider == "anthropic" {
+            "messages"
+        } else {
+            "chat_completions"
+        }
+        .to_string(),
+    );
+
+    let request_kind = Some(
+        if function_defs.is_empty() {
+            "chat"
+        } else {
+            "chat_with_tools"
+        }
+        .to_string(),
+    );
+
+    let cost = usage
+        .as_ref()
+        .and_then(crate::models::pricing::estimate_cost);
+
     if let Some(ref u) = usage {
         receipt_tokens.accumulate(u);
-        let cost = crate::models::pricing::estimate_cost(u);
         crate::gateway::publish_event_json(&serde_json::json!({
             "type": "token_usage",
             "agent": agent_id,
@@ -135,15 +186,55 @@ pub fn emit_and_accumulate_usage(
             "cost_usd": cost,
         }));
         call_details.push(ModelCallDetail {
+            call_index,
             model: u.model.clone(),
             prompt_tokens: u.prompt_tokens,
             completion_tokens: u.completion_tokens,
             cached_tokens: u.cached_tokens,
             reasoning_tokens: u.reasoning_tokens,
+            provider: provider.to_string(),
+            api_surface: api_surface.clone(),
+            request_kind: request_kind.clone(),
             cost_usd: cost,
             latency_ms,
         });
     }
+
+    if let Some(preview) = reasoning_text
+        .as_deref()
+        .and_then(extract_reasoning_preview)
+    {
+        crate::gateway::publish_event_json(&serde_json::json!({
+            "type": "reasoning_delta",
+            "agent": agent_id,
+            "session": session_id,
+            "text": preview,
+            "call_index": call_index,
+        }));
+    }
+
+    model_call_traces.push(ModelCallTrace {
+        call_index,
+        provider: provider.to_string(),
+        model_id: model_id.to_string(),
+        api_surface,
+        request_kind,
+        started_at,
+        latency_ms,
+        normalized_messages: crate::models::serialize_messages(messages),
+        normalized_tools: function_defs.to_vec(),
+        reasoning_effort: reasoning_effort.map(ToOwned::to_owned),
+        function_call_mode,
+        prompt_tokens: usage.as_ref().map_or(0, |u| u.prompt_tokens),
+        completion_tokens: usage.as_ref().map_or(0, |u| u.completion_tokens),
+        cached_tokens: usage.as_ref().map_or(0, |u| u.cached_tokens),
+        reasoning_tokens: usage.as_ref().map_or(0, |u| u.reasoning_tokens),
+        cost_usd: cost,
+        reasoning_text,
+        reasoning_text_status,
+    });
+
+    response
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -156,8 +247,10 @@ pub async fn requery_provider(
     receipt_tokens: &mut TokenUsageSummary,
     receipt_model_calls: &mut u32,
     call_details: &mut Vec<ModelCallDetail>,
+    model_call_traces: &mut Vec<ModelCallTrace>,
     provider: &str,
     model: &str,
+    reasoning_effort: Option<&str>,
 ) -> anyhow::Result<ProviderResponse> {
     emit_model_request_debug(
         agent_id,
@@ -168,21 +261,32 @@ pub async fn requery_provider(
         model,
     );
     let timer = std::time::Instant::now();
-    let (new_resp, loop_usage) = manager
-        .send_chat_with_functions(messages, function_defs)
-        .await
-        .context("model call failed (tool loop)")?;
+    let call_result = crate::models::scope_live_reasoning_context(
+        crate::models::LiveReasoningContext {
+            agent_id: agent_id.to_string(),
+            session_id: session_id.map(ToOwned::to_owned),
+        },
+        manager.send_chat_with_functions_detailed(messages, function_defs),
+    )
+    .await
+    .context("model call failed (tool loop)")?;
     let latency_ms = timer.elapsed().as_millis() as u64;
     *receipt_model_calls += 1;
-    emit_and_accumulate_usage(
-        &loop_usage,
+    let response = emit_and_accumulate_usage(
         agent_id,
         session_id,
         receipt_tokens,
         call_details,
+        model_call_traces,
+        call_result,
+        provider,
+        model,
+        messages,
+        function_defs,
+        reasoning_effort,
         latency_ms,
     );
-    Ok(new_resp)
+    Ok(response)
 }
 
 use anyhow::Context as _;

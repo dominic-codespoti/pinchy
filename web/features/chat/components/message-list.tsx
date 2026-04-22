@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Message } from '@/shared/types/common';
 import { MessageBubble } from './message-bubble';
 
@@ -48,20 +47,6 @@ export function MessageList({ messages, isLoading }: MessageListProps) {
           isStreaming={message.id.startsWith('streaming')}
         />
       ))}
-      {isLoading && !uniqueMessages.find(m => m.id.startsWith('streaming')) && <ThinkingIndicator />}
-    </div>
-  );
-}
-
-function ThinkingIndicator() {
-  return (
-    <div className="flex items-center gap-2 ml-12">
-      <div className="flex gap-1">
-        <span key="thinking-1" className="animate-bounce">.</span>
-        <span key="thinking-2" className="animate-bounce delay-100">.</span>
-        <span key="thinking-3" className="animate-bounce delay-200">.</span>
-      </div>
-      <span className="text-sm text-muted-foreground">Thinking</span>
     </div>
   );
 }

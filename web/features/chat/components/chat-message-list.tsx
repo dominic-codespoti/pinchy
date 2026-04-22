@@ -58,12 +58,21 @@ export function ChatMessageList({
   isMessagesHydrating = false,
 }: ChatMessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollAreaRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [draft, setDraft] = useState('');
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const viewport = scrollAreaRef.current?.querySelector('[data-radix-scroll-area-viewport]');
+    if (!(viewport instanceof HTMLDivElement)) {
+      return;
+    }
+
+    viewport.scrollTo({
+      top: viewport.scrollHeight,
+      behavior: 'smooth',
+    });
   }, [messages, streamingContent]);
 
   const selectedAgent = useMemo(
@@ -100,7 +109,7 @@ export function ChatMessageList({
 
   return (
     <div className="flex flex-col flex-1 min-h-0 min-w-0">
-      <ScrollArea className="flex-1 min-w-0 p-4">
+      <ScrollArea ref={scrollAreaRef} className="flex-1 min-w-0 px-3 py-3 sm:p-4">
         {showLoadingState ? (
           <div className="space-y-4">
             <Skeleton className="h-20 w-full" />
@@ -144,7 +153,7 @@ export function ChatMessageList({
 
       <Separator />
 
-      <div className="p-4 bg-background">
+      <div className="bg-background px-3 pb-2 pt-3 sm:p-4">
         <MessageInput
           onSend={onSendMessage}
           value={draft}

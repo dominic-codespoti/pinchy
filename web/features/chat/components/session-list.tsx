@@ -26,7 +26,7 @@ export function SessionList({ sessions, selectedId, onSessionClick, isCreating =
 
   return (
     <ScrollArea className="flex-1">
-      <div className="flex flex-col gap-4 p-2">
+      <div className="flex flex-col gap-4 pl-1 pr-1.5 py-2">
         {isCreating && (
           <div className="w-full flex items-center gap-2 px-2 py-2 rounded-md bg-accent/50 text-accent-foreground">
             <Loader2 className="size-4 animate-spin" />
@@ -36,7 +36,7 @@ export function SessionList({ sessions, selectedId, onSessionClick, isCreating =
 
         {groupedSessions.map((group) => (
           <div key={group.label} className="space-y-1">
-            <div className="px-2 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <div className="px-0.5 py-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               {group.label}
             </div>
             <div className="space-y-1">
